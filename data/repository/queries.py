@@ -21,6 +21,13 @@ ON CONFLICT (symbol, timeframe, ts) DO UPDATE SET
     volume = EXCLUDED.volume;
 """
 
+# Sync path: keep already-stored closed candles untouched (overwrite_closed_candles=false).
+INSERT_CANDLE_IGNORE = """
+INSERT INTO candles (symbol, timeframe, ts, open, high, low, close, volume)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (symbol, timeframe, ts) DO NOTHING;
+"""
+
 SELECT_CANDLES_BY_RANGE = """
 SELECT ts, open, high, low, close, volume
 FROM candles

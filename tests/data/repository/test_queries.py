@@ -9,6 +9,7 @@ def test_queries_module_defines_candle_dml_statements() -> None:
     """Every expected native DML query constant exists and is non-empty."""
     expected = (
         "UPSERT_CANDLE",
+        "INSERT_CANDLE_IGNORE",
         "SELECT_CANDLES_BY_RANGE",
         "COUNT_CANDLES",
         "SELECT_MAX_TS",

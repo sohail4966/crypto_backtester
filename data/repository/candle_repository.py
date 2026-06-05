@@ -17,6 +17,41 @@ from data.db import connect
 from data.repository import queries
 
 CandleRow = tuple[Any, ...]
+WriteRow = tuple[str, str, Any, float, float, float, float, float]
+
+REQUIRED_COLUMNS = {"ts", "open", "high", "low", "close", "volume"}
+
+
+def _to_write_rows(symbol: str, timeframe: str, candles: pd.DataFrame) -> list[WriteRow]:
+    """
+    Convert a candle DataFrame into positional rows for the candle write statements.
+
+    Args:
+        symbol: Trading pair identifier.
+        timeframe: Candle resolution string.
+        candles: DataFrame with columns ts, open, high, low, close, volume.
+
+    Returns:
+        Rows ordered as (symbol, timeframe, ts, open, high, low, close, volume).
+
+    Raises:
+        ValueError: If required columns are missing.
+    """
+    if not REQUIRED_COLUMNS.issubset(candles.columns):
+        raise ValueError(f"candles DataFrame must contain columns: {REQUIRED_COLUMNS}")
+    return [
+        (
+            symbol,
+            timeframe,
+            row.ts.to_pydatetime() if hasattr(row.ts, "to_pydatetime") else row.ts,
+            float(row.open),
+            float(row.high),
+            float(row.low),
+            float(row.close),
+            float(row.volume),
+        )
+        for row in candles.itertuples(index=False)
+    ]
 
 
 class CandleRepository:
@@ -52,32 +87,59 @@ class CandleRepository:
         Side effects:
             Commits rows to the database.
         """
-        required = {"ts", "open", "high", "low", "close", "volume"}
-        if not required.issubset(candles.columns):
-            raise ValueError(f"candles DataFrame must contain columns: {required}")
-
         own_conn = conn is None
         if own_conn:
             conn = connect()
         # Upsert via ON CONFLICT — safe to re-run fetch without duplicate key errors.
-        rows = [
-            (
-                symbol,
-                timeframe,
-                row.ts.to_pydatetime() if hasattr(row.ts, "to_pydatetime") else row.ts,
-                float(row.open),
-                float(row.high),
-                float(row.low),
-                float(row.close),
-                float(row.volume),
-            )
-            for row in candles.itertuples(index=False)
-        ]
+        rows = _to_write_rows(symbol, timeframe, candles)
         try:
             with conn.cursor() as cur:
                 cur.executemany(queries.UPSERT_CANDLE, rows)
             conn.commit()
             return len(rows)
+        finally:
+            if own_conn:
+                conn.close()
+
+    def insert_new_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        candles: pd.DataFrame,
+        conn: psycopg.Connection | None = None,
+    ) -> int:
+        """
+        Insert closed candles without overwriting candles already stored.
+
+        Used by incremental sync: existing closed bars stay immutable
+        (overwrite_closed_candles=false), and duplicate rows are ignored.
+
+        Args:
+            symbol: Trading pair identifier.
+            timeframe: Candle resolution string.
+            candles: DataFrame with columns ts, open, high, low, close, volume.
+            conn: Optional existing connection.
+
+        Returns:
+            Number of rows actually inserted (conflicts are not counted).
+
+        Raises:
+            ValueError: If required columns are missing.
+
+        Side effects:
+            Commits rows to the database.
+        """
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        rows = _to_write_rows(symbol, timeframe, candles)
+        try:
+            with conn.cursor() as cur:
+                cur.executemany(queries.INSERT_CANDLE_IGNORE, rows)
+                # rowcount excludes rows skipped by ON CONFLICT DO NOTHING.
+                inserted = cur.rowcount
+            conn.commit()
+            return max(int(inserted), 0)
         finally:
             if own_conn:
                 conn.close()
