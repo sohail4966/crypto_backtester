@@ -35,3 +35,36 @@ COUNT_CANDLES = """
 SELECT COUNT(*) FROM candles
 WHERE symbol = %s AND timeframe = %s
 """
+
+# Drives incremental sync: fetch resumes from the latest stored closed candle (OQ-04).
+SELECT_MAX_TS = """
+SELECT MAX(ts) FROM candles
+WHERE symbol = %s AND timeframe = %s
+"""
+
+# --- data_gaps DML ---
+
+INSERT_GAP = """
+INSERT INTO data_gaps (symbol, timeframe, start_ts, end_ts, status)
+VALUES (%s, %s, %s::timestamptz, %s::timestamptz, 'open')
+RETURNING id
+"""
+
+SELECT_OPEN_GAPS = """
+SELECT id, symbol, timeframe, start_ts, end_ts, status, retry_count
+FROM data_gaps
+WHERE symbol = %s AND timeframe = %s AND status = 'open'
+ORDER BY start_ts ASC
+"""
+
+RESOLVE_GAP = """
+UPDATE data_gaps
+SET status = 'resolved', resolved_at = NOW(), last_checked_at = NOW()
+WHERE id = %s
+"""
+
+RECORD_GAP_RETRY = """
+UPDATE data_gaps
+SET retry_count = retry_count + 1, last_checked_at = NOW(), last_error = %s
+WHERE id = %s
+"""

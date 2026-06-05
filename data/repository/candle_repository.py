@@ -7,6 +7,7 @@ aggregate (candles), methods map to named SQL, no inline SQL in callers.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -106,6 +107,38 @@ class CandleRepository:
                 cur.execute(queries.COUNT_CANDLES, (symbol, timeframe))
                 (row_count,) = cur.fetchone()
                 return int(row_count)
+        finally:
+            if own_conn:
+                conn.close()
+
+    def latest_timestamp(
+        self,
+        symbol: str,
+        timeframe: str,
+        conn: psycopg.Connection | None = None,
+    ) -> datetime | None:
+        """
+        Return the most recent stored candle timestamp for a symbol and timeframe.
+
+        Used by incremental sync to resume fetching from the latest closed candle.
+
+        Args:
+            symbol: Trading pair identifier.
+            timeframe: Candle resolution string.
+            conn: Optional existing connection.
+
+        Returns:
+            The maximum ts as a timezone-aware datetime, or None when no rows exist.
+        """
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(queries.SELECT_MAX_TS, (symbol, timeframe))
+                # MAX() over zero rows returns a single (None,) row, not an empty result.
+                (max_ts,) = cur.fetchone()
+                return max_ts
         finally:
             if own_conn:
                 conn.close()

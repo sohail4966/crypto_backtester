@@ -11,6 +11,21 @@ def test_queries_module_defines_candle_dml_statements() -> None:
         "UPSERT_CANDLE",
         "SELECT_CANDLES_BY_RANGE",
         "COUNT_CANDLES",
+        "SELECT_MAX_TS",
+    )
+    for name in expected:
+        sql = getattr(queries, name)
+        assert isinstance(sql, str)
+        assert sql.strip(), f"{name} must not be empty"
+
+
+def test_queries_module_defines_gap_dml_statements() -> None:
+    """Every expected data_gaps DML query constant exists and is non-empty."""
+    expected = (
+        "INSERT_GAP",
+        "SELECT_OPEN_GAPS",
+        "RESOLVE_GAP",
+        "RECORD_GAP_RETRY",
     )
     for name in expected:
         sql = getattr(queries, name)
