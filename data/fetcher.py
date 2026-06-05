@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 CCXT_BATCH_LIMIT = 1000
 DAYS_PER_YEAR = 365
+FETCH_PROGRESS_EVERY_BATCHES = 250
 
 OHLCV_COLUMNS = ["ts", "open", "high", "low", "close", "volume"]
 
@@ -90,12 +91,28 @@ def _paginate(
         Raw OHLCV rows (possibly with boundary duplicates) in fetch order.
     """
     all_rows: list[list[float | int]] = []
+    batch_count = 0
+    initial_since_ms = since_ms
     while True:
         batch = exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=CCXT_BATCH_LIMIT)
         if not batch:
             break
+        batch_count += 1
         all_rows.extend(batch)
         last_ts = batch[-1][0]
+        if (
+            batch_count == 1
+            or batch_count % FETCH_PROGRESS_EVERY_BATCHES == 0
+            or len(batch) < CCXT_BATCH_LIMIT
+        ):
+            logger.info(
+                "Fetch progress %s %s: batches=%s rows=%s last_ts=%s",
+                symbol,
+                timeframe,
+                batch_count,
+                len(all_rows),
+                datetime.fromtimestamp(last_ts / 1000, tz=UTC).isoformat(),
+            )
         if until_ms is not None and last_ts >= until_ms:
             break
         # +1 ms so the next request does not return the same last candle again.
@@ -106,6 +123,14 @@ def _paginate(
         since_ms = next_since
         if len(batch) < CCXT_BATCH_LIMIT:
             break
+    logger.info(
+        "Fetch complete %s %s: rows=%s batches=%s start=%s",
+        symbol,
+        timeframe,
+        len(all_rows),
+        batch_count,
+        datetime.fromtimestamp(initial_since_ms / 1000, tz=UTC).isoformat(),
+    )
     return all_rows
 
 

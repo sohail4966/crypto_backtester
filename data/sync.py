@@ -19,13 +19,14 @@ from datetime import UTC, datetime, timedelta
 import ccxt
 
 from data.config import DataConfig, SyncConfig
-from data.fetcher import fetch_since_with_fallback
+from data.fetcher import CCXT_BATCH_LIMIT, fetch_since_with_fallback, timeframe_to_ms
 from data.gaps import reconcile_gaps
 from data.repository import CandleRepository, GapRepository
 
 logger = logging.getLogger(__name__)
 
 MINUTE_MS = 60_000
+INSERT_EVERY_BATCHES = 25
 
 # Per-pass gap audit is scoped to this recent window so the hourly path stays cheap
 # instead of rescanning the full multi-year 1m history every run.
@@ -83,6 +84,22 @@ def history_to_timedelta(history: str) -> timedelta:
 def _to_ms(moment: datetime) -> int:
     """Convert a timezone-aware datetime to epoch milliseconds."""
     return int(moment.timestamp() * 1000)
+
+
+def _chunk_end_ms(start_ms: int, timeframe: str) -> int:
+    """
+    Return an inclusive chunk end for INSERT_EVERY_BATCHES * CCXT_BATCH_LIMIT candles.
+
+    Args:
+        start_ms: Inclusive starting candle timestamp in epoch milliseconds.
+        timeframe: Candle resolution string.
+
+    Returns:
+        Inclusive chunk end timestamp in epoch milliseconds.
+    """
+    step_ms = timeframe_to_ms(timeframe)
+    candles_per_chunk = INSERT_EVERY_BATCHES * CCXT_BATCH_LIMIT
+    return start_ms + (candles_per_chunk - 1) * step_ms
 
 
 def _since_ms_for_symbol(latest: datetime | None, history: str, now_ms: int) -> int:
@@ -158,7 +175,10 @@ def _retry_open_gaps(
         Fetches from exchanges and writes candles and gap bookkeeping.
     """
     resolved = 0
-    for gap in gap_repo.find_open_gaps(symbol, timeframe):
+    open_gaps = gap_repo.find_open_gaps(symbol, timeframe)
+    if open_gaps:
+        logger.info("Retrying %s open gap(s) for %s %s", len(open_gaps), symbol, timeframe)
+    for gap in open_gaps:
         try:
             gap_candles = fetch_since_with_fallback(
                 symbol,
@@ -172,6 +192,7 @@ def _retry_open_gaps(
                 candle_repo.insert_new_candles(symbol, timeframe, gap_candles)
             gap_repo.record_gap_retry(gap.id)
         except ccxt.BaseError as error:
+            logger.warning("Gap retry failed %s %s gap_id=%s: %s", symbol, timeframe, gap.id, error)
             gap_repo.record_gap_retry(gap.id, last_error=str(error))
             continue
         summary = reconcile_gaps(symbol, timeframe, gap.start_ts, gap.end_ts, candle_repo, gap_repo)
@@ -219,9 +240,55 @@ def sync_symbol(
     try:
         latest = candle_repo.latest_timestamp(symbol, timeframe)
         since_ms = _since_ms_for_symbol(latest, history, now_ms)
-        candles = fetch_since_with_fallback(symbol, since_ms, exchanges, timeframe, now_ms=now_ms)
-        fetched = len(candles)
-        inserted = candle_repo.insert_new_candles(symbol, timeframe, candles) if fetched else 0
+        step_ms = timeframe_to_ms(timeframe)
+        closed_until_ms = now_ms - step_ms
+        logger.info(
+            "Starting sync %s %s: latest_ts=%s since=%s",
+            symbol,
+            timeframe,
+            latest.isoformat() if latest else "none",
+            datetime.fromtimestamp(since_ms / 1000, tz=UTC).isoformat(),
+        )
+        fetched = 0
+        inserted = 0
+        chunk_index = 0
+        chunk_start_ms = since_ms
+        while chunk_start_ms <= closed_until_ms:
+            chunk_index += 1
+            chunk_end_ms = min(_chunk_end_ms(chunk_start_ms, timeframe), closed_until_ms)
+            candles = fetch_since_with_fallback(
+                symbol,
+                chunk_start_ms,
+                exchanges,
+                timeframe,
+                now_ms=now_ms,
+                until_ms=chunk_end_ms,
+            )
+            chunk_fetched = len(candles)
+            chunk_inserted = (
+                candle_repo.insert_new_candles(symbol, timeframe, candles) if chunk_fetched else 0
+            )
+            fetched += chunk_fetched
+            inserted += chunk_inserted
+            logger.info(
+                "Chunk stored %s %s: chunk=%s fetched=%s inserted=%s range=%s..%s",
+                symbol,
+                timeframe,
+                chunk_index,
+                chunk_fetched,
+                chunk_inserted,
+                datetime.fromtimestamp(chunk_start_ms / 1000, tz=UTC).isoformat(),
+                datetime.fromtimestamp(chunk_end_ms / 1000, tz=UTC).isoformat(),
+            )
+            chunk_start_ms = chunk_end_ms + step_ms
+        logger.info(
+            "Stored %s %s: fetched=%s inserted=%s duplicates_or_existing=%s",
+            symbol,
+            timeframe,
+            fetched,
+            inserted,
+            max(fetched - inserted, 0),
+        )
 
         created, resolved = _audit_recent_window(symbol, timeframe, candle_repo, gap_repo)
         if sync_config.retry_gaps:
