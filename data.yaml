@@ -20,20 +20,20 @@ symbols:
     history: 8y
   SOL/USDT:
     history: 4y
-  XRP/USDT:
-    history: 4y
-  BNB/USDT:
-    history: 4y
-  DOGE/USDT:
-    history: 4y
-  TRX/USDT:
-    history: 4y
-  ADA/USDT:
-    history: 4y
-  SUI/USDT:
-    history: 4y
-  AVAX/USDT:
-    history: 4y
+  # XRP/USDT:
+  #   history: 4y
+  # BNB/USDT:
+  #   history: 4y
+  # DOGE/USDT:
+  #   history: 4y
+  # TRX/USDT:
+  #   history: 4y
+  # ADA/USDT:
+  #   history: 4y
+  # SUI/USDT:
+  #   history: 4y
+  # AVAX/USDT:
+  #   history: 4y
 
 sync:
   mode: cron
