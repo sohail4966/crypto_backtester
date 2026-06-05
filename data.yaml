@@ -1,0 +1,44 @@
+# Ingestion config for the data sync pipeline (Phase 1).
+# Backtest/runtime settings stay in config.yaml; this file is sync-only.
+# Only canonical 1m candles are stored; higher timeframes are derived on read.
+
+timeframe: 1m
+
+exchanges:
+  primary: binance
+  fallback:
+    - bybit
+    - okx
+
+quote_currency: USDT
+
+# Approved Phase 1 USDT spot universe. history is per-symbol initial backfill depth.
+symbols:
+  BTC/USDT:
+    history: 8y
+  ETH/USDT:
+    history: 8y
+  SOL/USDT:
+    history: 4y
+  XRP/USDT:
+    history: 4y
+  BNB/USDT:
+    history: 4y
+  DOGE/USDT:
+    history: 4y
+  TRX/USDT:
+    history: 4y
+  ADA/USDT:
+    history: 4y
+  SUI/USDT:
+    history: 4y
+  AVAX/USDT:
+    history: 4y
+
+sync:
+  mode: cron
+  interval_minutes: 60
+  max_concurrent_symbols: 3
+  store_in_progress_candle: false
+  overwrite_closed_candles: false
+  retry_gaps: true

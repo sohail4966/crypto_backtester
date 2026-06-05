@@ -198,25 +198,25 @@ quote_currency: USDT
 
 symbols:
   BTC/USDT:
-    history: 5y
+    history: 8y
   ETH/USDT:
-    history: 5y
+    history: 8y
   SOL/USDT:
-    history: 5y
+    history: 4y
   XRP/USDT:
-    history: 5y
+    history: 4y
   BNB/USDT:
-    history: 5y
+    history: 4y
   DOGE/USDT:
-    history: 5y
+    history: 4y
   TRX/USDT:
-    history: 5y
+    history: 4y
   ADA/USDT:
-    history: 5y
+    history: 4y
   SUI/USDT:
-    history: 3y
+    history: 4y
   AVAX/USDT:
-    history: 5y
+    history: 4y
 
 sync:
   mode: cron
@@ -447,20 +447,6 @@ Per D-06, these modules should remain stable during Phase 1:
 - `backtest/` — no fee/stop/sizing work yet
 
 If you need a new column in `candles`, add `V004__...sql` — never edit applied migrations.
-
----
-
-## Suggested Implementation Timeline
-
-| Week | Focus |
-|---|---|
-| 1 | Decisions, `data.yaml`, `latest_timestamp`, `fetch_since`, closed-candle filtering |
-| 2 | `data_gaps`, gap retry, exchange fallback, derived `1d` reads |
-| 3 | Limited-parallel backfill for 10 symbols, hourly cron, 24h soak test |
-| 4 | Local integration tests, README/doc updates, performance notes for OQ-31 |
-
-Adjust based on exchange rate limits; initial backfill of 10 symbols at `1m` granularity
-is the longest wall-clock step.
 
 ---
 
