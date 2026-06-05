@@ -73,6 +73,7 @@ def _paginate(
     symbol: str,
     timeframe: str,
     since_ms: int,
+    until_ms: int | None = None,
 ) -> list[list[float | int]]:
     """
     Page through fetch_ohlcv from since_ms until the exchange stops returning new rows.
@@ -82,6 +83,8 @@ def _paginate(
         symbol: Trading pair, e.g. BTC/USDT.
         timeframe: Candle resolution.
         since_ms: Start timestamp in epoch milliseconds.
+        until_ms: Optional inclusive upper bound; pagination stops once reached so a
+            bounded range (e.g. a gap re-fetch) does not walk forward to today.
 
     Returns:
         Raw OHLCV rows (possibly with boundary duplicates) in fetch order.
@@ -93,6 +96,8 @@ def _paginate(
             break
         all_rows.extend(batch)
         last_ts = batch[-1][0]
+        if until_ms is not None and last_ts >= until_ms:
+            break
         # +1 ms so the next request does not return the same last candle again.
         next_since = last_ts + 1
         if next_since <= since_ms:
@@ -186,6 +191,7 @@ def fetch_since(
     exchange_id: str,
     timeframe: str = "1m",
     now_ms: int | None = None,
+    until_ms: int | None = None,
 ) -> pd.DataFrame:
     """
     Fetch closed OHLCV candles from a starting timestamp (incremental sync path).
@@ -198,6 +204,8 @@ def fetch_since(
         exchange_id: ccxt exchange id, e.g. binance.
         timeframe: Candle resolution. Defaults to 1m (the canonical stored resolution).
         now_ms: Current time in epoch milliseconds, for deterministic tests.
+        until_ms: Optional inclusive upper bound, used to fetch a bounded range such as
+            a gap re-fetch rather than everything up to now.
 
     Returns:
         DataFrame of closed candles with columns ts, open, high, low, close, volume (UTC).
@@ -210,9 +218,13 @@ def fetch_since(
         raise ValueError(f"since_ms must be >= 0, got {since_ms}")
 
     exchange = _build_exchange(exchange_id)
-    rows = _paginate(exchange, symbol, timeframe, since_ms)
+    rows = _paginate(exchange, symbol, timeframe, since_ms, until_ms)
     candles = _rows_to_frame(rows)
-    return _drop_in_progress_candle(candles, timeframe, now_ms)
+    candles = _drop_in_progress_candle(candles, timeframe, now_ms)
+    if until_ms is not None and not candles.empty:
+        upper = pd.to_datetime(until_ms, unit="ms", utc=True)
+        candles = candles[candles["ts"] <= upper].reset_index(drop=True)
+    return candles
 
 
 def fetch_since_with_fallback(
@@ -221,6 +233,7 @@ def fetch_since_with_fallback(
     exchange_ids: tuple[str, ...],
     timeframe: str = "1m",
     now_ms: int | None = None,
+    until_ms: int | None = None,
 ) -> pd.DataFrame:
     """
     Fetch closed candles, trying each exchange in order until one succeeds.
@@ -234,6 +247,7 @@ def fetch_since_with_fallback(
         exchange_ids: Exchanges to try, primary first.
         timeframe: Candle resolution. Defaults to 1m.
         now_ms: Current time in epoch milliseconds, for deterministic tests.
+        until_ms: Optional inclusive upper bound for a bounded range fetch.
 
     Returns:
         DataFrame of closed candles from the first exchange that succeeds.
@@ -248,7 +262,9 @@ def fetch_since_with_fallback(
     last_error: ccxt.BaseError | None = None
     for exchange_id in exchange_ids:
         try:
-            candles = fetch_since(symbol, since_ms, exchange_id, timeframe, now_ms=now_ms)
+            candles = fetch_since(
+                symbol, since_ms, exchange_id, timeframe, now_ms=now_ms, until_ms=until_ms
+            )
             logger.info(
                 "Fetched %s closed %s candle(s) for %s from %s",
                 len(candles),

@@ -80,6 +80,21 @@ def test_fetch_since_paginates_and_dedupes(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(fake.since_calls) > 1
 
 
+def test_fetch_since_respects_until_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An until_ms bound trims returned candles to the requested range."""
+    rows = [_candle_row(BASE_MS + i * MINUTE_MS) for i in range(5)]
+    monkeypatch.setattr(fetcher, "_build_exchange", lambda _id: _FakeExchange(rows))
+    now_ms = BASE_MS + 100 * MINUTE_MS
+    until_ms = BASE_MS + 2 * MINUTE_MS
+
+    candles = fetcher.fetch_since(
+        "BTC/USDT", BASE_MS, "binance", "1m", now_ms=now_ms, until_ms=until_ms
+    )
+
+    assert len(candles) == 3
+    assert candles["ts"].iloc[-1] == pd.to_datetime(until_ms, unit="ms", utc=True)
+
+
 def test_fetch_since_rejects_negative_since() -> None:
     """A negative since_ms is rejected."""
     with pytest.raises(ValueError, match="since_ms"):
