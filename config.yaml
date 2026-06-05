@@ -1,0 +1,21 @@
+symbol: BTC/USDT
+timeframe: 1d
+years: 3
+exchange_id: binance
+initial_capital: 10000.0
+output_dir: output
+equity_curve_filename: equity_curve.png
+
+strategy:
+  entry:
+    indicator: RSI
+    params:
+      period: 14
+    op: "<"
+    value: 20
+  exit:
+    indicator: RSI
+    params:
+      period: 14
+    op: ">"
+    value: 80
