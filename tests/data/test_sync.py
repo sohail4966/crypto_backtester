@@ -208,3 +208,33 @@ def test_sync_all_limits_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
     sync.sync_all(config)
 
     assert state["max"] <= config.sync.max_concurrent_symbols
+
+
+def test_sync_all_calls_progress_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Progress callback is invoked once per completed symbol."""
+    config = load_data_config()
+
+    def fake_sync_symbol(
+        symbol: str,
+        history: str,
+        exchanges: tuple[str, ...],
+        sync_config: SyncConfig,
+        timeframe: str,
+        candle_repo: object,
+        gap_repo: object,
+    ) -> sync.SyncResult:
+        return sync.SyncResult(symbol, timeframe, 1, 1, 0, 0, "ok")
+
+    progress_events: list[tuple[int, int, str]] = []
+
+    def progress_callback(completed: int, total: int, result: sync.SyncResult) -> None:
+        progress_events.append((completed, total, result.symbol))
+
+    monkeypatch.setattr(sync, "sync_symbol", fake_sync_symbol)
+
+    results = sync.sync_all(config, progress_callback=progress_callback)
+
+    assert len(results) == len(config.symbols)
+    assert len(progress_events) == len(config.symbols)
+    assert progress_events[-1][0] == len(config.symbols)
+    assert progress_events[-1][1] == len(config.symbols)

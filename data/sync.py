@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -248,6 +249,7 @@ def sync_all(
     config: DataConfig,
     candle_repo: CandleRepository | None = None,
     gap_repo: GapRepository | None = None,
+    progress_callback: Callable[[int, int, SyncResult], None] | None = None,
 ) -> list[SyncResult]:
     """
     Sync every configured symbol, at most max_concurrent_symbols at a time.
@@ -256,6 +258,8 @@ def sync_all(
         config: Parsed data ingestion configuration.
         candle_repo: Candle repository shared across workers. Defaults to a new instance.
         gap_repo: Gap repository shared across workers. Defaults to a new instance.
+        progress_callback: Optional callback invoked as each symbol finishes with
+            (completed_count, total_symbols, result).
 
     Returns:
         One SyncResult per configured symbol (order not guaranteed).
@@ -265,6 +269,8 @@ def sync_all(
     """
     max_workers = max(1, config.sync.max_concurrent_symbols)
     results: list[SyncResult] = []
+    total_symbols = len(config.symbols)
+    completed = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(
@@ -280,5 +286,9 @@ def sync_all(
             for symbol in config.symbols
         ]
         for future in as_completed(futures):
-            results.append(future.result())
+            result = future.result()
+            results.append(result)
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, total_symbols, result)
     return results

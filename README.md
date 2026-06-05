@@ -79,10 +79,17 @@ for architecture details.
 
 ## Data sync (Phase 1)
 
-`run_sync.py` performs one ingestion pass and exits:
+`run_sync.py` supports both hourly sync and an initial full backfill pass:
 
 ```bash
 python run_sync.py --once
+python run_sync.py --backfill
+```
+
+Backfill mode logs per-symbol progress as each symbol completes:
+
+```text
+[4/10] ETH/USDT 1m - 1250000 rows inserted
 ```
 
 Cron example (hourly):
