@@ -445,29 +445,27 @@ that range are present.
 
 ---
 
-## D-22 — Phase 1 symbol universe is a fixed USDT spot list
+## D-22 — Phase 1 symbol universe is a fixed three-pair USDT spot list
 
 **Decision:** Phase 1 syncs only these USDT spot pairs:
 
 - `BTC/USDT`
 - `ETH/USDT`
 - `SOL/USDT`
-- `XRP/USDT`
-- `BNB/USDT`
-- `DOGE/USDT`
-- `TRX/USDT`
-- `ADA/USDT`
-- `SUI/USDT`
-- `AVAX/USDT`
 
 Delisted or unavailable pairs are removed from config manually.
 
 **Reasoning:** A fixed list keeps Phase 1 focused on ingestion correctness rather
-than dynamic universe selection. The selected symbols cover high-liquidity majors and
-large-cap alts without introducing low-liquidity edge cases too early.
+than dynamic universe selection. Phase 1 stores canonical `1m` candles, so memory and
+disk usage grow quickly with each additional symbol. Limiting the initial universe to
+BTC, ETH, and SOL keeps local development practical while still covering the highest
+value majors for validating ingestion, gap handling, derived candles, and backtests.
 
 **Rejected:** Rule-based top-N selection by volume in Phase 1. It is useful later for
 screening, but dynamic membership complicates reproducibility and backfill operations.
+Also rejected for Phase 1: expanding immediately to the broader 10-pair list (`XRP`,
+`BNB`, `DOGE`, `TRX`, `ADA`, `SUI`, `AVAX`) because canonical `1m` history would
+increase local storage pressure before the data pipeline is proven.
 
 ---
 

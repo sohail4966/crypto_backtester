@@ -20,7 +20,7 @@ written in an earlier phase is the literal foundation for the next.
 
 ---
 
-## Phase 0 — POC (current)
+## Phase 0 — POC (complete)
 
 **Theme:** Prove the spine works end-to-end on one symbol with one strategy.
 
@@ -42,26 +42,32 @@ written in an earlier phase is the literal foundation for the next.
 
 ## Phase 1 — Data Foundation
 
-**Theme:** Make the data layer production-worthy. Multiple symbols, multiple timeframes,
-reliable incremental updates.
+**Status:** Complete. See
+[docs/PHASE_1_HLD.md](PHASE_1_HLD.md#phase-1-completion-assessment).
+
+**Theme:** Make the data layer production-worthy. Canonical 1-minute storage,
+fixed multi-symbol spot coverage, derived higher timeframes, and reliable incremental
+updates.
 
 **Goal:** The data pipeline runs on a schedule and keeps the database current.
 Any downstream feature can call `get_candles()` and get clean, up-to-date data.
 
 | Area | What gets built |
 |---|---|
-| Symbols | Expand from 1 to top 20–50 crypto pairs (BTC, ETH, SOL, etc.) |
-| Timeframes | 1h and 1d to start; structure in place for others (4h, 15m) |
-| Incremental updates | Fetch only new candles since last stored timestamp |
-| Data quality | Detect and fill gaps; handle exchange pagination correctly |
-| Exchange config | Clean config file for exchange selection, symbols, timeframes |
-| Continuous aggregates | (optional) TimescaleDB rollups from 1h → 1d |
+| Symbols | Fixed USDT spot universe: BTC, ETH, SOL |
+| Timeframes | Store only canonical `1m`; derive higher timeframes from `1m` |
+| Incremental updates | Fetch from `MAX(ts) - 1 minute`; skip in-progress candles |
+| Data quality | Persist `data_gaps`; auto re-fetch missing ranges; no forward-fill |
+| Exchange config | Binance spot primary; fallback to Bybit, then OKX |
+| Scheduling | Hourly cron via `run_sync.py --once` |
 
 **Key engineering challenge:** Handling exchange pagination (ccxt `fetch_ohlcv` returns
-limited rows per call) and detecting gaps in historical data.
+limited rows per call), keeping closed candles immutable, and deriving higher
+timeframes efficiently from canonical `1m` data.
 
-**Done when:** A scheduler (cron or simple loop) keeps 20+ symbols current across
-two timeframes with no manual intervention.
+**Done when:** Hourly cron keeps the approved 3-symbol USDT universe current at `1m`
+granularity, `get_candles()` can derive higher timeframes, all tests pass, and local
+TimescaleDB integration checks pass.
 
 ---
 

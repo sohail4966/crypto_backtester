@@ -164,6 +164,7 @@ TradingView when refreshing that file (POC HLD step 3).
 | Doc | Contents |
 |-----|----------|
 | [docs/POC_HLD.md](docs/POC_HLD.md) | POC scope, stack, build order |
+| [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Phase 1 data foundation plan, rating, and completion checklist |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Full platform phases |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision log |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | Code style and rules |

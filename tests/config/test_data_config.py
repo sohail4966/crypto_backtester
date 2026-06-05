@@ -12,18 +12,11 @@ APPROVED_SYMBOLS = {
     "BTC/USDT",
     "ETH/USDT",
     "SOL/USDT",
-    "XRP/USDT",
-    "BNB/USDT",
-    "DOGE/USDT",
-    "TRX/USDT",
-    "ADA/USDT",
-    "SUI/USDT",
-    "AVAX/USDT",
 }
 
 
 def test_load_data_config_contains_approved_symbol_universe() -> None:
-    """data.yaml defines exactly the 10 approved USDT spot symbols."""
+    """data.yaml defines exactly the 3 approved Phase 1 USDT spot symbols."""
     config = load_data_config()
     symbols = {symbol.symbol for symbol in config.symbols}
     assert symbols == APPROVED_SYMBOLS
