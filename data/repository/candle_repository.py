@@ -20,6 +20,13 @@ CandleRow = tuple[Any, ...]
 WriteRow = tuple[str, str, Any, float, float, float, float, float]
 
 REQUIRED_COLUMNS = {"ts", "open", "high", "low", "close", "volume"}
+DERIVED_INTERVALS = {
+    "5m": "5 minutes",
+    "15m": "15 minutes",
+    "1h": "1 hour",
+    "4h": "4 hours",
+    "1d": "1 day",
+}
 
 
 def _to_write_rows(symbol: str, timeframe: str, candles: pd.DataFrame) -> list[WriteRow]:
@@ -52,6 +59,26 @@ def _to_write_rows(symbol: str, timeframe: str, candles: pd.DataFrame) -> list[W
         )
         for row in candles.itertuples(index=False)
     ]
+
+
+def _to_derived_interval(timeframe: str) -> str:
+    """
+    Convert an API timeframe string into a SQL interval literal for aggregation.
+
+    Args:
+        timeframe: Requested timeframe, e.g. 1d.
+
+    Returns:
+        SQL interval text understood by time_bucket.
+
+    Raises:
+        ValueError: If the timeframe is not supported for derived reads.
+    """
+    if timeframe not in DERIVED_INTERVALS:
+        raise ValueError(
+            f"Unsupported derived timeframe: {timeframe}. Supported: {sorted(DERIVED_INTERVALS)}"
+        )
+    return DERIVED_INTERVALS[timeframe]
 
 
 class CandleRepository:
@@ -268,6 +295,47 @@ class CandleRepository:
                 cur.execute(
                     queries.SELECT_CANDLES_BY_RANGE,
                     (symbol, timeframe, start, end),
+                )
+                rows = cur.fetchall()
+                column_names = [col.name for col in cur.description]
+                return rows, column_names
+        finally:
+            if own_conn:
+                conn.close()
+
+    def find_derived_by_date_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: str,
+        end: str,
+        conn: psycopg.Connection | None = None,
+    ) -> tuple[list[CandleRow], list[str]]:
+        """
+        Derive non-1m candles from stored canonical 1m rows in an inclusive date range.
+
+        Args:
+            symbol: Trading pair identifier.
+            timeframe: Requested derived timeframe (5m, 15m, 1h, 4h, 1d).
+            start: Inclusive start date (ISO).
+            end: Inclusive end date (ISO).
+            conn: Optional existing connection.
+
+        Returns:
+            Tuple of (rows, column_names) of derived OHLCV candles ordered by ts.
+
+        Raises:
+            ValueError: If timeframe is unsupported for derived reads.
+        """
+        interval = _to_derived_interval(timeframe)
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    queries.SELECT_DERIVED_CANDLES_BY_RANGE,
+                    (symbol, start, end, interval),
                 )
                 rows = cur.fetchall()
                 column_names = [col.name for col in cur.description]

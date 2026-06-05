@@ -32,8 +32,15 @@ def get_candles(
     Returns:
         DataFrame with columns ts, open, high, low, close, volume (UTC).
         Empty when no rows match the range.
+
+    Notes:
+        1m reads are direct from storage. Higher timeframes are derived from
+        stored canonical 1m candles in the repository layer.
     """
-    rows, column_names = _repository.find_by_date_range(symbol, timeframe, start, end)
+    if timeframe == "1m":
+        rows, column_names = _repository.find_by_date_range(symbol, timeframe, start, end)
+    else:
+        rows, column_names = _repository.find_derived_by_date_range(symbol, timeframe, start, end)
     candles = pd.DataFrame(rows, columns=column_names)
     if candles.empty:
         return candles

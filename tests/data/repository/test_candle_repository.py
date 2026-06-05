@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from data.repository import queries
-from data.repository.candle_repository import CandleRepository
+from data.repository.candle_repository import CandleRepository, _to_derived_interval
 
 
 def _conn_with_cursor(cursor: MagicMock) -> MagicMock:
@@ -65,3 +66,32 @@ def test_insert_new_candles_ignores_conflicts_and_returns_inserted_count() -> No
     sql_used = cursor.executemany.call_args.args[0]
     assert sql_used == queries.INSERT_CANDLE_IGNORE
     conn.commit.assert_called_once()
+
+
+def test_to_derived_interval_maps_supported_timeframes() -> None:
+    """Supported derived timeframes map to SQL interval literals."""
+    assert _to_derived_interval("1d") == "1 day"
+    assert _to_derived_interval("1h") == "1 hour"
+
+
+def test_to_derived_interval_rejects_unknown_timeframe() -> None:
+    """Unsupported derived timeframes raise ValueError."""
+    with pytest.raises(ValueError, match="Unsupported derived timeframe"):
+        _to_derived_interval("2d")
+
+
+def test_find_derived_by_date_range_uses_derived_query() -> None:
+    """Derived reads execute the aggregation SQL with interval mapping."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    cursor.description = []
+    conn = _conn_with_cursor(cursor)
+
+    CandleRepository().find_derived_by_date_range(
+        "BTC/USDT", "1d", "2024-01-01", "2024-01-31", conn=conn
+    )
+
+    cursor.execute.assert_called_once_with(
+        queries.SELECT_DERIVED_CANDLES_BY_RANGE,
+        ("BTC/USDT", "2024-01-01", "2024-01-31", "1 day"),
+    )

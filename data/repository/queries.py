@@ -38,6 +38,38 @@ WHERE symbol = %s
 ORDER BY ts ASC
 """
 
+# Derived candles are aggregated from canonical stored 1m rows.
+SELECT_DERIVED_CANDLES_BY_RANGE = """
+WITH source AS (
+    SELECT ts, open, high, low, close, volume
+    FROM candles
+    WHERE symbol = %s
+      AND timeframe = '1m'
+      AND ts >= %s::timestamptz
+      AND ts <= %s::timestamptz
+), bucketed AS (
+    SELECT
+        time_bucket(%s::interval, ts) AS bucket_ts,
+        ts,
+        open,
+        high,
+        low,
+        close,
+        volume
+    FROM source
+)
+SELECT
+    bucket_ts AS ts,
+    (array_agg(open ORDER BY ts ASC))[1] AS open,
+    MAX(high) AS high,
+    MIN(low) AS low,
+    (array_agg(close ORDER BY ts DESC))[1] AS close,
+    SUM(volume) AS volume
+FROM bucketed
+GROUP BY bucket_ts
+ORDER BY bucket_ts ASC
+"""
+
 COUNT_CANDLES = """
 SELECT COUNT(*) FROM candles
 WHERE symbol = %s AND timeframe = %s

@@ -21,7 +21,7 @@ Exchange (Binance via ccxt) → TimescaleDB → get_candles() → indicators →
 
 ### Database migrations
 
-On every `run_poc.py` startup, pending migrations in `data/migrations/sql/` are applied
+On every `run_backtest.py` startup, pending migrations in `data/migrations/sql/` are applied
 automatically (like Flyway/Liquibase):
 
 | File | Purpose |
@@ -52,14 +52,18 @@ pip install -r requirements.txt
 # 3. Optional: override DB URL (copy from example)
 cp .env.example .env
 
-# 4. Run the POC
-python run_poc.py
+# 4. Initial backfill (required once before run_poc)
+python run_sync.py --backfill
+
+# 5. Run the backtest pipeline
+python run_backtest.py
 ```
 
-**First run** applies DB migrations, fetches ~2 years of BTC/USDT 1d candles, runs the backtest,
-logs results, and writes `output/equity_curve.png`.
+**First run** applies DB migrations, backfills canonical 1m candles, runs the backtest, logs
+results, and writes `output/equity_curve.png`.
 
-**Later runs** reuse stored candles (no re-fetch unless the table is empty).
+`run_backtest.py` does not fetch exchange data in Phase 1. It reads candles from the local DB
+(1m direct, higher timeframes derived from 1m) and fails clearly if sync data is missing.
 
 ## Configuration
 
@@ -105,14 +109,15 @@ crypto-backtester/
 ├── config.yaml           # App settings (non-secret)
 ├── config.py             # Loads YAML + .env
 ├── data.yaml             # Phase 1 ingestion/sync settings
-├── run_poc.py            # CLI entry point
+├── run_backtest.py       # Backtest CLI entry point
+├── run_poc.py            # Compatibility wrapper (legacy name)
 ├── run_sync.py           # Phase 1 sync entry point (cron-friendly --once)
 ├── data/
 │   ├── fetcher.py        # ccxt download
 │   ├── db.py             # connection only (no SQL)
 │   ├── migrations/
 │   │   ├── sql/          # V001__*.sql, V002__*.sql (Flyway-style)
-│   │   └── migrator.py   # applied on startup via run_poc.py
+│   │   └── migrator.py   # applied on startup via run_backtest.py
 │   ├── repository/
 │   │   ├── queries.py    # DML only (SELECT/INSERT)
 │   │   └── candle_repository.py  # Spring-style repo; runs queries
@@ -147,7 +152,7 @@ TradingView when refreshing that file (POC HLD step 3).
 
 ## Output
 
-`run_poc.py` logs:
+`run_backtest.py` logs:
 
 - Trade list (entry/exit dates, return %)
 - Summary: trade count, win rate, total return, max drawdown, capital
