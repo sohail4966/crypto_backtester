@@ -43,6 +43,17 @@ SELECT COUNT(*) FROM candles
 WHERE symbol = %s AND timeframe = %s
 """
 
+# Lightweight timestamp-only read used by gap detection over large 1m ranges.
+SELECT_TS_BY_RANGE = """
+SELECT ts
+FROM candles
+WHERE symbol = %s
+  AND timeframe = %s
+  AND ts >= %s::timestamptz
+  AND ts <= %s::timestamptz
+ORDER BY ts ASC
+"""
+
 # Drives incremental sync: fetch resumes from the latest stored closed candle (OQ-04).
 SELECT_MAX_TS = """
 SELECT MAX(ts) FROM candles

@@ -205,6 +205,40 @@ class CandleRepository:
             if own_conn:
                 conn.close()
 
+    def find_timestamps(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: str,
+        end: str,
+        conn: psycopg.Connection | None = None,
+    ) -> list[datetime]:
+        """
+        Return stored candle timestamps in an inclusive range, ascending.
+
+        Used by gap detection, which only needs timestamps rather than full OHLCV rows.
+
+        Args:
+            symbol: Trading pair identifier.
+            timeframe: Candle resolution string.
+            start: Inclusive start date (ISO).
+            end: Inclusive end date (ISO).
+            conn: Optional existing connection.
+
+        Returns:
+            Timestamps as timezone-aware datetimes, empty when no rows match.
+        """
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(queries.SELECT_TS_BY_RANGE, (symbol, timeframe, start, end))
+                return [row[0] for row in cur.fetchall()]
+        finally:
+            if own_conn:
+                conn.close()
+
     def find_by_date_range(
         self,
         symbol: str,
