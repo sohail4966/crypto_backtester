@@ -66,6 +66,7 @@ logs results, and writes `output/equity_curve.png`.
 | Source | Purpose |
 |--------|---------|
 | [config.yaml](config.yaml) | Symbol, timeframe, years, exchange, capital, strategy rules, output paths |
+| [data.yaml](data.yaml) | Ingestion settings for Phase 1 sync (symbols, exchanges, schedule, retry policy) |
 | `.env` | Secrets and overrides (`DATABASE_URL`) — never commit this file |
 
 Example strategy in `config.yaml` (validation only, not expected to be profitable):
@@ -76,13 +77,29 @@ Example strategy in `config.yaml` (validation only, not expected to be profitabl
 Edit `config.yaml` to change the pair, lookback, or thresholds. See [docs/POC_HLD.md](docs/POC_HLD.md)
 for architecture details.
 
+## Data sync (Phase 1)
+
+`run_sync.py` performs one ingestion pass and exits:
+
+```bash
+python run_sync.py --once
+```
+
+Cron example (hourly):
+
+```cron
+0 * * * * cd /path/to/crypto-backtester && .venv/bin/python run_sync.py --once
+```
+
 ## Project layout
 
 ```
 crypto-backtester/
 ├── config.yaml           # App settings (non-secret)
 ├── config.py             # Loads YAML + .env
+├── data.yaml             # Phase 1 ingestion/sync settings
 ├── run_poc.py            # CLI entry point
+├── run_sync.py           # Phase 1 sync entry point (cron-friendly --once)
 ├── data/
 │   ├── fetcher.py        # ccxt download
 │   ├── db.py             # connection only (no SQL)
