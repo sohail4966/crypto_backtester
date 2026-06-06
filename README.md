@@ -37,6 +37,25 @@ Add `V004__your_change.sql` for schema changes — never edit applied migration 
 - Python **3.11+**
 - [Docker](https://docs.docker.com/get-docker/) (for TimescaleDB)
 - Network access for the first historical fetch (Binance via ccxt)
+- **TA-Lib** (Phase 2 indicator engine)
+
+### TA-Lib install
+
+**macOS:** `pip install TA-Lib` usually installs a wheel with the native library bundled.
+
+**Linux / Docker:** If PyPI has no wheel for your platform, install the system C library first, then pip:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y ta-lib
+pip install TA-Lib==0.6.8
+
+# macOS (Homebrew fallback if pip wheel fails)
+brew install ta-lib
+pip install TA-Lib==0.6.8
+```
+
+Pin is `TA-Lib==0.6.8` in [requirements.txt](requirements.txt).
 
 ## Quick start
 
@@ -124,7 +143,10 @@ crypto-backtester/
 │   ├── storage.py        # migrations + write facade
 │   └── loader.py         # get_candles() — read boundary → repository
 ├── indicators/
-│   └── basic.py          # sma(), rsi() (Wilder / TradingView)
+│   ├── registry.py       # INDICATORS + INDICATOR_META (58 keys)
+│   ├── talib_wrappers.py # TA-Lib-backed wrappers
+│   ├── validation.py     # Shared param validators
+│   └── custom/           # SuperTrend, VWAP, Ichimoku, pivots, …
 ├── signals/
 │   ├── types.py          # Strategy TypedDicts
 │   └── evaluator.py      # Strategy dict → boolean Series

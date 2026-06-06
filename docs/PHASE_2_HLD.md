@@ -1,6 +1,6 @@
 # Phase 2 High Level Design — Indicator Library
 
-**Status:** Approved — Q&A complete, ready for implementation  
+**Status:** Complete — see [Phase 2 Completion Assessment](#phase-2-completion-assessment)  
 **Prerequisite:** Phase 1 complete ([PHASE_1_HLD.md](PHASE_1_HLD.md))  
 **Next phase after this:** [Phase 3 — Backtest Engine (full)](ROADMAP.md#phase-3--backtest-engine-full)
 
@@ -11,13 +11,17 @@
 Phase 1 delivers stable canonical `1m` storage and derived higher-timeframe reads via
 `get_candles()`. Phase 2 builds the indicator layer on top of that data foundation.
 
-**Current indicator code (POC — to be replaced):**
+**Status:** Complete — [Phase 2 Completion Assessment](PHASE_2_HLD.md#phase-2-completion-assessment)
 
-| Module | What exists today | Phase 2 action |
+**Current indicator code:**
+
+| Module | What exists | Phase 2 action |
 |---|---|---|
-| `indicators/basic.py` | Custom pandas `sma()`, `rsi()` | **Remove** — replace with TA-Lib wrappers |
-| `signals/evaluator.py` | Registry with `RSI`, `SMA`; passes `close` only | Extend for OHLCV + full registry |
-| `tests/indicators/test_basic.py` | RSI TradingView regression fixture | Replace with TA-Lib structural tests |
+| `indicators/talib_wrappers.py` | TA-Lib wrappers for standard indicators | **Done** |
+| `indicators/custom/*.py` | SuperTrend, VWAP, Ichimoku, pivots, etc. | **Done** |
+| `indicators/registry.py` | 58-key central registry + `INDICATOR_META` | **Done** |
+| `signals/evaluator.py` | OHLCV routing via registry | **Done** |
+| ~~`indicators/basic.py`~~ | ~~Custom pandas `sma()`, `rsi()`~~ | **Removed** (D-28) |
 
 Phase 2 expands into a **TA-Lib-backed**, registry-based library covering the user's
 **top-50 crypto indicator list** (deduplicated catalog below). TA-Lib is the reference
@@ -538,6 +542,51 @@ Phase 2 is complete when all of the following are true:
 | 7 | `pytest` full suite passes |
 | 8 | `run_poc.py` / `run_backtest.py` work with TA-Lib RSI strategy |
 | 9 | No indicator module imports `data.*` or opens DB connections |
+
+---
+
+## Phase 2 Completion Assessment
+
+**Assessment date:** 2026-06-06  
+**Rating:** **9 / 10**  
+**Completion:** **100% for Phase 2 scope**
+
+Phase 2 is complete for the accepted scope (Tier 1 + Tier 2 TA-Lib + Tier 2 custom per
+D-33). The indicator layer is TA-Lib-backed with a central registry of **58 keys**,
+OHLCV-aware signal evaluation, structural unit tests, and POC custom indicators removed.
+Tier 3 items remain deferred per D-34.
+
+### Evidence checked
+
+| Check | Result | Notes |
+|---|---|---|
+| Full unit suite | Passing | `278 passed` |
+| D-27 through D-36 recorded | Done | [DECISIONS.md](DECISIONS.md) |
+| Tier 1 registry keys | Done | 16 keys (SMA, EMA, WMA, MACD×3, RSI, BB×3, ATR, ADX, STOCH×2, OBV, VOLUME) |
+| Tier 2 TA-Lib batch | Done | SAR, STOCHRSI×2, CCI, WILLR, MFI, ROC, STDDEV, AD, CMF, BBP |
+| Tier 2 custom batch | Done | SuperTrend, VWAP, HMA, Keltner×3, Donchian×3, Ichimoku×5, Pivots×7, Chandelier, HistVol, VolRank, VOLOSC, NVI, PVI, TSI, AO, QSTICK, VOLOSCILLATOR |
+| Tier 3 deferrals | Confirmed | Guppy MACD, Elder-RSI, KDJ, VPVR, Fib, ZigZag, Puell, Copenhagen — not implemented |
+| Central registry | Done | `indicators/registry.py` — 58 keys, matching `INDICATOR_META` |
+| Evaluator OHLCV routing | Done | `_call_indicator()` per D-31; `ValueError` → `InvalidSignalError` per D-30 |
+| POC `basic.py` removed | Done | Replaced by `indicators/talib_wrappers.py` |
+| TA-Lib dependency | Done | `TA-Lib==0.6.8` in `requirements.txt`; install notes in README |
+| Pure functions (D-07) | Verified | No `data.*` imports under `indicators/` |
+| Non-regression | Passing | `run_poc.py` / RSI strategy path via `tests/test_run_poc*.py` |
+
+### Rating breakdown
+
+| Area | Score | Comment |
+|---|---|---|
+| Architecture alignment | 9/10 | Registry, TA-Lib wrappers, custom modules match HLD layout |
+| Tier 1 coverage | 10/10 | All keys implemented and structurally tested |
+| Tier 2 coverage | 9/10 | Full TA-Lib batch + all planned custom indicators shipped |
+| Evaluator integration | 9/10 | OHLCV routing, multi-output keys, error mapping in place |
+| Test coverage | 9/10 | Per-key registry smoke tests; focused custom indicator tests |
+| Documentation | 8/10 | HLD, ROADMAP, DECISIONS updated; README layout refreshed |
+
+### Completion verdict
+
+Phase 2 is **complete**. Phase 3 (full backtest engine) can start from this indicator foundation.
 
 ---
 

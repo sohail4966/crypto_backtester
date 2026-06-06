@@ -323,7 +323,7 @@ third-party, and internal imports in the same block.
 
 - Every pure function (all indicators, signal evaluator, metrics) must have unit tests.
 - Test files live in a `tests/` folder mirroring the module structure:
-  `tests/indicators/test_basic.py` tests `indicators/basic.py`.
+  `tests/indicators/test_talib_wrappers.py` tests `indicators/talib_wrappers.py`.
 - Test function names follow `test_<what>_<condition>_<expected>`:
   `test_rsi_period_14_returns_series_aligned_to_close()`
 - Each test has one assertion or one logical group of related assertions. Do not

@@ -112,6 +112,9 @@ still takes time. Better to decide the trigger criteria in advance.
 
 ## Indicator Layer
 
+Phase 2 indicator questions **OQ-08 through OQ-38** are resolved (see D-27 through D-36).
+Remaining open items below are for later phases.
+
 ### OQ-07 — RSI implementation variant
 **Priority:** BEFORE POC  
 **Status:** **Resolved → D-13**  

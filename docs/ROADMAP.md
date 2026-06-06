@@ -73,36 +73,37 @@ TimescaleDB integration checks pass.
 
 ## Phase 2 — Indicator Library
 
-**Design doc:** [PHASE_2_HLD.md](PHASE_2_HLD.md) (approved — ready for implementation)
+**Status:** Complete. See
+[docs/PHASE_2_HLD.md](PHASE_2_HLD.md#phase-2-completion-assessment).
 
-**Theme:** Build a complete indicator library backed by TA-Lib. Thin wrappers, central
-registry, structural unit tests.
+**Design doc:** [PHASE_2_HLD.md](PHASE_2_HLD.md)
 
-**Goal:** Any common indicator can be computed from candle data in one function call.
+**Theme:** TA-Lib-backed indicator library with thin wrappers, central registry, and
+structural unit tests.
 
-| Indicator | Notes |
+**Goal:** Any common OHLCV-based indicator can be computed from candle data in one
+function call and registered for the signal evaluator.
+
+| Area | What was built |
 |---|---|
-| SMA, EMA, WMA | Basic moving averages |
-| RSI | TA-Lib wrapper |
-| MACD | Line, signal line, histogram |
-| Bollinger Bands | Upper, middle, lower bands |
-| ATR | Average True Range; key for stop sizing later |
-| VWAP | Session and rolling variants |
-| Stochastic | %K and %D |
-| Volume metrics | OBV, volume SMA, volume z-score |
-| ADX | Trend strength |
+| Engine | TA-Lib wrappers + custom modules under `indicators/custom/` |
+| Registry | 58 keys with separate multi-output series (`MACD_HIST`, `BB_UPPER`, …) |
+| Evaluator | OHLCV routing via `INDICATOR_META`; `ValueError` → `InvalidSignalError` |
+| Validation | Structural tests (params, warmup NaNs, synthetic cases) — no TV baselines (D-28) |
+| Tier 1 | SMA, EMA, WMA, MACD, RSI, Bollinger, ATR, ADX, Stochastic, OBV, Volume |
+| Tier 2 | SAR, STOCHRSI, CCI, WILLR, MFI, ROC, STDDEV, AD, CMF, BBP + SuperTrend, VWAP, HMA, Keltner, Donchian, Ichimoku, Pivots, Chandelier, volatility/volume indexes, TSI, AO, Qstick |
 
-**Validation approach:** Structural unit tests (param validation, warmup NaNs, synthetic
-cases). TA-Lib is the reference implementation — no TradingView cross-checks (D-28).
+**Validation approach:** TA-Lib is the reference implementation (D-27, D-28). Tests verify
+contracts and correctness properties, not TradingView chart parity.
 
-**Architecture note:** All indicators remain pure functions. Central registry with
-separate keys for multi-output series (`MACD_LINE`, `MACD_HIST`, …):
+**Architecture note:** All indicators remain pure functions. Central registry:
 ```python
-INDICATORS = {"RSI": rsi, "SMA": sma, "EMA": ema, "MACD_HIST": macd_histogram, ...}
+from indicators.registry import INDICATORS, INDICATOR_META
 ```
 
-**Done when:** All in-scope Tier 1 and Tier 2 indicators are implemented, registered,
-tested, and POC custom `basic.py` is removed. See [PHASE_2_HLD.md](PHASE_2_HLD.md).
+**Done when:** All in-scope Tier 1 and Tier 2 indicators implemented, registered, tested;
+POC `basic.py` removed; full suite green. See
+[PHASE_2_HLD.md — Done Criteria](PHASE_2_HLD.md#done-criteria).
 
 ---
 
@@ -205,6 +206,16 @@ is an approximation. Expect iteration and configurable thresholds.
 **Architecture note:** All patterns output the same format as indicator-based signals —
 a boolean Series with optional metadata (pattern start bar, end bar, key price levels).
 The signal evaluator treats them identically.
+
+**Reference (investigate later):** [vectorbt PRO](https://vectorbt.pro/tutorials/patterns-and-projections/)
+uses a different approach from our planned rule-based patterns. It scans price windows
+with `find_pattern()` / `PatternRanges.from_pattern_search()`: rescale a numeric
+template (shape or recent price slice), score element-wise similarity (Numba, no ML),
+keep matches above a threshold, then optionally project forward paths from historical
+matches. Candlestick tutorials often pair **TA-Lib `CDL*`** with vectorbt for
+backtesting — that path is rule-based like 5a, not PRO’s similarity search. Worth
+reviewing before Phase 5 for projections and sweep performance; our spine still
+targets explicit swing + pattern rules (Phase 4 → 5).
 
 **Done when:** Each pattern is detectable, produces minimal false positives on clean
 historical data, and outputs standard signal format.

@@ -5,6 +5,9 @@ the reasoning behind it, and what was explicitly rejected. Its purpose is to avo
 relitigating the same choices and to give future AI sessions or collaborators the
 full context in one place.
 
+**Phase 2 (D-27 through D-36):** Locked during Phase 2 HLD Q&A; implemented and
+signed off — see [PHASE_2_HLD.md — Completion Assessment](PHASE_2_HLD.md#phase-2-completion-assessment).
+
 ---
 
 ## D-01 — Project scope: what this platform actually is
