@@ -24,6 +24,17 @@ DEFAULT_ADX_PERIOD = 14
 DEFAULT_STOCH_FASTK = 5
 DEFAULT_STOCH_SLOWK = 3
 DEFAULT_STOCH_SLOWD = 3
+DEFAULT_MFI_PERIOD = 14
+DEFAULT_SAR_ACCELERATION = 0.02
+DEFAULT_SAR_MAXIMUM = 0.2
+DEFAULT_STOCHRSI_PERIOD = 14
+DEFAULT_STOCHRSI_FASTK = 5
+DEFAULT_STOCHRSI_FASTD = 3
+DEFAULT_CCI_PERIOD = 14
+DEFAULT_WILLR_PERIOD = 14
+DEFAULT_ROC_PERIOD = 10
+DEFAULT_STDDEV_PERIOD = 5
+DEFAULT_STDDEV_NBDEV = 1.0
 
 
 def _float64_array(values: pd.Series) -> np.ndarray:
@@ -307,3 +318,195 @@ def obv(close: pd.Series, *, volume: pd.Series) -> pd.Series:
 def volume_passthrough(volume: pd.Series) -> pd.Series:
     """Return raw volume as a float Series (registry passthrough)."""
     return volume.astype(float)
+
+
+def mfi(
+    close: pd.Series,
+    *,
+    high: pd.Series,
+    low: pd.Series,
+    volume: pd.Series,
+    period: int = DEFAULT_MFI_PERIOD,
+) -> pd.Series:
+    """Money Flow Index via TA-Lib (requires high, low, close, volume)."""
+    validate_period(period, min_val=2, series=close)
+    if len(volume) != len(close):
+        raise ValueError("volume series length must match close series length")
+    result = talib.MFI(
+        _float64_array(high),
+        _float64_array(low),
+        _float64_array(close),
+        _float64_array(volume),
+        timeperiod=period,
+    )
+    return _series_from_talib(close, result)
+
+
+def sar(
+    high: pd.Series,
+    low: pd.Series,
+    *,
+    acceleration: float = DEFAULT_SAR_ACCELERATION,
+    maximum: float = DEFAULT_SAR_MAXIMUM,
+) -> pd.Series:
+    """Parabolic SAR via TA-Lib."""
+    if len(high) < 2:
+        raise ValueError(f"series length {len(high)} is shorter than minimum 2")
+    if acceleration <= 0:
+        raise ValueError(f"acceleration must be > 0, got {acceleration}")
+    if maximum <= 0:
+        raise ValueError(f"maximum must be > 0, got {maximum}")
+    result = talib.SAR(
+        _float64_array(high),
+        _float64_array(low),
+        acceleration=acceleration,
+        maximum=maximum,
+    )
+    return _series_from_talib(high, result)
+
+
+def _stochrsi_arrays(
+    close: pd.Series,
+    *,
+    period: int = DEFAULT_STOCHRSI_PERIOD,
+    fastk_period: int = DEFAULT_STOCHRSI_FASTK,
+    fastd_period: int = DEFAULT_STOCHRSI_FASTD,
+) -> tuple[np.ndarray, np.ndarray]:
+    validate_period(period, min_val=2, series=close)
+    validate_period(fastk_period, min_val=1, series=close)
+    validate_period(fastd_period, min_val=1, series=close)
+    return talib.STOCHRSI(
+        _float64_array(close),
+        timeperiod=period,
+        fastk_period=fastk_period,
+        fastd_period=fastd_period,
+    )
+
+
+def stochrsi_k(
+    close: pd.Series,
+    *,
+    period: int = DEFAULT_STOCHRSI_PERIOD,
+    fastk_period: int = DEFAULT_STOCHRSI_FASTK,
+    fastd_period: int = DEFAULT_STOCHRSI_FASTD,
+) -> pd.Series:
+    """Stochastic RSI %K via TA-Lib."""
+    fastk, _ = _stochrsi_arrays(
+        close, period=period, fastk_period=fastk_period, fastd_period=fastd_period
+    )
+    return _series_from_talib(close, fastk)
+
+
+def stochrsi_d(
+    close: pd.Series,
+    *,
+    period: int = DEFAULT_STOCHRSI_PERIOD,
+    fastk_period: int = DEFAULT_STOCHRSI_FASTK,
+    fastd_period: int = DEFAULT_STOCHRSI_FASTD,
+) -> pd.Series:
+    """Stochastic RSI %D via TA-Lib."""
+    _, fastd = _stochrsi_arrays(
+        close, period=period, fastk_period=fastk_period, fastd_period=fastd_period
+    )
+    return _series_from_talib(close, fastd)
+
+
+def cci(
+    close: pd.Series,
+    *,
+    high: pd.Series,
+    low: pd.Series,
+    period: int = DEFAULT_CCI_PERIOD,
+) -> pd.Series:
+    """Commodity Channel Index via TA-Lib."""
+    validate_period(period, min_val=2, series=close)
+    result = talib.CCI(
+        _float64_array(high),
+        _float64_array(low),
+        _float64_array(close),
+        timeperiod=period,
+    )
+    return _series_from_talib(close, result)
+
+
+def willr(
+    close: pd.Series,
+    *,
+    high: pd.Series,
+    low: pd.Series,
+    period: int = DEFAULT_WILLR_PERIOD,
+) -> pd.Series:
+    """Williams %R via TA-Lib."""
+    validate_period(period, min_val=2, series=close)
+    result = talib.WILLR(
+        _float64_array(high),
+        _float64_array(low),
+        _float64_array(close),
+        timeperiod=period,
+    )
+    return _series_from_talib(close, result)
+
+
+def roc(close: pd.Series, period: int = DEFAULT_ROC_PERIOD) -> pd.Series:
+    """Rate of Change via TA-Lib."""
+    validate_period(period, min_val=1, series=close)
+    result = talib.ROC(_float64_array(close), timeperiod=period)
+    return _series_from_talib(close, result)
+
+
+def stddev(
+    close: pd.Series,
+    *,
+    period: int = DEFAULT_STDDEV_PERIOD,
+    nbdev: float = DEFAULT_STDDEV_NBDEV,
+) -> pd.Series:
+    """Rolling standard deviation via TA-Lib."""
+    validate_period(period, min_val=2, series=close)
+    if nbdev <= 0:
+        raise ValueError(f"nbdev must be > 0, got {nbdev}")
+    result = talib.STDDEV(
+        _float64_array(close),
+        timeperiod=period,
+        nbdev=nbdev,
+    )
+    return _series_from_talib(close, result)
+
+
+def ad(
+    close: pd.Series,
+    *,
+    high: pd.Series,
+    low: pd.Series,
+    volume: pd.Series,
+) -> pd.Series:
+    """Accumulation/Distribution line via TA-Lib."""
+    if len(volume) != len(close):
+        raise ValueError("volume series length must match close series length")
+    result = talib.AD(
+        _float64_array(high),
+        _float64_array(low),
+        _float64_array(close),
+        _float64_array(volume),
+    )
+    return _series_from_talib(close, result)
+
+
+def bbp(
+    close: pd.Series,
+    *,
+    period: int = DEFAULT_BB_PERIOD,
+    std: float = DEFAULT_BB_STD,
+) -> pd.Series:
+    """
+    Bollinger Band %B derived from TA-Lib BBANDS.
+
+    %B = (close - lower) / (upper - lower). Returns NaN when band width is zero.
+    """
+    upper, _, lower = _bbands_arrays(close, period=period, std=std)
+    upper_s = _series_from_talib(close, upper)
+    lower_s = _series_from_talib(close, lower)
+    width = upper_s - lower_s
+    percent_b = pd.Series(float("nan"), index=close.index, dtype=float)
+    valid = width != 0
+    percent_b[valid] = (close[valid] - lower_s[valid]) / width[valid]
+    return percent_b

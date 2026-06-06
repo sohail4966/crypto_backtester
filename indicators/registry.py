@@ -12,22 +12,33 @@ from typing import TypedDict
 
 import pandas as pd
 
+from indicators.custom.cmf import cmf
 from indicators.talib_wrappers import (
+    ad,
     adx,
     atr,
     bb_lower,
     bb_middle,
     bb_upper,
+    bbp,
+    cci,
     ema,
     macd_histogram,
     macd_line,
     macd_signal,
+    mfi,
     obv,
+    roc,
     rsi,
+    sar,
     sma,
+    stddev,
     stoch_d,
     stoch_k,
+    stochrsi_d,
+    stochrsi_k,
     volume_passthrough,
+    willr,
     wma,
 )
 
@@ -58,6 +69,17 @@ INDICATORS: dict[str, IndicatorFn] = {
     "STOCH_D": stoch_d,
     "OBV": obv,
     "VOLUME": volume_passthrough,
+    "MFI": mfi,
+    "SAR": sar,
+    "STOCHRSI_K": stochrsi_k,
+    "STOCHRSI_D": stochrsi_d,
+    "CCI": cci,
+    "WILLR": willr,
+    "ROC": roc,
+    "STDDEV": stddev,
+    "AD": ad,
+    "CMF": cmf,
+    "BBP": bbp,
 }
 
 INDICATOR_META: dict[str, IndicatorMeta] = {
@@ -83,4 +105,21 @@ INDICATOR_META: dict[str, IndicatorMeta] = {
     },
     "OBV": {"inputs": ["close", "volume"]},
     "VOLUME": {"inputs": ["volume"]},
+    "MFI": {"inputs": ["high", "low", "close", "volume"]},
+    "SAR": {"inputs": ["high", "low"], "shared_params": ("acceleration", "maximum")},
+    "STOCHRSI_K": {
+        "inputs": ["close"],
+        "shared_params": ("period", "fastk_period", "fastd_period"),
+    },
+    "STOCHRSI_D": {
+        "inputs": ["close"],
+        "shared_params": ("period", "fastk_period", "fastd_period"),
+    },
+    "CCI": {"inputs": ["high", "low", "close"]},
+    "WILLR": {"inputs": ["high", "low", "close"]},
+    "ROC": {"inputs": ["close"]},
+    "STDDEV": {"inputs": ["close"], "shared_params": ("period", "nbdev")},
+    "AD": {"inputs": ["high", "low", "close", "volume"]},
+    "CMF": {"inputs": ["high", "low", "close", "volume"]},
+    "BBP": {"inputs": ["close"], "shared_params": ("period", "std")},
 }

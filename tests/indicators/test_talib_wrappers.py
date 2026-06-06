@@ -182,9 +182,29 @@ def test_volume_passthrough_returns_raw_volume() -> None:
     pd.testing.assert_series_equal(result, data["volume"].astype(float))
 
 
-def test_tier1_registry_has_sixteen_keys() -> None:
-    """Tier 1 ships 16 registry keys (multi-output indicators count separately)."""
-    assert len(INDICATORS) == 16
+TIER1_KEYS = {
+    "SMA",
+    "EMA",
+    "WMA",
+    "MACD_LINE",
+    "MACD_SIGNAL",
+    "MACD_HIST",
+    "RSI",
+    "BB_UPPER",
+    "BB_MIDDLE",
+    "BB_LOWER",
+    "ATR",
+    "ADX",
+    "STOCH_K",
+    "STOCH_D",
+    "OBV",
+    "VOLUME",
+}
+
+
+def test_tier1_registry_keys_present() -> None:
+    """Tier 1 registry keys are all registered."""
+    assert TIER1_KEYS <= set(INDICATORS.keys())
 
 
 @pytest.mark.parametrize("name", list(INDICATORS.keys()))

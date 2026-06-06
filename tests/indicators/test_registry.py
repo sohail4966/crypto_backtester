@@ -40,18 +40,22 @@ def test_registry_callables_return_series(name: str) -> None:
     fn = INDICATORS[name]
     meta = INDICATOR_META[name]
     kwargs: dict[str, object] = {}
-    if name in {"SMA", "EMA", "WMA"}:
+    if name in {"SMA", "EMA", "WMA", "ROC"}:
         kwargs["period"] = 5
     elif name == "RSI":
         kwargs["period"] = 5
     elif name.startswith("MACD"):
         kwargs.update({"fast": 12, "slow": 26, "signal": 9})
-    elif name.startswith("BB_"):
+    elif name.startswith("BB_") or name == "BBP":
         kwargs.update({"period": 5, "std": 2.0})
-    elif name in {"ATR", "ADX"}:
+    elif name in {"ATR", "ADX", "CCI", "WILLR", "MFI", "CMF"}:
         kwargs["period"] = 5
-    elif name.startswith("STOCH"):
+    elif name.startswith("STOCH_"):
         kwargs.update({"fastk_period": 5, "slowk_period": 3, "slowd_period": 3})
+    elif name.startswith("STOCHRSI"):
+        kwargs.update({"period": 14, "fastk_period": 3, "fastd_period": 3})
+    elif name == "STDDEV":
+        kwargs.update({"period": 5, "nbdev": 1.0})
 
     inputs = meta["inputs"]
     if "close" in inputs:
