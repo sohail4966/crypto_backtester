@@ -11,15 +11,8 @@ from collections.abc import Callable
 import pandas as pd
 
 from exceptions import InvalidSignalError
-from indicators.basic import rsi, sma
+from indicators.registry import INDICATORS
 from signals.types import SignalCondition, Strategy
-
-IndicatorFn = Callable[..., pd.Series]
-
-INDICATORS: dict[str, IndicatorFn] = {
-    "RSI": rsi,
-    "SMA": sma,
-}
 
 OPS: dict[str, Callable[[pd.Series, float], pd.Series]] = {
     "<": lambda series, threshold: series < threshold,

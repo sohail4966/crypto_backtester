@@ -2,6 +2,9 @@
 Technical indicator pure functions.
 """
 
-from indicators.basic import rsi, sma
+from indicators.registry import INDICATOR_META, INDICATORS
 
-__all__ = ["rsi", "sma"]
+__all__ = [
+    "INDICATOR_META",
+    "INDICATORS",
+]
