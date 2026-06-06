@@ -12,7 +12,24 @@ from typing import TypedDict
 
 import pandas as pd
 
+from indicators.custom.chandelier import chandelier
 from indicators.custom.cmf import cmf
+from indicators.custom.donchian import donchian_lower, donchian_middle, donchian_upper
+from indicators.custom.hull import hma
+from indicators.custom.ichimoku import (
+    ichimoku_chikou,
+    ichimoku_kijun,
+    ichimoku_senkou_a,
+    ichimoku_senkou_b,
+    ichimoku_tenkan,
+)
+from indicators.custom.keltner import keltner_lower, keltner_middle, keltner_upper
+from indicators.custom.momentum import ao, qstick, tsi
+from indicators.custom.pivots import pivot_p, pivot_r1, pivot_r2, pivot_r3, pivot_s1, pivot_s2, pivot_s3
+from indicators.custom.supertrend import supertrend
+from indicators.custom.volatility import histvol, volatility_oscillator, volrank
+from indicators.custom.volume_indexes import nvi, pvi, volosc
+from indicators.custom.vwap import vwap
 from indicators.talib_wrappers import (
     ad,
     adx,
@@ -43,6 +60,11 @@ from indicators.talib_wrappers import (
 )
 
 IndicatorFn = Callable[..., pd.Series]
+
+ICHIMOKU_SHARED = ("tenkan", "kijun", "senkou_b", "displacement")
+KELTNER_SHARED = ("period", "multiplier")
+DONCHIAN_SHARED = ("period",)
+PIVOT_SHARED: tuple[str, ...] = ()
 
 
 class IndicatorMeta(TypedDict, total=False):
@@ -80,6 +102,37 @@ INDICATORS: dict[str, IndicatorFn] = {
     "AD": ad,
     "CMF": cmf,
     "BBP": bbp,
+    "SUPERTREND": supertrend,
+    "VWAP": vwap,
+    "HMA": hma,
+    "KELTNER_UPPER": keltner_upper,
+    "KELTNER_MIDDLE": keltner_middle,
+    "KELTNER_LOWER": keltner_lower,
+    "DONCHIAN_UPPER": donchian_upper,
+    "DONCHIAN_MIDDLE": donchian_middle,
+    "DONCHIAN_LOWER": donchian_lower,
+    "ICHIMOKU_TENKAN": ichimoku_tenkan,
+    "ICHIMOKU_KIJUN": ichimoku_kijun,
+    "ICHIMOKU_SENKOU_A": ichimoku_senkou_a,
+    "ICHIMOKU_SENKOU_B": ichimoku_senkou_b,
+    "ICHIMOKU_CHIKOU": ichimoku_chikou,
+    "PIVOT_P": pivot_p,
+    "PIVOT_R1": pivot_r1,
+    "PIVOT_R2": pivot_r2,
+    "PIVOT_R3": pivot_r3,
+    "PIVOT_S1": pivot_s1,
+    "PIVOT_S2": pivot_s2,
+    "PIVOT_S3": pivot_s3,
+    "CHANDELIER": chandelier,
+    "HISTVOL": histvol,
+    "VOLRANK": volrank,
+    "VOLOSC": volosc,
+    "NVI": nvi,
+    "PVI": pvi,
+    "TSI": tsi,
+    "AO": ao,
+    "QSTICK": qstick,
+    "VOLOSCILLATOR": volatility_oscillator,
 }
 
 INDICATOR_META: dict[str, IndicatorMeta] = {
@@ -122,4 +175,35 @@ INDICATOR_META: dict[str, IndicatorMeta] = {
     "AD": {"inputs": ["high", "low", "close", "volume"]},
     "CMF": {"inputs": ["high", "low", "close", "volume"]},
     "BBP": {"inputs": ["close"], "shared_params": ("period", "std")},
+    "SUPERTREND": {"inputs": ["high", "low", "close"], "shared_params": ("period", "multiplier")},
+    "VWAP": {"inputs": ["high", "low", "close", "volume"], "shared_params": ("period", "variant")},
+    "HMA": {"inputs": ["close"]},
+    "KELTNER_UPPER": {"inputs": ["high", "low", "close"], "shared_params": KELTNER_SHARED},
+    "KELTNER_MIDDLE": {"inputs": ["high", "low", "close"], "shared_params": KELTNER_SHARED},
+    "KELTNER_LOWER": {"inputs": ["high", "low", "close"], "shared_params": KELTNER_SHARED},
+    "DONCHIAN_UPPER": {"inputs": ["high", "low", "close"], "shared_params": DONCHIAN_SHARED},
+    "DONCHIAN_MIDDLE": {"inputs": ["high", "low", "close"], "shared_params": DONCHIAN_SHARED},
+    "DONCHIAN_LOWER": {"inputs": ["high", "low", "close"], "shared_params": DONCHIAN_SHARED},
+    "ICHIMOKU_TENKAN": {"inputs": ["high", "low", "close"], "shared_params": ICHIMOKU_SHARED},
+    "ICHIMOKU_KIJUN": {"inputs": ["high", "low", "close"], "shared_params": ICHIMOKU_SHARED},
+    "ICHIMOKU_SENKOU_A": {"inputs": ["high", "low", "close"], "shared_params": ICHIMOKU_SHARED},
+    "ICHIMOKU_SENKOU_B": {"inputs": ["high", "low", "close"], "shared_params": ICHIMOKU_SHARED},
+    "ICHIMOKU_CHIKOU": {"inputs": ["high", "low", "close"], "shared_params": ICHIMOKU_SHARED},
+    "PIVOT_P": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_R1": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_R2": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_R3": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_S1": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_S2": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "PIVOT_S3": {"inputs": ["high", "low", "close"], "shared_params": PIVOT_SHARED},
+    "CHANDELIER": {"inputs": ["high", "low", "close"], "shared_params": ("period", "multiplier")},
+    "HISTVOL": {"inputs": ["close"], "shared_params": ("period", "annualization")},
+    "VOLRANK": {"inputs": ["high", "low", "close"], "shared_params": ("period", "atr_period")},
+    "VOLOSC": {"inputs": ["close", "volume"], "shared_params": ("short_period", "long_period")},
+    "NVI": {"inputs": ["close", "volume"]},
+    "PVI": {"inputs": ["close", "volume"]},
+    "TSI": {"inputs": ["close"], "shared_params": ("long_period", "short_period")},
+    "AO": {"inputs": ["high", "low", "close"], "shared_params": ("fast_period", "slow_period")},
+    "QSTICK": {"inputs": ["close", "open"]},
+    "VOLOSCILLATOR": {"inputs": ["close"], "shared_params": ("short_period", "long_period")},
 }
