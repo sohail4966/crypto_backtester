@@ -73,15 +73,17 @@ TimescaleDB integration checks pass.
 
 ## Phase 2 — Indicator Library
 
-**Theme:** Build a complete, validated indicator library. Every indicator matches
-TradingView output for the same inputs.
+**Design doc:** [PHASE_2_HLD.md](PHASE_2_HLD.md) (approved — ready for implementation)
+
+**Theme:** Build a complete indicator library backed by TA-Lib. Thin wrappers, central
+registry, structural unit tests.
 
 **Goal:** Any common indicator can be computed from candle data in one function call.
 
 | Indicator | Notes |
 |---|---|
 | SMA, EMA, WMA | Basic moving averages |
-| RSI | Wilder's smoothing (matches TradingView) |
+| RSI | TA-Lib wrapper |
 | MACD | Line, signal line, histogram |
 | Bollinger Bands | Upper, middle, lower bands |
 | ATR | Average True Range; key for stop sizing later |
@@ -90,17 +92,17 @@ TradingView output for the same inputs.
 | Volume metrics | OBV, volume SMA, volume z-score |
 | ADX | Trend strength |
 
-**Validation approach:** For each indicator, compare computed values against TradingView
-for BTC/USDT 1d on 5+ specific dates. Document the comparison.
+**Validation approach:** Structural unit tests (param validation, warmup NaNs, synthetic
+cases). TA-Lib is the reference implementation — no TradingView cross-checks (D-28).
 
-**Architecture note:** All indicators remain pure functions. Add a dispatcher so the
-signal evaluator can resolve indicator names dynamically:
+**Architecture note:** All indicators remain pure functions. Central registry with
+separate keys for multi-output series (`MACD_LINE`, `MACD_HIST`, …):
 ```python
-INDICATORS = {"RSI": rsi, "SMA": sma, "EMA": ema, ...}
+INDICATORS = {"RSI": rsi, "SMA": sma, "EMA": ema, "MACD_HIST": macd_histogram, ...}
 ```
 
-**Done when:** All indicators above are implemented, tested, and validated against
-TradingView.
+**Done when:** All in-scope Tier 1 and Tier 2 indicators are implemented, registered,
+tested, and POC custom `basic.py` is removed. See [PHASE_2_HLD.md](PHASE_2_HLD.md).
 
 ---
 

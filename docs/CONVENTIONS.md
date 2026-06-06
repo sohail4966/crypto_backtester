@@ -65,7 +65,7 @@ All functions are pure: they take a pandas Series and return a pandas Series.
 ```python
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     """
-    Compute RSI using Wilder's smoothing method (matches TradingView output).
+    Compute RSI via TA-Lib wrapper.
 
     Args:
         close: Closing price series, indexed by datetime.
@@ -106,8 +106,7 @@ Comments explain **intent and reasoning**, not mechanics.
 
 ```python
 # correct — explains why, not what
-# Wilder's smoothing uses alpha = 1/period, which differs from standard EMA.
-# This matches TradingView's RSI calculation exactly.
+# TA-Lib uses Wilder's smoothing for RSI (alpha = 1/period), not standard EMA.
 alpha = 1 / period
 
 # wrong — just restates the code
@@ -292,7 +291,7 @@ import psycopg
 # 3. Internal imports
 from data.loader import get_candles
 from data.repository.candle_repository import CandleRepository
-from indicators.basic import rsi
+from indicators.talib_wrappers import rsi
 
 # 4. Constants
 DEFAULT_PERIOD = 14
@@ -326,11 +325,14 @@ third-party, and internal imports in the same block.
 - Test files live in a `tests/` folder mirroring the module structure:
   `tests/indicators/test_basic.py` tests `indicators/basic.py`.
 - Test function names follow `test_<what>_<condition>_<expected>`:
-  `test_rsi_period_14_matches_tradingview()`
+  `test_rsi_period_14_returns_series_aligned_to_close()`
 - Each test has one assertion or one logical group of related assertions. Do not
   test three unrelated behaviors in one test.
-- The golden rule for indicators: at least one test must compare output against a
-  known-good value from TradingView for BTC/USDT 1d data.
+- **Indicator tests (Phase 2+):** Verify param validation, warmup NaN behavior, index
+  alignment, and synthetic hand-calculated cases. TA-Lib is the reference implementation
+  (D-28) — TradingView cross-checks are not required.
+- **POC historical note:** Phase 0 used TradingView RSI baselines (D-13); those tests
+  are removed when POC custom indicators are replaced by TA-Lib wrappers.
 
 ---
 

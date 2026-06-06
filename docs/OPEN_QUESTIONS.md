@@ -128,22 +128,73 @@ trusting any backtest output. See D-13 for full reasoning.
 
 ### OQ-08 — VWAP variant to implement
 **Priority:** BEFORE PHASE 2  
+**Status:** **Resolved → D-29**  
 **Question:** VWAP has multiple variants: session VWAP (resets daily), rolling VWAP
 (N-bar window), anchored VWAP (from a specific date/event). Which to implement first?  
-**Why it matters:** Session VWAP on daily candles is meaningless (one candle = one session).
-It is only useful on intraday timeframes. Rolling VWAP works on any timeframe.  
-**Decision needed:** Which VWAP variant covers the most common use cases for the
-target user (daily/4h swing traders).
+**Decision:** Implement **both** rolling (default) and UTC session variants via
+`params.variant` on the `VWAP` registry function.
 
 ---
 
 ### OQ-09 — Indicator parameter validation
 **Priority:** BEFORE PHASE 2  
+**Status:** **Resolved → D-30**  
 **Question:** Should indicator functions validate their parameters (e.g. period must
 be > 0, period < len(series)) or fail silently with NaN output?  
-**Why it matters:** When the AI layer generates signal dicts, it may produce invalid
-params. Validation errors need to be catchable and user-readable.  
-**Decision needed:** Error handling contract for all indicator functions.
+**Decision:** Raise `ValueError` for invalid parameters; evaluator maps to
+`InvalidSignalError`. Warmup NaNs for valid params are normal and not errors.
+
+---
+
+### OQ-32 — Indicator function signature convention
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-31**  
+**Decision:** Separate Series arguments (`close`, optional `high`, `low`, `volume`).
+
+---
+
+### OQ-33 — Multi-output indicator registry design
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-32**  
+**Decision:** Separate registry keys per output series (`MACD_HIST`, not `MACD` with
+a default line).
+
+---
+
+### OQ-34 — Phase 2 implementation scope
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-33**  
+**Decision:** Tier 1 + all Tier 2 TA-Lib indicators + as many Tier 2 custom indicators
+as feasible in one pass.
+
+---
+
+### OQ-35 — Tier 3 deferrals
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-34**  
+**Decision:** Defer VPVR, Fibonacci tools, ZigZag, Puell Multiple, Guppy MACD, KDJ,
+Elder-RSI, Copenhagen Index.
+
+---
+
+### OQ-36 — Pivot point session boundaries
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-35**  
+**Decision:** Prior UTC calendar day on intraday timeframes; prior bar on `1d`.
+
+---
+
+### OQ-37 — SMA implementation source
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-28, D-27**  
+**Decision:** TA-Lib only; remove POC pandas SMA.
+
+---
+
+### OQ-38 — Ichimoku default parameters
+**Priority:** PHASE 2  
+**Status:** **Resolved → D-36**  
+**Decision:** 9, 26, 52, displacement 26.
 
 ---
 
@@ -476,8 +527,15 @@ higher-timeframe reads.
 | OQ-05 | Data gap handling | Phase 1 | Resolved → D-21 |
 | OQ-06 | ClickHouse migration trigger | Phase 7 | Open |
 | OQ-07 | RSI smoothing variant | POC | Resolved → D-13 |
-| OQ-08 | VWAP variant | Phase 2 | Open |
-| OQ-09 | Indicator param validation | Phase 2 | Open |
+| OQ-08 | VWAP variant | Phase 2 | Resolved → D-29 |
+| OQ-09 | Indicator param validation | Phase 2 | Resolved → D-30 |
+| OQ-32 | Indicator signature convention | Phase 2 | Resolved → D-31 |
+| OQ-33 | Multi-output registry design | Phase 2 | Resolved → D-32 |
+| OQ-34 | Phase 2 scope | Phase 2 | Resolved → D-33 |
+| OQ-35 | Tier 3 deferrals | Phase 2 | Resolved → D-34 |
+| OQ-36 | Pivot session boundaries | Phase 2 | Resolved → D-35 |
+| OQ-37 | SMA source | Phase 2 | Resolved → D-28 |
+| OQ-38 | Ichimoku defaults | Phase 2 | Resolved → D-36 |
 | OQ-10 | Swing detection algorithm | Phase 4 | Open |
 | OQ-11 | Equal highs/lows tolerance | Phase 4 | Open |
 | OQ-12 | Multi-TF structure hierarchy | Phase 4 | Open |

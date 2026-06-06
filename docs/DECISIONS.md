@@ -287,15 +287,135 @@ rma[i] = (rma[i-1] * (period - 1) + value[i]) / period
 - Standard EMA would produce values that look similar but differ by a meaningful amount
   on most bars, silently invalidating any backtests that reference TV screenshots.
 
-**Verification required:** Before trusting any backtest output, load BTC/USDT 1d in
+**Verification required (POC only):** Before trusting POC backtest output, load BTC/USDT 1d in
 TradingView, read the RSI(14) value for 3–5 specific historical dates, and confirm the
-computed values match to at least 2 decimal places. This is a mandatory POC step 3
-check.
+computed values match to at least 2 decimal places. This was a mandatory POC step 3 check.
+
+**Phase 2 note:** Superseded for indicator implementation by **D-28**. Phase 2 uses
+TA-Lib RSI; no TradingView cross-validation required. This decision remains valid as
+the historical record for POC completion.
 
 **Rejected:** Standard EMA (`alpha = 2 / (period + 1)`) — diverges from TradingView
 after warmup, breaks the sanity-check reference.
 
 **Resolves:** OQ-07
+
+---
+
+## D-27 — TA-Lib as default indicator engine
+
+**Decision:** Phase 2+ indicator implementations delegate to [TA-Lib](https://ta-lib.org/)
+for all standard formulas. Project code provides thin pure-function wrappers, a central
+registry, and parameter validation.
+
+**Reasoning:** TA-Lib is battle-tested, fast (C implementation), and covers most of the
+target indicator catalog. Phase 2 is about a stable API and registry — not re-deriving
+MACD, ATR, Bollinger Bands, etc. in pandas.
+
+**Rejected:** Hand-rolling standard indicators; maintaining parallel custom implementations
+alongside TA-Lib.
+
+---
+
+## D-28 — TA-Lib is source of truth; retire POC custom indicators
+
+**Decision:** Phase 2 removes POC-era `indicators/basic.py` (custom pandas `sma`, `rsi`).
+All standard indicators, including RSI and SMA, use TA-Lib wrappers. **No TradingView
+cross-validation** is required for Phase 2 — TA-Lib is the reference implementation.
+
+**Reasoning:** TradingView validation was appropriate for the POC spine (prove the
+pipeline end-to-end). At library scale, TA-Lib is the industry-standard reference;
+per-indicator chart spot-checks do not add proportional value.
+
+**Supersedes:** D-13 verification requirement for Phase 2+ work. D-13 remains the
+historical POC decision.
+
+---
+
+## D-29 — VWAP: rolling and UTC session variants
+
+**Decision:** `VWAP` supports two variants via `params.variant`:
+
+- `rolling` (default) — N-bar rolling VWAP; works on any timeframe.
+- `session` — resets at UTC midnight; intended for intraday timeframes.
+
+**Resolves:** OQ-08
+
+---
+
+## D-30 — Indicator parameter validation: raise ValueError
+
+**Decision:** Indicator functions raise `ValueError` for invalid parameters (e.g.
+`period < 1`, series shorter than period). The signal evaluator catches these and
+re-raises as `InvalidSignalError`. Warmup bars (valid params, insufficient history for
+first computed value) return `NaN` — not an exception.
+
+**Reasoning:** Fail-fast validation matches TA-Lib, pandas, and NumPy conventions.
+Silent NaN on invalid params hides mistakes in AI-generated or YAML strategy configs.
+
+**Resolves:** OQ-09
+
+---
+
+## D-31 — Indicator functions use separate Series arguments
+
+**Decision:** Indicator wrappers take explicit Series arguments aligned with TA-Lib:
+`(close: pd.Series, *, high=..., low=..., volume=..., **params)`. The evaluator
+routes OHLCV columns per registry metadata.
+
+**Rejected:** Passing the full DataFrame as the only argument to all indicators.
+
+**Resolves:** OQ-32
+
+---
+
+## D-32 — Multi-output indicators use separate registry keys
+
+**Decision:** Each output series is a distinct registry key (e.g. `MACD_LINE`,
+`MACD_SIGNAL`, `MACD_HIST`, `BB_UPPER`, `STOCH_K`). Signal dicts reference the exact
+series — no `output` param and no implicit default (e.g. MACD does not default to line).
+
+**Reasoning:** Explicit keys remove ambiguity for strategies and AI-generated configs.
+A histogram crossover strategy names `MACD_HIST`; a signal-line strategy names
+`MACD_SIGNAL`.
+
+**Resolves:** OQ-33
+
+---
+
+## D-33 — Phase 2 scope: Tier 1 + Tier 2 + maximum feasible custom
+
+**Decision:** Phase 2 delivers Tier 1, all Tier 2 TA-Lib indicators, and as many Tier 2
+custom indicators as feasible in one implementation pass (SuperTrend, VWAP, Ichimoku,
+etc.).
+
+**Resolves:** OQ-34
+
+---
+
+## D-34 — Tier 3 indicator deferrals confirmed
+
+**Decision:** The following remain **out of Phase 2**: Guppy MACD, Elder-RSI, KDJ, VPVR,
+Fibonacci retracement/extensions, Copenhagen Index, ZigZag, Puell Multiple.
+
+**Resolves:** OQ-35
+
+---
+
+## D-35 — Pivot point session boundaries
+
+**Decision:** Pivot points use the prior **UTC calendar day** OHLC (aggregated from
+stored `1m` when on intraday timeframes). On `1d` timeframe, use the prior bar's OHLC.
+
+**Resolves:** OQ-36
+
+---
+
+## D-36 — Ichimoku default parameters
+
+**Decision:** Ichimoku implementations use conversion=9, base=26, span_b=52, displacement=26.
+
+**Resolves:** OQ-38
 
 ---
 
@@ -526,7 +646,6 @@ sync behavior without adding CI infrastructure complexity.
 | # | Question | Context |
 |---|---|---|
 | OQ-06 | TimescaleDB → ClickHouse migration trigger | Decide before Phase 7, once scan performance matters. |
-| OQ-08 | VWAP variant | Decide before Phase 2 indicator implementation. |
 | OQ-31 | Derived timeframe performance strategy | Higher timeframes are derived from `1m`; decide when to introduce TimescaleDB continuous aggregates versus on-demand aggregation after Phase 1 performance is measured. |
 | OQ-23 | Future DSL schema design | As conditions grow (AND/OR, multi-indicator, cross-indicator), the signal dict needs a grammar. Design separately before implementing. |
 
