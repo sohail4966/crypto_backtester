@@ -109,31 +109,31 @@ POC `basic.py` removed; full suite green. See
 
 ## Phase 3 — Backtest Engine (full)
 
-**Design doc:** [PHASE_3_HLD.md](PHASE_3_HLD.md) (approved — ready for implementation)
+**Status:** Complete — [PHASE_3_HLD.md — Completion Assessment](PHASE_3_HLD.md#phase-3-completion-assessment)  
+**Rating:** 8.5 / 10
 
 **Theme:** Turn the POC backtest skeleton into a real, reliable simulation engine.
 
 **Goal:** Backtest results are trustworthy enough to make strategy decisions from.
 
-| Feature | Notes |
+| Area | What was built |
 |---|---|
-| Long and short positions | POC is long-only |
-| Stop loss | Fixed price, ATR-based, trailing |
-| Take profit | Fixed price, risk-reward ratio |
-| Position sizing | Fixed size, fixed %, risk-based (% of capital per ATR) |
-| Commissions | Flat fee or % per trade |
-| Slippage | Simple fixed slippage model |
-| Multiple positions | Allow holding more than one position at a time |
-| Performance metrics | Sharpe ratio, Sortino ratio, Calmar ratio, profit factor |
-| Benchmark comparison | Compare strategy equity vs buy-and-hold |
-| Trade export | CSV export of full trade log |
+| Fills & costs | `FillModel` / `CostModel` — slippage (bps) + percent/flat commission (D-38, D-39) |
+| Sizing | `full_capital`, `fixed_pct`, `fixed_notional`, `risk_pct` with per-side override (D-40, D-51) |
+| Risk exits | Fixed + ATR + trailing stops; fixed + risk-reward take profit; intrabar priority (D-37, D-41) |
+| Long / short | Dual strategies, one net position (D-49) |
+| Metrics | Sharpe, Sortino, Calmar, profit factor; daily equity resample on intraday TFs (D-45, D-46) |
+| Benchmark | Per-strategy buy-and-hold `symbol` or `none` (D-42) |
+| Export | `output/trades.csv` every run (D-44) |
+| Entry trigger | `entry_trigger: edge \| level` on strategies — default edge (D-52) |
 
-**Key correctness requirement:** No look-ahead bias. Entry always executes on the bar
-*after* the signal. This must be enforced as an engine invariant, not left to the
-caller.
+**Deferred:** Multiple concurrent positions → Phase 7 (D-43).
 
-**Done when:** The engine handles all features above, and results are stable across
-repeated runs on the same data.
+**Key correctness requirement:** D-14 — signal fills at next-bar open; intrabar stops use
+high/low on the breach bar.
+
+**Done when:** All [Phase 3 done criteria](PHASE_3_HLD.md#done-criteria) pass; full suite
+green (`314 passed`). Verified manually: `python run_backtest.py` on synced DB data.
 
 ---
 

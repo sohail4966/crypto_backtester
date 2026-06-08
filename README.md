@@ -1,11 +1,11 @@
-# Crypto Backtester (Phase 0 POC)
+# Crypto Backtester
 
-A Python backtesting spine for crypto: fetch OHLCV candles, store them locally, evaluate
-indicator-based strategy rules, and simulate long-only trades with performance metrics.
+A Python platform for crypto strategy research: sync OHLCV from exchanges, compute
+indicators, evaluate YAML-defined strategies, and run a realistic backtest engine with
+fees, sizing, risk exits, and performance analytics.
 
-This is **Phase 0** of a larger platform (see [docs/ROADMAP.md](docs/ROADMAP.md)). The POC
-proves one path end-to-end: **BTC/USDT daily** data, **RSI(14)** oversold/overbought strategy,
-printed trade log, summary metrics, and an equity curve PNG.
+**Current status:** Phases 0–3 complete (data → indicators → full backtest engine).
+See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## What it does
 
@@ -13,16 +13,16 @@ printed trade log, summary metrics, and an equity curve PNG.
 Exchange (Binance via ccxt) → TimescaleDB → get_candles() → indicators → signals → backtest → output
 ```
 
-- **No AI, UI, or pattern detection** in this phase — only the deterministic pipeline.
-- **One design rule:** everything below the database reads candles through `get_candles()` so
-  the DB can be swapped later without touching indicators, signals, or the engine.
-- **SQL rule:** DDL in `data/migrations/sql/` (versioned, run on startup); DML in
-  `data/repository/queries.py`. Repositories execute DML; facades do not embed queries.
+- **Data boundary:** everything below the DB reads candles through `get_candles()` (D-06).
+- **Indicators:** 58-key TA-Lib + custom registry (Phase 2).
+- **Backtest engine (Phase 3):** long/short, slippage, commission, four sizing modes,
+  fixed/ATR/trailing stops, extended metrics, buy-and-hold benchmark, trades CSV.
+- **No look-ahead on signals:** entries and signal exits fill at the **next bar open** (D-14).
 
 ### Database migrations
 
 On every `run_backtest.py` startup, pending migrations in `data/migrations/sql/` are applied
-automatically (like Flyway/Liquibase):
+automatically:
 
 | File | Purpose |
 |------|---------|
@@ -36,22 +36,17 @@ Add `V004__your_change.sql` for schema changes — never edit applied migration 
 
 - Python **3.11+**
 - [Docker](https://docs.docker.com/get-docker/) (for TimescaleDB)
-- Network access for the first historical fetch (Binance via ccxt)
-- **TA-Lib** (Phase 2 indicator engine)
+- Network access for historical fetch (Binance via ccxt)
+- **TA-Lib** (indicator engine)
 
 ### TA-Lib install
 
 **macOS:** `pip install TA-Lib` usually installs a wheel with the native library bundled.
 
-**Linux / Docker:** If PyPI has no wheel for your platform, install the system C library first, then pip:
+**Linux / Docker:**
 
 ```bash
-# Debian/Ubuntu
 sudo apt-get install -y ta-lib
-pip install TA-Lib==0.6.8
-
-# macOS (Homebrew fallback if pip wheel fails)
-brew install ta-lib
 pip install TA-Lib==0.6.8
 ```
 
@@ -60,107 +55,89 @@ Pin is `TA-Lib==0.6.8` in [requirements.txt](requirements.txt).
 ## Quick start
 
 ```bash
-# 1. Start TimescaleDB (port 5433 — avoids conflict with local Postgres on 5432)
 docker compose up -d
-
-# 2. Python environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # optional
 
-# 3. Optional: override DB URL (copy from example)
-cp .env.example .env
-
-# 4. Initial backfill (required once before run_poc)
-python run_sync.py --backfill
-
-# 5. Run the backtest pipeline
+python run_sync.py --backfill   # once, before first backtest
 python run_backtest.py
 ```
 
-**First run** applies DB migrations, backfills canonical 1m candles, runs the backtest, logs
-results, and writes `output/equity_curve.png`.
-
-`run_backtest.py` does not fetch exchange data in Phase 1. It reads candles from the local DB
-(1m direct, higher timeframes derived from 1m) and fails clearly if sync data is missing.
+Writes `output/equity_curve.png` and `output/trades.csv` (when `export_trades: true`).
 
 ## Configuration
 
 | Source | Purpose |
 |--------|---------|
-| [config.yaml](config.yaml) | Symbol, timeframe, years, exchange, capital, strategy rules, output paths |
-| [data.yaml](data.yaml) | Ingestion settings for Phase 1 sync (symbols, exchanges, schedule, retry policy) |
-| `.env` | Secrets and overrides (`DATABASE_URL`) — never commit this file |
+| [config.yaml](config.yaml) | Symbol, timeframe, years, `backtest` block, named strategies |
+| [data.yaml](data.yaml) | Ingestion settings for sync (symbols, exchanges, schedule) |
+| `.env` | Secrets (`DATABASE_URL`) — never commit |
 
-Example strategy in `config.yaml` (validation only, not expected to be profitable):
+### Backtest block (`config.yaml`)
 
-- **Entry:** RSI(14) &lt; 30  
-- **Exit:** RSI(14) &gt; 70  
+```yaml
+backtest:
+  slippage_bps: 5
+  commission:
+    type: percent
+    rate: 0.001
+  sizing:
+    mode: full_capital
+  export_trades: true
+  trades_csv: output/trades.csv
 
-Edit `config.yaml` to change the pair, lookback, or thresholds. See [docs/POC_HLD.md](docs/POC_HLD.md)
-for architecture details.
+active_strategy: your_strategy
+strategies:
+  your_strategy:
+    benchmark: symbol          # or none
+    entry_trigger: edge        # edge | level (default edge — avoids intraday churn)
+    long:
+      entry: { ... }
+      exit: { ... }
+      stop_loss: { type: atr_trail, period: 14, multiplier: 2.0 }
+      take_profit: { type: risk_reward, ratio: 2.5 }
+      sizing: { mode: risk_pct, risk_pct: 0.02 }
+```
 
-## Data sync (Phase 1)
+**Sizing modes:** `full_capital`, `fixed_pct`, `fixed_notional`, `risk_pct` (requires stop).
 
-`run_sync.py` supports both hourly sync and an initial full backfill pass:
+**Stop types:** `atr`, `fixed`, `atr_trail`, `fixed_pct_trail`.
+
+**Take profit:** `fixed`, `risk_reward`.
+
+See [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) for full config shapes and invariants.
+
+## Data sync
 
 ```bash
 python run_sync.py --once
 python run_sync.py --backfill
 ```
 
-Backfill mode logs per-symbol progress as each symbol completes:
-
-```text
-[4/10] ETH/USDT 1m - 1250000 rows inserted
-```
-
-Cron example (hourly):
-
-```cron
-0 * * * * cd /path/to/crypto-backtester && .venv/bin/python run_sync.py --once
-```
-
 ## Project layout
 
 ```
 crypto-backtester/
-├── config.yaml           # App settings (non-secret)
-├── config.py             # Loads YAML + .env
-├── data.yaml             # Phase 1 ingestion/sync settings
-├── run_backtest.py       # Backtest CLI entry point
-├── run_poc.py            # Compatibility wrapper (legacy name)
-├── run_sync.py           # Phase 1 sync entry point (cron-friendly --once)
-├── data/
-│   ├── fetcher.py        # ccxt download
-│   ├── db.py             # connection only (no SQL)
-│   ├── migrations/
-│   │   ├── sql/          # V001__*.sql, V002__*.sql (Flyway-style)
-│   │   └── migrator.py   # applied on startup via run_backtest.py
-│   ├── repository/
-│   │   ├── queries.py    # DML only (SELECT/INSERT)
-│   │   └── candle_repository.py  # Spring-style repo; runs queries
-│   ├── storage.py        # migrations + write facade
-│   └── loader.py         # get_candles() — read boundary → repository
-├── indicators/
-│   ├── registry.py       # INDICATORS + INDICATOR_META (58 keys)
-│   ├── talib_wrappers.py # TA-Lib-backed wrappers
-│   ├── validation.py     # Shared param validators
-│   └── custom/           # SuperTrend, VWAP, Ichimoku, pivots, …
-├── signals/
-│   ├── types.py          # Strategy TypedDicts
-│   └── evaluator.py      # Strategy dict → boolean Series
+├── config.yaml
+├── run_backtest.py       # Backtest CLI
+├── run_sync.py           # Data sync CLI
+├── data/                 # fetch, store, get_candles()
+├── indicators/           # 58-key registry + custom modules
+├── signals/              # evaluator (AND, compare, dual, entry_trigger)
 ├── backtest/
-│   ├── engine.py         # Long-only simulation (next-bar open fills)
-│   └── metrics.py        # Win rate, return, drawdown, equity PNG
-├── tests/                # Unit tests (mirror package layout)
-├── docker-compose.yml    # TimescaleDB on localhost:5433
-└── docs/                 # HLD, roadmap, decisions, conventions
+│   ├── engine.py         # Bar loop (D-14)
+│   ├── fills.py          # Slippage + commission
+│   ├── risk.py           # Stops, TP, trailing
+│   ├── sizing.py         # Position sizing
+│   ├── metrics.py        # Return, Sharpe, Sortino, …
+│   ├── benchmark.py      # Buy-and-hold return
+│   └── export.py         # Trades CSV
+└── docs/                 # HLD, ROADMAP, DECISIONS
 ```
 
 ## Development
-
-Install dev tools and run checks (required before commit per [docs/CONVENTIONS.md](docs/CONVENTIONS.md)):
 
 ```bash
 pip install -r requirements-dev.txt
@@ -169,35 +146,34 @@ ruff check . --fix
 pytest
 ```
 
-RSI tests use a committed fixture (`tests/fixtures/btc_usdt_1d_closes.csv`). Re-verify against
-TradingView when refreshing that file (POC HLD step 3).
-
 ## Output
 
 `run_backtest.py` logs:
 
-- Trade list (entry/exit dates, return %)
-- Summary: trade count, win rate, total return, max drawdown, capital
-- Entry signal dates (every bar where the condition was true)
-- Path to `output/equity_curve.png`
+- Trade list (side, dates, return %, exit reason)
+- Summary: win rate, total return, max drawdown, Sharpe, Sortino, Calmar, profit factor
+- Benchmark and alpha (when `benchmark: symbol`)
+- Paths to `output/equity_curve.png` and `output/trades.csv`
 
 ## Documentation
 
 | Doc | Contents |
 |-----|----------|
-| [docs/POC_HLD.md](docs/POC_HLD.md) | POC scope, stack, build order |
-| [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Phase 1 data foundation plan, rating, and completion checklist |
+| [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) | Backtest engine design + completion assessment |
+| [docs/PHASE_2_HLD.md](docs/PHASE_2_HLD.md) | Indicator library |
+| [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Data foundation |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Full platform phases |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision log |
-| [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | Code style and rules |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision log (D-37–D-52) |
+| [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | Code style |
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| `role "backtester" does not exist` on port 5432 | Local Postgres is bound to 5432; use Docker on **5433** (`docker compose up -d`) or set `DATABASE_URL` in `.env` |
-| `No candles for ...` | DB empty or wrong symbol/range — delete rows or run fresh after `docker compose up` |
-| Matplotlib cache warnings | Set `MPLCONFIGDIR=.matplotlib-cache` or ignore on first run |
+| `role "backtester" does not exist` on 5432 | Use Docker on **5433** (`docker compose up -d`) |
+| `No candles for ...` | Run `python run_sync.py --backfill` |
+| Too many trades on 15m/1h | Use `entry_trigger: edge` (default) and/or higher timeframe |
+| Matplotlib cache warnings | Set `MPLCONFIGDIR=.matplotlib-cache` |
 
 ## License
 

@@ -1,6 +1,6 @@
 # Phase 3 High Level Design — Backtest Engine (full)
 
-**Status:** Approved — Q&A complete, ready for implementation  
+**Status:** Complete — see [Phase 3 Completion Assessment](#phase-3-completion-assessment)  
 **Prerequisite:** Phase 2 complete ([PHASE_2_HLD.md](PHASE_2_HLD.md))  
 **Next phase after this:** [Phase 4 — Market Structure Detection](ROADMAP.md#phase-4--market-structure-detection)
 
@@ -19,13 +19,18 @@ HLD). The table below separates **done pre-work** from **remaining Phase 3 scope
 
 | Module | What exists today | Phase 3 status |
 |---|---|---|
-| `backtest/engine.py` | Bar loop; D-14 next-bar open; long + short; one position; full-capital sizing; ATR stop + risk-reward TP (intrabar high/low) | **Extend** |
-| `backtest/metrics.py` | Total return, win rate, max drawdown, equity PNG | **Extend** |
-| `backtest/types.py` | `BacktestMetrics` (minimal fields) | **Extend** |
-| `signals/evaluator.py` | AND groups (`all`), cross-indicator `compare`, dual long/short evaluation | **Done** (pre-work) |
-| `signals/types.py` | `Strategy`, `DualStrategy`, `SideStrategy`, ATR stop / RR take-profit configs | **Extend** for new stop/TP/sizing types |
-| `config.yaml` | Named strategies (`rsi_mean_reversion`, `trend_momentum`, `golden_trend`, `supertrend_ema_dual`) | **Extend** with backtest block |
-| `run_backtest.py` | Loads candles, evaluates strategy, runs engine, prints summary + equity PNG | **Extend** metrics + CSV export |
+| `backtest/engine.py` | Bar loop; D-14; long + short; sizing; intrabar risk; cash + equity | **Done** |
+| `backtest/fills.py` | `FillModel`, `CostModel` (slippage + commission) | **Done** |
+| `backtest/risk.py` | Fixed/ATR/trailing stops; fixed + RR take profit | **Done** |
+| `backtest/sizing.py` | Four sizing modes + per-side override | **Done** |
+| `backtest/metrics.py` | Extended metrics + equity PNG | **Done** |
+| `backtest/benchmark.py` | Buy-and-hold return | **Done** |
+| `backtest/export.py` | Trades CSV (D-44) | **Done** |
+| `backtest/types.py` | `BacktestConfig`, extended `BacktestMetrics`, `Trade` | **Done** |
+| `signals/evaluator.py` | AND/`compare`/dual eval; `entry_trigger` edge/level (D-52) | **Done** |
+| `signals/types.py` | Stop/TP/sizing types; `EntryTrigger` | **Done** |
+| `config.py` | `backtest` block parsing; D-51 validation | **Done** |
+| `run_backtest.py` | Full pipeline: metrics, benchmark, CSV export | **Done** |
 
 ### POC assumptions superseded (D-10)
 
@@ -90,6 +95,7 @@ A run of `python run_backtest.py` must produce:
 | D-51 | risk_pct requires stop_loss | ValueError at startup if missing |
 | D-48 | Full Phase 3 one pass | No MVP sub-phase |
 | D-49 | Dual strategy: one net position | Long or short, not both |
+| D-52 | Entry trigger edge vs level | Default `edge`; fixes intraday re-entry churn |
 
 ---
 
@@ -98,22 +104,23 @@ A run of `python run_backtest.py` must produce:
 | # | Feature | Current state | Phase 3 target |
 |---|---|---|---|
 | 1 | Long positions | Done | Keep |
-| 2 | Short positions | Done (dual strategy) | Keep + tests |
-| 3 | Stop loss — fixed price | Not done | `stop_loss: {type: fixed, offset_pct: …}` or `price: …` |
-| 4 | Stop loss — ATR | Done | Keep; document intrabar rule |
-| 5 | Stop loss — trailing | Not done | ATR or fixed trail; ratchet only in favor |
-| 6 | Take profit — fixed price | Not done | `take_profit: {type: fixed, offset_pct: …}` |
-| 7 | Take profit — risk-reward | Done | Keep |
-| 8 | Position sizing — fixed notional | Not done | e.g. $1,000 per trade |
-| 9 | Position sizing — fixed % equity | Not done | e.g. 10% of equity at entry |
-| 10 | Position sizing — risk-based (ATR) | Not done | Risk X% of equity per ATR stop distance |
-| 11 | Commissions | Not done | Flat per side or % of notional |
-| 12 | Slippage | Not done | Fixed bps applied to fill price |
-| 13 | Multiple concurrent positions | Not done | **Deferred → Phase 7** (D-43: one position only) |
-| 14 | Sharpe / Sortino / Calmar / profit factor | Not done | Add to `compute_metrics()` |
-| 15 | Benchmark (buy-and-hold) | Not done | Per-strategy `symbol` or `none` (D-42) |
-| 16 | Trade CSV export | Not done | `output/trades.csv` |
-| 17 | Deterministic reruns | Partial | Lock rounding + no randomness in engine |
+| 2 | Short positions | Done (dual strategy) | Done |
+| 3 | Stop loss — fixed price | Done | `fixed` with `offset_pct` or `price` |
+| 4 | Stop loss — ATR | Done | Intrabar high/low (D-37) |
+| 5 | Stop loss — trailing | Done | `atr_trail`, `fixed_pct_trail` (D-41) |
+| 6 | Take profit — fixed price | Done | `take_profit: {type: fixed, offset_pct: …}` |
+| 7 | Take profit — risk-reward | Done | `risk_reward` ratio |
+| 8 | Position sizing — fixed notional | Done | `fixed_notional` |
+| 9 | Position sizing — fixed % equity | Done | `fixed_pct` |
+| 10 | Position sizing — risk-based (ATR) | Done | `risk_pct` + stop (D-51) |
+| 11 | Commissions | Done | `percent` or `flat` (D-39) |
+| 12 | Slippage | Done | Fixed bps (D-38) |
+| 13 | Multiple concurrent positions | Deferred | **Phase 7** (D-43: one position only) |
+| 14 | Sharpe / Sortino / Calmar / profit factor | Done | Daily resample intraday (D-46) |
+| 15 | Benchmark (buy-and-hold) | Done | Per-strategy `symbol` or `none` (D-42) |
+| 16 | Trade CSV export | Done | `output/trades.csv` (D-44) |
+| 17 | Deterministic reruns | Done | No randomness; pure functions |
+| 18 | Entry edge trigger | Done (post-HLD) | `entry_trigger: edge \| level` (D-52) |
 
 ---
 
@@ -508,18 +515,70 @@ pytest tests/backtest/test_metrics.py -q
 
 Phase 3 is complete when all of the following are true:
 
-| # | Criterion |
-|---|---|
-| 1 | D-37 through D-51 recorded in DECISIONS.md |
-| 2 | Slippage and commission configurable and tested |
-| 3 | All four sizing modes implemented (or explicit deferral signed off) |
-| 4 | Fixed, ATR, and trailing stops + fixed and RR take profit |
-| 5 | Long and short dual strategies work with costs and sizing |
-| 6 | Sharpe, Sortino, Calmar, profit factor + benchmark in metrics output |
-| 7 | Trades exported to CSV each run |
-| 8 | D-14 invariant preserved; dedicated tests pass |
-| 9 | `pytest` full suite passes |
-| 10 | `python run_backtest.py` runs end-to-end on synced DB data |
+| # | Criterion | Status |
+|---|---|---|
+| 1 | D-37 through D-51 recorded in DECISIONS.md | [x] |
+| 2 | Slippage and commission configurable and tested | [x] |
+| 3 | All four sizing modes implemented | [x] |
+| 4 | Fixed, ATR, and trailing stops + fixed and RR take profit | [x] |
+| 5 | Long and short dual strategies work with costs and sizing | [x] |
+| 6 | Sharpe, Sortino, Calmar, profit factor + benchmark in metrics output | [x] |
+| 7 | Trades exported to CSV each run | [x] |
+| 8 | D-14 invariant preserved; dedicated tests pass | [x] |
+| 9 | `pytest` full suite passes | [x] (`314 passed`) |
+| 10 | `python run_backtest.py` runs end-to-end on synced DB data | [x] |
+
+---
+
+## Phase 3 Completion Assessment
+
+**Assessment date:** 2026-06-06  
+**Rating:** **8.5 / 10**  
+**Completion:** **100% for Phase 3 scope** (plus D-52 entry edge trigger, shipped during sign-off)
+
+Phase 3 delivers a trustworthy simulation engine: realistic fills, four sizing modes,
+full risk exits, extended metrics, benchmark comparison, and reproducible trade logs.
+The bar loop remains in `engine.py` with extracted `fills`, `risk`, and `sizing`
+modules — sufficient for Phase 3 without a separate `RiskManager` class.
+
+### Evidence checked
+
+| Check | Result | Notes |
+|---|---|---|
+| Full unit suite | Passing | `314 passed` |
+| D-37 through D-51 in DECISIONS.md | Done | Plus D-52 (entry trigger) |
+| Slippage + commission | Done | `backtest/fills.py`; `test_fills.py`, `test_engine_costs.py` |
+| Four sizing modes | Done | `test_sizing.py` |
+| Stop / TP / trailing | Done | `test_risk.py` |
+| Extended metrics + benchmark | Done | `test_metrics.py`, `test_benchmark.py` |
+| CSV export | Done | `test_export.py`; `run_backtest.py` writes `output/trades.csv` |
+| D-14 next-bar open | Done | `test_engine.py` |
+| Dual long/short | Done | `test_engine.py` short leg |
+| Zero-fee test default | Done | Missing `backtest` block → 0 bps / 0 commission |
+| Production defaults | Done | `config.yaml` → 5 bps, 0.1% commission |
+| Entry churn mitigation | Done | D-52 `entry_trigger: edge` (default); `test_evaluator.py` |
+
+### Rating breakdown
+
+| Area | Score | Comment |
+|---|---|---|
+| Architecture alignment | 9/10 | Layering matches HLD; fills/risk/sizing extracted cleanly |
+| Feature completeness | 10/10 | All in-scope ROADMAP items shipped; multi-position correctly deferred |
+| Correctness / invariants | 9/10 | D-14, intrabar priority, cash conservation, D-51 startup validation |
+| Test coverage | 8/10 | Strong unit tests per module; no automated DB integration test for CLI |
+| Documentation | 8/10 | HLD/ROADMAP/DECISIONS updated at sign-off; README refreshed |
+| Operational realism | 8/10 | Fees + slippage + sizing work; strategies still need user tuning per TF |
+
+### Known gaps (acceptable for Phase 3)
+
+- **No `run_backtest.py` integration test** against the live DB — verified manually.
+- **Global `backtest` block only** — per-strategy cost override not implemented (HLD noted as later).
+- **Level-triggered exits** remain default; only **entries** support edge trigger (D-52).
+- **Phase 7 alerts** may need separate edge/level policy (OQ-21 partially open).
+
+### Completion verdict
+
+Phase 3 is **complete**. Phase 4 (market structure) can start without backtest engine changes.
 
 ---
 

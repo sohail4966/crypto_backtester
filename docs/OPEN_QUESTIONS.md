@@ -392,13 +392,12 @@ behavior changes significantly depending on which rule is used.
 
 ### OQ-21 — Edge trigger vs level trigger
 **Priority:** BEFORE PHASE 7  
+**Status:** **Partially resolved → D-52** (backtest entries only)  
 **Question:** Should alerts fire every bar the condition is true (level trigger) or
 only on the bar the condition *becomes* true (edge trigger)?  
-**Example:** RSI < 30 — fire once when it crosses below 30, or fire on every bar
-while it remains below 30?  
-**Why it matters:** Level triggers produce alert spam. Edge triggers require tracking
-previous state. Most traders want edge triggers.  
-**Decision needed:** Default behavior and whether users can configure it.
+**Backtest decision (D-52):** Entry signals default to **edge**; `entry_trigger: level`
+opts into legacy re-entry behavior. Exit signals remain level-triggered.  
+**Still open:** Phase 7 screener/alert default and whether exit legs should also be configurable.
 
 ---
 
@@ -596,7 +595,7 @@ higher-timeframe reads.
 | OQ-18 | Look-ahead bias enforcement | POC | Resolved → D-14 |
 | OQ-19 | SMC reference framework | Phase 6 | Open |
 | OQ-20 | FVG invalidation rules | Phase 6 | Open |
-| OQ-21 | Edge vs level trigger | Phase 7 | Open |
+| OQ-21 | Edge vs level trigger | Phase 7 | Partial → D-52 (backtest entries) |
 | OQ-22 | Scan timing | Phase 7 | Open |
 | OQ-23 | DSL AND/OR/NOT grammar | Phase 8 | Open |
 | OQ-24 | Multi-TF DSL syntax | Phase 8 | Open |

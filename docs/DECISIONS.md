@@ -556,6 +556,20 @@ short, never both). Opposite-side entry requires closing the current position fi
 
 ---
 
+## D-52 — Entry trigger: edge vs level
+
+**Decision:** Strategy config supports `entry_trigger: edge | level` on long-only and
+dual strategies. Default is **`edge`** — entry signals fire only on the bar where
+conditions transition from false to true. **`level`** preserves the prior behavior
+(re-enter whenever flat and conditions remain true, which causes churn on intraday
+timeframes after stop-outs).
+
+Applied in `signals/evaluator.py` to entry legs only; exit signals remain level-triggered.
+
+**Resolves:** OQ-21 (backtest entry path only; Phase 7 alerts TBD)
+
+---
+
 ## D-14 — Look-ahead bias prevention: entry at next-bar open is a hardcoded engine invariant
 
 **Decision:** The backtest engine always executes entry and exit at the **open price of

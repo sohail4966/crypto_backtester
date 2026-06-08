@@ -2,7 +2,7 @@
 
 **Status:** Complete — see [Phase 2 Completion Assessment](#phase-2-completion-assessment)  
 **Prerequisite:** Phase 1 complete ([PHASE_1_HLD.md](PHASE_1_HLD.md))  
-**Next phase after this:** [Phase 3 — Backtest Engine (full)](ROADMAP.md#phase-3--backtest-engine-full)
+**Next phase after this:** [Phase 4 — Market Structure Detection](ROADMAP.md#phase-4--market-structure-detection) (Phase 3 complete)
 
 ---
 
