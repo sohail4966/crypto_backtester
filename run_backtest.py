@@ -11,9 +11,10 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
+from backtest.benchmark import compute_buy_and_hold_return
 from backtest.engine import run_backtest
 from backtest.metrics import compute_metrics, save_equity_curve
-from config import is_dual_strategy, load_config
+from config import get_strategy_benchmark, is_dual_strategy, load_config
 from data.loader import get_candles
 from data.storage import candle_count, run_migrations_on_startup
 from exceptions import DataGapError
@@ -118,7 +119,17 @@ def main() -> None:
         atr_series=atr_series,
         backtest_config=app_config.backtest,
     )
-    metrics = compute_metrics(trades, equity)
+    benchmark_return: float | None = None
+    if get_strategy_benchmark(app_config.strategy) == "symbol":
+        benchmark_return = compute_buy_and_hold_return(candles)
+
+    metrics = compute_metrics(
+        trades,
+        equity,
+        candles=candles,
+        timeframe=app_config.timeframe,
+        benchmark_return=benchmark_return,
+    )
 
     logger.info("--- Trades ---")
     for index, trade in enumerate(trades, 1):
@@ -139,6 +150,15 @@ def main() -> None:
     logger.info("Win rate:      %.1f%%", metrics["win_rate"] * 100)
     logger.info("Total return:  %.2f%%", metrics["total_return"] * 100)
     logger.info("Max drawdown:  %.2f%%", metrics["max_drawdown"] * 100)
+    logger.info("Sharpe:        %.2f", metrics.get("sharpe_ratio", 0.0))
+    logger.info("Sortino:       %.2f", metrics.get("sortino_ratio", 0.0))
+    logger.info("Calmar:        %.2f", metrics.get("calmar_ratio", 0.0))
+    logger.info("Profit factor: %.2f", metrics.get("profit_factor", 0.0))
+    if metrics.get("benchmark_return") is not None:
+        logger.info("Benchmark:     %.2f%%", metrics["benchmark_return"] * 100)
+        alpha = metrics.get("alpha_vs_benchmark")
+        if alpha is not None:
+            logger.info("Alpha:         %.2f%%", alpha * 100)
     logger.info(
         "Capital:       $%s -> $%s",
         f"{metrics['initial_capital']:,.2f}",
