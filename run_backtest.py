@@ -116,6 +116,7 @@ def main() -> None:
         long_side=long_side,
         short_side=short_side,
         atr_series=atr_series,
+        backtest_config=app_config.backtest,
     )
     metrics = compute_metrics(trades, equity)
 

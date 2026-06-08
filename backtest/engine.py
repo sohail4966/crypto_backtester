@@ -2,23 +2,21 @@
 Backtest engine with next-bar open fills (D-14 invariant).
 
 Supports long-only or long/short strategies with optional ATR stop loss and
-risk-reward take profit per side.
+risk-reward take profit per side, plus slippage and commission (Phase 3).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 import pandas as pd
 
+from backtest.fills import CostModel, FillModel
+from backtest.types import BacktestConfig, ExitReason, PositionSide
 from signals.types import SideStrategy, StopLossConfig, TakeProfitConfig
 
 # Hardcoded invariant: signal on bar N fills at open of bar N+1 (see D-14).
 ENTRY_ON_NEXT_BAR = True
-
-PositionSide = Literal["long", "short"]
-ExitReason = Literal["signal", "stop_loss", "take_profit", "forced_close"]
 
 
 @dataclass
@@ -33,6 +31,24 @@ class Trade:
     side: PositionSide = "long"
     exit_reason: ExitReason = "signal"
     forced_close: bool = False
+    size: float = 0.0
+    commission_paid: float = 0.0
+    pnl_quote: float = 0.0
+
+
+@dataclass
+class _OpenPosition:
+    """In-memory state for the current open position."""
+
+    side: PositionSide
+    entry_date: pd.Timestamp
+    entry_fill: float
+    position_notional: float
+    entry_commission: float
+    capital_before_trade: float
+    stop_price: float = 0.0
+    target_price: float = 0.0
+    risk_active: bool = False
 
 
 def _return_pct(side: PositionSide, entry_price: float, exit_price: float) -> float:
@@ -42,21 +58,25 @@ def _return_pct(side: PositionSide, entry_price: float, exit_price: float) -> fl
     return ((entry_price / exit_price) - 1.0) * 100.0
 
 
+def _proceeds(side: PositionSide, position_notional: float, entry_fill: float, exit_fill: float) -> float:
+    """Compute quote proceeds before exit commission."""
+    if side == "long":
+        return position_notional * (exit_fill / entry_fill)
+    return position_notional * (entry_fill / exit_fill)
+
+
 def _mark_equity(
     candles: pd.DataFrame,
     bar_index: int,
-    side: PositionSide | None,
-    entry_price: float,
-    current_capital: float,
+    position: _OpenPosition | None,
+    cash: float,
 ) -> float:
     """Mark portfolio equity at the close of the given bar."""
-    if side is None:
-        return current_capital
+    if position is None:
+        return cash
 
     close_price = float(candles.iloc[bar_index]["close"])
-    if side == "long":
-        return current_capital * (close_price / entry_price)
-    return current_capital * (entry_price / close_price)
+    return _proceeds(position.side, position.position_notional, position.entry_fill, close_price)
 
 
 def _compute_risk_levels(
@@ -119,91 +139,88 @@ def _check_risk_exit(
 def _close_position(
     candles: pd.DataFrame,
     bar_index: int,
-    side: PositionSide,
-    entry_price: float,
-    entry_date: pd.Timestamp,
-    current_capital: float,
-    exit_price: float,
+    position: _OpenPosition,
+    raw_exit_price: float,
     exit_reason: ExitReason,
+    fill_model: FillModel,
+    cost_model: CostModel,
     trades: list[Trade],
     *,
     forced_close: bool = False,
 ) -> float:
-    """Close the open position and append a completed trade."""
-    exit_date = candles.iloc[bar_index]["ts"]
-    if side == "long":
-        current_capital *= exit_price / entry_price
-    else:
-        current_capital *= entry_price / exit_price
+    """Close the open position and append a completed trade. Returns cash."""
+    exit_fill = fill_model.apply(raw_exit_price, position.side, is_entry=False)
+    gross_proceeds = _proceeds(
+        position.side,
+        position.position_notional,
+        position.entry_fill,
+        exit_fill,
+    )
+    exit_commission = cost_model.compute(gross_proceeds)
+    cash = gross_proceeds - exit_commission
+    commission_paid = position.entry_commission + exit_commission
+    pnl_quote = cash - position.capital_before_trade
 
     trades.append(
         Trade(
-            entry_date=entry_date,
-            exit_date=exit_date,
-            entry_price=entry_price,
-            exit_price=exit_price,
-            return_pct=_return_pct(side, entry_price, exit_price),
-            side=side,
+            entry_date=position.entry_date,
+            exit_date=candles.iloc[bar_index]["ts"],
+            entry_price=position.entry_fill,
+            exit_price=exit_fill,
+            return_pct=_return_pct(position.side, position.entry_fill, exit_fill),
+            side=position.side,
             exit_reason=exit_reason,
             forced_close=forced_close,
+            size=position.position_notional,
+            commission_paid=commission_paid,
+            pnl_quote=pnl_quote,
         )
     )
-    return current_capital
+    return cash
 
 
-def _try_signal_exit(
+def _enter_position(
     candles: pd.DataFrame,
     bar_index: int,
     side: PositionSide,
-    entry_price: float,
-    entry_date: pd.Timestamp,
-    current_capital: float,
-    exit_signals: pd.Series,
-    trades: list[Trade],
-) -> tuple[PositionSide | None, float, pd.Timestamp | None, float]:
-    """Exit on the prior bar's signal at the current bar's open."""
-    signal_bar = bar_index - 1
-    if not bool(exit_signals.iloc[signal_bar]):
-        return side, entry_price, entry_date, current_capital
-
-    exit_price = float(candles.iloc[bar_index]["open"])
-    current_capital = _close_position(
-        candles,
-        bar_index,
-        side,
-        entry_price,
-        entry_date,
-        current_capital,
-        exit_price,
-        "signal",
-        trades,
-    )
-    return None, 0.0, None, current_capital
-
-
-def _open_position(
-    side: PositionSide,
-    entry_price: float,
-    entry_date: pd.Timestamp,
+    cash: float,
+    fill_model: FillModel,
+    cost_model: CostModel,
     side_config: SideStrategy | None,
     atr_series: pd.Series | None,
     signal_bar: int,
-) -> tuple[float, float] | None:
-    """Compute stop/target levels for a new position, or None when ATR is unavailable."""
-    if side_config is None or atr_series is None:
-        return None
+) -> tuple[_OpenPosition, float]:
+    """Open a new position and return position state with remaining cash (always 0 for full capital)."""
+    raw_price = float(candles.iloc[bar_index]["open"])
+    entry_fill = fill_model.apply(raw_price, side, is_entry=True)
+    capital_before = cash
+    entry_commission = cost_model.compute(capital_before)
+    position_notional = capital_before - entry_commission
 
-    atr_value = float(atr_series.iloc[signal_bar])
-    if pd.isna(atr_value):
-        return None
-
-    return _compute_risk_levels(
-        entry_price,
-        side,
-        atr_value,
-        side_config["stop_loss"],
-        side_config["take_profit"],
+    position = _OpenPosition(
+        side=side,
+        entry_date=candles.iloc[bar_index]["ts"],
+        entry_fill=entry_fill,
+        position_notional=position_notional,
+        entry_commission=entry_commission,
+        capital_before_trade=capital_before,
     )
+
+    if side_config is not None and atr_series is not None:
+        atr_value = float(atr_series.iloc[signal_bar])
+        if not pd.isna(atr_value):
+            stop_price, target_price = _compute_risk_levels(
+                entry_fill,
+                side,
+                atr_value,
+                side_config["stop_loss"],
+                side_config["take_profit"],
+            )
+            position.stop_price = stop_price
+            position.target_price = target_price
+            position.risk_active = True
+
+    return position, 0.0
 
 
 def run_backtest(
@@ -217,6 +234,7 @@ def run_backtest(
     long_side: SideStrategy | None = None,
     short_side: SideStrategy | None = None,
     atr_series: pd.Series | None = None,
+    backtest_config: BacktestConfig | None = None,
 ) -> tuple[list[Trade], pd.Series]:
     """
     Run a backtest with one position at a time and full capital sizing.
@@ -231,6 +249,7 @@ def run_backtest(
         long_side: Optional long risk config with stop_loss and take_profit.
         short_side: Optional short risk config with stop_loss and take_profit.
         atr_series: Optional ATR values aligned to candles for risk exits.
+        backtest_config: Slippage and commission settings. Defaults to zero fees.
 
     Returns:
         Tuple of trade list and per-bar equity Series (attrs: initial/final capital,
@@ -239,17 +258,15 @@ def run_backtest(
     if not ENTRY_ON_NEXT_BAR:
         raise RuntimeError("ENTRY_ON_NEXT_BAR=False is not supported in the POC engine")
 
+    config = backtest_config or BacktestConfig()
+    fill_model = FillModel(config.slippage_bps)
+    cost_model = CostModel(config.commission)
     dual_mode = short_entry_signals is not None and short_exit_signals is not None
 
     trades: list[Trade] = []
-    side: PositionSide | None = None
-    entry_price = 0.0
-    entry_date: pd.Timestamp | None = None
-    stop_price = 0.0
-    target_price = 0.0
-    risk_active = False
+    position: _OpenPosition | None = None
     forced_close = False
-    current_capital = initial_capital
+    cash = initial_capital
 
     equity = pd.Series(index=candles.index, dtype=float)
     bar_count = len(candles)
@@ -258,87 +275,108 @@ def run_backtest(
         if bar_index > 0:
             signal_bar = bar_index - 1
 
-            if side is not None and risk_active:
-                risk_exit = _check_risk_exit(candles, bar_index, side, stop_price, target_price)
+            if position is not None and position.risk_active:
+                risk_exit = _check_risk_exit(
+                    candles,
+                    bar_index,
+                    position.side,
+                    position.stop_price,
+                    position.target_price,
+                )
                 if risk_exit is not None:
-                    exit_price, exit_reason = risk_exit
-                    current_capital = _close_position(
+                    raw_exit_price, exit_reason = risk_exit
+                    cash = _close_position(
                         candles,
                         bar_index,
-                        side,
-                        entry_price,
-                        entry_date,
-                        current_capital,
-                        exit_price,
+                        position,
+                        raw_exit_price,
                         exit_reason,
+                        fill_model,
+                        cost_model,
                         trades,
                     )
-                    side = None
-                    entry_date = None
-                    risk_active = False
+                    position = None
 
-            if side == "long":
-                side, entry_price, entry_date, current_capital = _try_signal_exit(
+            if position is not None and position.side == "long":
+                if bool(exit_signals.iloc[signal_bar]):
+                    raw_exit = float(candles.iloc[bar_index]["open"])
+                    cash = _close_position(
+                        candles,
+                        bar_index,
+                        position,
+                        raw_exit,
+                        "signal",
+                        fill_model,
+                        cost_model,
+                        trades,
+                    )
+                    position = None
+            elif (
+                position is not None
+                and position.side == "short"
+                and dual_mode
+                and short_exit_signals is not None
+                and bool(short_exit_signals.iloc[signal_bar])
+            ):
+                raw_exit = float(candles.iloc[bar_index]["open"])
+                cash = _close_position(
                     candles,
                     bar_index,
-                    "long",
-                    entry_price,
-                    entry_date,
-                    current_capital,
-                    exit_signals,
+                    position,
+                    raw_exit,
+                    "signal",
+                    fill_model,
+                    cost_model,
                     trades,
                 )
-            elif side == "short" and dual_mode and short_exit_signals is not None:
-                side, entry_price, entry_date, current_capital = _try_signal_exit(
-                    candles,
-                    bar_index,
-                    "short",
-                    entry_price,
-                    entry_date,
-                    current_capital,
-                    short_exit_signals,
-                    trades,
-                )
+                position = None
 
-            if side is None:
+            if position is None:
                 if bool(entry_signals.iloc[signal_bar]):
-                    entry_price = float(candles.iloc[bar_index]["open"])
-                    entry_date = candles.iloc[bar_index]["ts"]
-                    side = "long"
-                    levels = _open_position("long", entry_price, entry_date, long_side, atr_series, signal_bar)
-                    risk_active = levels is not None
-                    if levels is not None:
-                        stop_price, target_price = levels
+                    position, cash = _enter_position(
+                        candles,
+                        bar_index,
+                        "long",
+                        cash,
+                        fill_model,
+                        cost_model,
+                        long_side,
+                        atr_series,
+                        signal_bar,
+                    )
                 elif dual_mode and short_entry_signals is not None and bool(short_entry_signals.iloc[signal_bar]):
-                    entry_price = float(candles.iloc[bar_index]["open"])
-                    entry_date = candles.iloc[bar_index]["ts"]
-                    side = "short"
-                    levels = _open_position("short", entry_price, entry_date, short_side, atr_series, signal_bar)
-                    risk_active = levels is not None
-                    if levels is not None:
-                        stop_price, target_price = levels
+                    position, cash = _enter_position(
+                        candles,
+                        bar_index,
+                        "short",
+                        cash,
+                        fill_model,
+                        cost_model,
+                        short_side,
+                        atr_series,
+                        signal_bar,
+                    )
 
-        equity.iloc[bar_index] = _mark_equity(candles, bar_index, side, entry_price, current_capital)
+        equity.iloc[bar_index] = _mark_equity(candles, bar_index, position, cash)
 
-    if side is not None:
-        last = candles.iloc[-1]
-        exit_price = float(last["close"])
-        current_capital = _close_position(
+    if position is not None:
+        raw_exit = float(candles.iloc[-1]["close"])
+        cash = _close_position(
             candles,
             bar_count - 1,
-            side,
-            entry_price,
-            entry_date,
-            current_capital,
-            exit_price,
+            position,
+            raw_exit,
             "forced_close",
+            fill_model,
+            cost_model,
             trades,
             forced_close=True,
         )
+        position = None
         forced_close = True
-        equity.iloc[-1] = current_capital
+        equity.iloc[-1] = cash
 
     equity.attrs["forced_close"] = forced_close
-    equity.attrs["final_capital"] = current_capital
+    equity.attrs["final_capital"] = cash
     equity.attrs["initial_capital"] = initial_capital
     return trades, equity

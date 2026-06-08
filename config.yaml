@@ -6,12 +6,23 @@ initial_capital: 10000.0
 output_dir: output
 equity_curve_filename: equity_curve.png
 
+backtest:
+  slippage_bps: 5
+  commission:
+    type: percent
+    rate: 0.001
+  sizing:
+    mode: full_capital
+  export_trades: true
+  trades_csv: output/trades.csv
+
 # Which named strategy to run.
 # Options: rsi_mean_reversion, trend_momentum, golden_trend, supertrend_ema_dual
 active_strategy: supertrend_ema_dual
 
 strategies:
   rsi_mean_reversion:
+    benchmark: none
     entry:
       indicator: RSI
       params:
@@ -26,6 +37,7 @@ strategies:
       value: 80
 
   trend_momentum:
+    benchmark: symbol
     long:
       entry:
         all:
@@ -101,6 +113,7 @@ strategies:
         ratio: 1
 
   golden_trend:
+    benchmark: symbol
     entry:
       all:
         - indicator: EMA
@@ -138,6 +151,7 @@ strategies:
           period: 21
 
   supertrend_ema_dual:
+    benchmark: symbol
     long:
       entry:
         all:

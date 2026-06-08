@@ -25,39 +25,69 @@ class SignalCondition(TypedDict, total=False):
     all: list["SignalCondition"]
 
 
-class StopLossConfig(TypedDict):
-    """ATR-based stop loss applied at entry."""
+class StopLossConfig(TypedDict, total=False):
+    """
+    Stop loss configuration.
+
+    Types: atr, fixed, atr_trail, fixed_pct_trail.
+    """
 
     type: str
     period: int
     multiplier: float
+    offset_pct: float
+    price: float
+    trail_pct: float
 
 
-class TakeProfitConfig(TypedDict):
-    """Risk-reward take profit relative to stop distance."""
+class TakeProfitConfig(TypedDict, total=False):
+    """
+    Take profit configuration.
+
+    Types: risk_reward, fixed.
+    """
 
     type: str
     ratio: float
+    offset_pct: float
+    price: float
 
 
-class SideStrategy(TypedDict):
-    """Entry, exit, and risk management for one trade direction."""
+class SizingConfig(TypedDict, total=False):
+    """
+    Position sizing configuration.
+
+    Modes: full_capital, fixed_pct, fixed_notional, risk_pct.
+    """
+
+    mode: str
+    pct: float
+    amount: float
+    risk_pct: float
+
+
+class SideStrategy(TypedDict, total=False):
+    """Entry, exit, risk management, and sizing for one trade direction."""
 
     entry: SignalCondition
     exit: SignalCondition
     stop_loss: StopLossConfig
     take_profit: TakeProfitConfig
+    sizing: SizingConfig
 
 
-class Strategy(TypedDict):
+class Strategy(TypedDict, total=False):
     """Long-only strategy with separate entry and exit conditions."""
 
+    benchmark: str
     entry: SignalCondition
     exit: SignalCondition
+    sizing: SizingConfig
 
 
-class DualStrategy(TypedDict):
+class DualStrategy(TypedDict, total=False):
     """Long and short strategy with per-side risk management."""
 
+    benchmark: str
     long: SideStrategy
     short: SideStrategy
