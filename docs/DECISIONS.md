@@ -570,7 +570,189 @@ Applied in `signals/evaluator.py` to entry legs only; exit signals remain level-
 
 ---
 
-## D-14 — Look-ahead bias prevention: entry at next-bar open is a hardcoded engine invariant
+## D-53 — Primary swing algorithm: symmetric pivot 5/5
+
+**Decision:** Detect swings with the **symmetric pivot method**: swing high at bar `i`
+when `high[i]` is **strictly greater** than `left_bars` bars before and `right_bars`
+bars after (mirror for swing low on `low`). Defaults **`left_bars=5`**, **`right_bars=5`**.
+Use **`high` / `low`**, not close. Swing **confirmed** at bar `i + right_bars`.
+
+**Resolves:** OQ-10, OQ-46, OQ-48, OQ-50
+
+---
+
+## D-54 — ZigZag deferred
+
+**Decision:** ZigZag-style swing detection is **out of Phase 4**. Revisit only if pivot
+swings prove insufficient after chart validation.
+
+---
+
+## D-55 — Equal high / equal low tolerance
+
+**Decision:** Two swings of the same kind are **equal** when
+`abs(price_a - price_b) / mid_price <= tolerance_pct`. Default **`tolerance_pct: 0.0015`**
+(0.15%), configurable.
+
+**Resolves:** OQ-11
+
+---
+
+## D-56 — Trend classification
+
+**Decision:** Trend labels from last two swing highs and two swing lows: **`uptrend`**
+(HH + HL), **`downtrend`** (LH + LL), **`range`** (mixed or EQH/EQL on latest pair),
+**`undefined`** (insufficient swings). `pd.Series` of **`Trend`** enum; recomputed only
+on confirmed swings, forward-filled between events (D-66).
+
+---
+
+## D-57 — Support / resistance from swings
+
+**Decision:** **Discrete levels** from last **`k=3`** swing lows (support) and swing highs
+(resistance). Not merged zones in Phase 4. Distinct from session floor `PIVOT_*` indicators.
+Lists are **most-recent-first** (D-64).
+
+**Resolves:** OQ-47
+
+---
+
+## D-58 — Multi-timeframe structure context
+
+**Decision:** `StructureContext` loads base + up to **two HTF** series via `get_candles()`,
+runs swing pipeline per TF, **forward-fills** HTF trend onto base index (no HTF lookahead).
+Default example: base **`1h`**, HTF **`4h`** + **`1d`**.
+
+**Resolves:** OQ-12
+
+---
+
+## D-59 — `structure/` package separate from indicators
+
+**Decision:** Market structure lives in **`structure/`**, not `indicators/registry.py`.
+Event lists and labels, not bar-wise indicator series.
+
+---
+
+## D-60 — Structure validation approach
+
+**Decision:** Structural unit tests + `run_structure_report.py` export for manual chart
+review on BTC/USDT (ETH/SOL spot-checks). No TradingView parity requirement.
+
+---
+
+## D-62 — Confirmed swings in backtest path
+
+**Decision:** API exposes **confirmed and provisional** swings. Backtest and signal
+consumers use **`confirmed_only=True`** by default. Provisional allowed for future
+screeners with documented repaint risk.
+
+**Resolves:** OQ-45
+
+---
+
+## D-63 — Phase 4 library-only (no evaluator hook)
+
+**Decision:** Phase 4 ships **`structure/` library + tests + report script** only.
+No `structure:` YAML condition in `signals/evaluator.py` until Phase 5+ (OQ-23 DSL).
+
+**Resolves:** OQ-49
+
+---
+
+## D-64 — StructureLevels stored by recency
+
+**Decision:** Support and resistance from swings are stored in **recency order** (most
+recent confirmed swing first), **not** sorted by price.
+
+```python
+@dataclass(frozen=True)
+class StructureLevels:
+    support: list[float]      # recent swing lows, [0] = most recent
+    resistance: list[float]   # recent swing highs, [0] = most recent
+```
+
+Example: `support = [96400.0, 95120.0, 93800.0]`,
+`resistance = [98750.0, 99500.0, 100200.0]`.
+
+Consumers that need price order sort explicitly.
+
+**Reasoning:** Structural sequencing matters for patterns, divergence legs, BOS/CHOCH,
+and “latest level” DSL references. Recency preserves context; price sort is a derived view.
+
+---
+
+## D-65 — Equal highs and equal lows are first-class labels
+
+**Decision:** EQH/EQL are **dedicated labels**, not collapsed into HH/HL/LH/LL.
+
+```python
+class SwingLabel(StrEnum):
+    FIRST = "first"
+    HH = "HH"
+    HL = "HL"
+    LH = "LH"
+    LL = "LL"
+    EQH = "EQH"
+    EQL = "EQL"
+```
+
+Labeling rule for each swing vs the **prior swing of the same kind** (`high` vs `high`,
+`low` vs `low`):
+
+1. If within D-55 tolerance → **`EQH`** or **`EQL`**
+2. Else if higher → **`HH`** (high) or **`HL`** (low)
+3. Else if lower → **`LH`** (high) or **`LL`** (low)
+4. First swing of each kind → **`FIRST`**
+
+**Trend (D-56):** Only **HH**, **HL**, **LH**, **LL** count as directional structure;
+**EQH** / **EQL** do not satisfy “higher” or “lower” for trend — they push toward **`range`**.
+
+---
+
+## D-66 — Trend state updates only on confirmed structural events
+
+**Decision:** Trend is **recomputed only when a newly confirmed swing** is available.
+Between updates, the last trend state is **forward-filled** on the candle index.
+
+```
+confirmed swing → recompute trend (D-56) → store state → forward-fill until next confirmed swing
+```
+
+```python
+class Trend(StrEnum):
+    UPTREND = "uptrend"
+    DOWNTREND = "downtrend"
+    RANGE = "range"
+    UNDEFINED = "undefined"
+```
+
+`classify_trend()` returns `pd.Series` of `Trend` values aligned to OHLCV timestamps.
+No per-bar recomputation from unconfirmed or intra-bar data.
+
+**Reasoning:** Structure changes only on confirmed swings (D-62). Event-driven updates
+keep trend deterministic and backtest-safe; aligns with HTF forward-fill (D-58).
+
+---
+
+## D-61 — Phase 4: pivot structure only; similarity search deferred
+
+**Decision:** Phase 4 implements **rule-based pivot/fractal swing detection** only
+(`structure/` package). **No** vectorbt PRO–style template matching (`find_pattern`,
+similarity scores, projections) in Phase 4.
+
+Vectorbt-like **pattern similarity search** is deferred to **Phase 5** as an optional
+complement to rule-based pattern detection (see ROADMAP Phase 5 reference note).
+
+**Reasoning:** Phase 4 must deliver auditable swing anchors for HH/HL trend, classical
+patterns, and Phase 6 SMC. Similarity search is fuzzy, threshold-heavy, and overlaps
+Phase 5 pattern work — not a substitute for pivot structure.
+
+**Resolves:** OQ-51
+
+---
+
+## D-14 — Look-ahead bias prevention
 
 **Decision:** The backtest engine always executes entry and exit at the **open price of
 the bar after the signal bar** (bar N+1). This is hardcoded in `engine.py` and is not

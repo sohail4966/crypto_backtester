@@ -139,6 +139,8 @@ green (`317 passed`). CLI path covered by `test_run_backtest_integration.py`; ma
 
 ## Phase 4 — Market Structure Detection
 
+**Design doc:** [PHASE_4_HLD.md](PHASE_4_HLD.md) (approved — ready for implementation)
+
 **Theme:** Build the structural layer that everything else depends on. Swing detection
 is the prerequisite for patterns, divergence, and SMC.
 

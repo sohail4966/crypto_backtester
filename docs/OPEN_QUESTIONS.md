@@ -205,44 +205,76 @@ Elder-RSI, Copenhagen Index.
 
 ### OQ-10 — Swing detection algorithm
 **Priority:** BEFORE PHASE 4  
-**Question:** Which algorithm to use for detecting swing highs and lows?  
-**Common approaches:**
-- Pivot point method: a bar is a swing high if it is the highest in a window of N bars
-  on each side (e.g. N=5 means 5 bars left, 5 bars right must be lower)
-- ZigZag-style: percentage move threshold to define a new swing
-- Fractal-based: Bill Williams fractals (N=2 by default)  
-**Why it matters:** The choice affects how many swings are detected, sensitivity to
-noise, and whether patterns built on top produce false positives.  
-**Things to consider:**
-- The pivot point method (configurable N) is the most common and easiest to reason about
-- ZigZag introduces lookahead bias in real-time use if not careful
-- Need to document which method is used so users can set expectations  
-**Decision needed:** Primary algorithm and its configurable parameters before Phase 4.
+**Status:** **Resolved → D-53, D-54**  
+**Decision:** Symmetric pivot **`left_bars=5`**, **`right_bars=5`**, strict `>` / `<` on
+`high`/`low`. ZigZag deferred.
 
 ---
 
 ### OQ-11 — Equal highs / equal lows handling
 **Priority:** BEFORE PHASE 4  
-**Question:** What constitutes "equal" when labeling higher highs / equal highs / lower highs?  
-**Why it matters:** In SMC, equal highs and equal lows are specific concepts (liquidity pools).
-In classical TA, equal highs can be treated as double tops. Need a tolerance threshold.  
-**Options:**
-- Exact equality (rare in practice, too strict)
-- Within X% of each other (e.g. 0.1% or 0.5%)
-- Within N ATR of each other  
-**Decision needed:** Tolerance definition and whether it is configurable per use case.
+**Status:** **Resolved → D-55**  
+**Decision:** **`tolerance_pct: 0.0015`** (0.15%) default, configurable.
 
 ---
 
 ### OQ-12 — Multi-timeframe structure hierarchy
 **Priority:** BEFORE PHASE 4  
-**Question:** When a strategy uses multi-timeframe structure (e.g. "daily trend is up,
-enter on hourly pullback"), how is the relationship between timeframes formalized?  
-**Things to consider:**
-- Higher timeframe structure should take precedence
-- Need a way to reference "HTF trend" from within an hourly signal condition
-- This has implications for both the DSL schema and the signal evaluator  
-**Decision needed:** How multi-timeframe references work in the signal dict before Phase 8 DSL design.
+**Status:** **Resolved → D-58, D-63**  
+**Decision:** `StructureContext` + forward-fill HTF onto base TF (default base `1h`, HTF
+`4h` + `1d`). **Library only** in Phase 4 — no evaluator YAML hook yet.
+
+---
+
+### OQ-51 — Vectorbt-style pattern similarity in Phase 4
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-61**  
+**Question:** Should Phase 4 include vectorbt PRO–style template matching (`find_pattern`,
+similarity scores, projections)?  
+**Decision:** **No.** Phase 4 is pivot/fractal swing structure only. Similarity search
+is deferred to **Phase 5** if added.
+
+---
+
+### OQ-45 — Confirmed vs provisional swings
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-62**  
+**Decision:** API returns both; backtest/signals use **`confirmed_only=True`** default.
+
+---
+
+### OQ-46 — Swing price field
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-53**  
+**Decision:** **`high`** for swing highs, **`low`** for swing lows.
+
+---
+
+### OQ-47 — S/R zones vs discrete levels
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-57**  
+**Decision:** **Discrete levels**, **`k=3`** swings.
+
+---
+
+### OQ-48 — Default pivot width
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-53**  
+**Decision:** **`left_bars=right_bars=5`** global default.
+
+---
+
+### OQ-49 — Evaluator integration in Phase 4
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-63**  
+**Decision:** **Library only**; no `structure:` YAML hook in Phase 4.
+
+---
+
+### OQ-50 — Strict pivot comparison
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-53**  
+**Decision:** Strict **`>`** / **`<`** vs neighbors.
 
 ---
 
@@ -578,9 +610,16 @@ higher-timeframe reads.
 | OQ-36 | Pivot session boundaries | Phase 2 | Resolved → D-35 |
 | OQ-37 | SMA source | Phase 2 | Resolved → D-28 |
 | OQ-38 | Ichimoku defaults | Phase 2 | Resolved → D-36 |
-| OQ-10 | Swing detection algorithm | Phase 4 | Open |
-| OQ-11 | Equal highs/lows tolerance | Phase 4 | Open |
-| OQ-12 | Multi-TF structure hierarchy | Phase 4 | Open |
+| OQ-10 | Swing detection algorithm | Phase 4 | Resolved → D-53 |
+| OQ-11 | Equal highs/lows tolerance | Phase 4 | Resolved → D-55 |
+| OQ-12 | Multi-TF structure hierarchy | Phase 4 | Resolved → D-58, D-63 |
+| OQ-45 | Confirmed vs provisional swings | Phase 4 | Resolved → D-62 |
+| OQ-46 | Swing price field | Phase 4 | Resolved → D-53 |
+| OQ-47 | S/R zones vs levels | Phase 4 | Resolved → D-57 |
+| OQ-48 | Default pivot width | Phase 4 | Resolved → D-53 |
+| OQ-49 | Evaluator hook in Phase 4 | Phase 4 | Resolved → D-63 |
+| OQ-50 | Strict pivot rule | Phase 4 | Resolved → D-53 |
+| OQ-51 | Vectorbt-style similarity in Phase 4 | Phase 4 | Resolved → D-61 |
 | OQ-13 | Pattern definition reference | Phase 5 | Open |
 | OQ-14 | Pattern confidence scoring | Phase 5 | Open |
 | OQ-15 | Pattern completion vs formation | Phase 5 | Open |
