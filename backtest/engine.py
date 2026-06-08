@@ -2,7 +2,7 @@
 Backtest engine with next-bar open fills (D-14 invariant).
 
 Supports long-only or long/short strategies with optional ATR stop loss and
-risk-reward take profit per side, plus slippage and commission (Phase 3).
+risk-reward take profit per side, slippage, commission, and position sizing (Phase 3).
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from backtest.fills import CostModel, FillModel
+from backtest.sizing import compute_position_notional, resolve_sizing
 from backtest.types import BacktestConfig, ExitReason, PositionSide
 from signals.types import SideStrategy, StopLossConfig, TakeProfitConfig
 
@@ -45,7 +46,8 @@ class _OpenPosition:
     entry_fill: float
     position_notional: float
     entry_commission: float
-    capital_before_trade: float
+    equity_at_entry: float
+    cash_reserve: float
     stop_price: float = 0.0
     target_price: float = 0.0
     risk_active: bool = False
@@ -76,7 +78,8 @@ def _mark_equity(
         return cash
 
     close_price = float(candles.iloc[bar_index]["close"])
-    return _proceeds(position.side, position.position_notional, position.entry_fill, close_price)
+    position_value = _proceeds(position.side, position.position_notional, position.entry_fill, close_price)
+    return position.cash_reserve + position_value
 
 
 def _compute_risk_levels(
@@ -136,6 +139,12 @@ def _check_risk_exit(
     return None
 
 
+def _entry_cost(notional: float, cost_model: CostModel) -> tuple[float, float]:
+    """Return (entry_commission, total_cash_debit) for opening a position."""
+    commission = cost_model.compute(notional)
+    return commission, notional + commission
+
+
 def _close_position(
     candles: pd.DataFrame,
     bar_index: int,
@@ -148,7 +157,7 @@ def _close_position(
     *,
     forced_close: bool = False,
 ) -> float:
-    """Close the open position and append a completed trade. Returns cash."""
+    """Close the open position and append a completed trade. Returns total cash."""
     exit_fill = fill_model.apply(raw_exit_price, position.side, is_entry=False)
     gross_proceeds = _proceeds(
         position.side,
@@ -157,9 +166,10 @@ def _close_position(
         exit_fill,
     )
     exit_commission = cost_model.compute(gross_proceeds)
-    cash = gross_proceeds - exit_commission
+    cash = position.cash_reserve + gross_proceeds - exit_commission
     commission_paid = position.entry_commission + exit_commission
-    pnl_quote = cash - position.capital_before_trade
+    cost_basis = position.position_notional + position.entry_commission
+    pnl_quote = (gross_proceeds - exit_commission) - cost_basis
 
     trades.append(
         Trade(
@@ -189,38 +199,74 @@ def _enter_position(
     side_config: SideStrategy | None,
     atr_series: pd.Series | None,
     signal_bar: int,
-) -> tuple[_OpenPosition, float]:
-    """Open a new position and return position state with remaining cash (always 0 for full capital)."""
+    backtest_config: BacktestConfig,
+) -> tuple[_OpenPosition | None, float]:
+    """
+    Open a new position when sizing allows.
+
+    Returns:
+        Tuple of position state (or None if skipped) and remaining cash.
+    """
     raw_price = float(candles.iloc[bar_index]["open"])
     entry_fill = fill_model.apply(raw_price, side, is_entry=True)
-    capital_before = cash
-    entry_commission = cost_model.compute(capital_before)
-    position_notional = capital_before - entry_commission
+    equity_at_entry = cash
+
+    sizing = resolve_sizing(backtest_config.sizing, side_config)
+    atr_value: float | None = None
+    stop_loss: StopLossConfig | None = None
+    if side_config is not None and atr_series is not None and "stop_loss" in side_config:
+        raw_atr = float(atr_series.iloc[signal_bar])
+        if not pd.isna(raw_atr):
+            atr_value = raw_atr
+            stop_loss = side_config["stop_loss"]
+
+    try:
+        if sizing.mode == "full_capital":
+            # Legacy behavior: commission is charged on total equity; remainder is deployed.
+            entry_commission = cost_model.compute(equity_at_entry)
+            notional = equity_at_entry - entry_commission
+            total_debit = equity_at_entry
+        else:
+            notional = compute_position_notional(
+                sizing,
+                equity_at_entry,
+                entry_fill,
+                side,
+                atr_value=atr_value,
+                stop_loss=stop_loss,
+            )
+            if notional <= 0.0:
+                return None, cash
+            entry_commission, total_debit = _entry_cost(notional, cost_model)
+    except ValueError:
+        return None, cash
+
+    if notional <= 0.0 or total_debit > equity_at_entry:
+        return None, cash
 
     position = _OpenPosition(
         side=side,
         entry_date=candles.iloc[bar_index]["ts"],
         entry_fill=entry_fill,
-        position_notional=position_notional,
+        position_notional=notional,
         entry_commission=entry_commission,
-        capital_before_trade=capital_before,
+        equity_at_entry=equity_at_entry,
+        cash_reserve=equity_at_entry - total_debit,
     )
 
-    if side_config is not None and atr_series is not None:
-        atr_value = float(atr_series.iloc[signal_bar])
-        if not pd.isna(atr_value):
-            stop_price, target_price = _compute_risk_levels(
-                entry_fill,
-                side,
-                atr_value,
-                side_config["stop_loss"],
-                side_config["take_profit"],
-            )
-            position.stop_price = stop_price
-            position.target_price = target_price
-            position.risk_active = True
+    if side_config is not None and atr_value is not None and stop_loss is not None and "take_profit" in side_config:
+        stop_price, target_price = _compute_risk_levels(
+            entry_fill,
+            side,
+            atr_value,
+            stop_loss,
+            side_config["take_profit"],
+        )
+        position.stop_price = stop_price
+        position.target_price = target_price
+        position.risk_active = True
 
-    return position, 0.0
+    return position, position.cash_reserve
 
 
 def run_backtest(
@@ -237,7 +283,7 @@ def run_backtest(
     backtest_config: BacktestConfig | None = None,
 ) -> tuple[list[Trade], pd.Series]:
     """
-    Run a backtest with one position at a time and full capital sizing.
+    Run a backtest with one position at a time and configurable position sizing.
 
     Args:
         candles: OHLCV DataFrame with ts, open, high, low, close columns.
@@ -249,7 +295,7 @@ def run_backtest(
         long_side: Optional long risk config with stop_loss and take_profit.
         short_side: Optional short risk config with stop_loss and take_profit.
         atr_series: Optional ATR values aligned to candles for risk exits.
-        backtest_config: Slippage and commission settings. Defaults to zero fees.
+        backtest_config: Slippage, commission, and sizing settings.
 
     Returns:
         Tuple of trade list and per-bar equity Series (attrs: initial/final capital,
@@ -343,6 +389,7 @@ def run_backtest(
                         long_side,
                         atr_series,
                         signal_bar,
+                        config,
                     )
                 elif dual_mode and short_entry_signals is not None and bool(short_entry_signals.iloc[signal_bar]):
                     position, cash = _enter_position(
@@ -355,6 +402,7 @@ def run_backtest(
                         short_side,
                         atr_series,
                         signal_bar,
+                        config,
                     )
 
         equity.iloc[bar_index] = _mark_equity(candles, bar_index, position, cash)

@@ -19,7 +19,7 @@ from signals.types import DualStrategy, SideStrategy, Strategy
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 DEFAULT_BACKTEST_SLIPPAGE_BPS = 0.0
-DEFAULT_BACKTEST_COMMISSION_RATE = 0.001
+DEFAULT_BACKTEST_COMMISSION_RATE = 0.0
 PRODUCTION_BACKTEST_SLIPPAGE_BPS = 5.0
 PRODUCTION_BACKTEST_COMMISSION_RATE = 0.001
 
@@ -53,7 +53,7 @@ def get_strategy_benchmark(strategy: Strategy | DualStrategy) -> str:
 def _parse_commission(raw: dict[str, Any] | None) -> CommissionConfig:
     """Parse commission config with zero-fee defaults when absent."""
     if not raw:
-        return CommissionConfig(type="percent", rate=DEFAULT_BACKTEST_COMMISSION_RATE)
+        return CommissionConfig(type="percent", rate=0.0)
     commission_type = str(raw.get("type", "percent"))
     if commission_type not in {"percent", "flat"}:
         raise ValueError(f"Unsupported commission type: {commission_type}")
