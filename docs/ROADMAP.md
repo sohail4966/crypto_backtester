@@ -133,7 +133,7 @@ POC `basic.py` removed; full suite green. See
 high/low on the breach bar.
 
 **Done when:** All [Phase 3 done criteria](PHASE_3_HLD.md#done-criteria) pass; full suite
-green (`314 passed`). Verified manually: `python run_backtest.py` on synced DB data.
+green (`317 passed`). CLI path covered by `test_run_backtest_integration.py`; manual run on synced DB still recommended.
 
 ---
 

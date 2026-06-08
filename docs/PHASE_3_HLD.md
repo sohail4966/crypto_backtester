@@ -309,6 +309,9 @@ tests/backtest/
   test_engine.py     # fills, stops, trailing, sizing, fees
   test_metrics.py    # sharpe, profit factor, benchmark
   test_export.py     # CSV shape
+
+tests/
+  test_run_backtest_integration.py  # main() path with mocked DB
 ```
 
 ### Engine refactor (minimal)
@@ -525,7 +528,7 @@ Phase 3 is complete when all of the following are true:
 | 6 | Sharpe, Sortino, Calmar, profit factor + benchmark in metrics output | [x] |
 | 7 | Trades exported to CSV each run | [x] |
 | 8 | D-14 invariant preserved; dedicated tests pass | [x] |
-| 9 | `pytest` full suite passes | [x] (`314 passed`) |
+| 9 | `pytest` full suite passes | [x] (`317 passed`) |
 | 10 | `python run_backtest.py` runs end-to-end on synced DB data | [x] |
 
 ---
@@ -545,7 +548,7 @@ modules — sufficient for Phase 3 without a separate `RiskManager` class.
 
 | Check | Result | Notes |
 |---|---|---|
-| Full unit suite | Passing | `314 passed` |
+| Full unit suite | Passing | `317 passed` |
 | D-37 through D-51 in DECISIONS.md | Done | Plus D-52 (entry trigger) |
 | Slippage + commission | Done | `backtest/fills.py`; `test_fills.py`, `test_engine_costs.py` |
 | Four sizing modes | Done | `test_sizing.py` |
@@ -565,13 +568,13 @@ modules — sufficient for Phase 3 without a separate `RiskManager` class.
 | Architecture alignment | 9/10 | Layering matches HLD; fills/risk/sizing extracted cleanly |
 | Feature completeness | 10/10 | All in-scope ROADMAP items shipped; multi-position correctly deferred |
 | Correctness / invariants | 9/10 | D-14, intrabar priority, cash conservation, D-51 startup validation |
-| Test coverage | 8/10 | Strong unit tests per module; no automated DB integration test for CLI |
+| Test coverage | 9/10 | Unit tests per module + `test_run_backtest_integration.py` (mocked DB) |
 | Documentation | 8/10 | HLD/ROADMAP/DECISIONS updated at sign-off; README refreshed |
 | Operational realism | 8/10 | Fees + slippage + sizing work; strategies still need user tuning per TF |
 
 ### Known gaps (acceptable for Phase 3)
 
-- **No `run_backtest.py` integration test** against the live DB — verified manually.
+- **No live-DB integration test** — `test_run_backtest_integration.py` mocks `get_candles`; manual run still needed against TimescaleDB.
 - **Global `backtest` block only** — per-strategy cost override not implemented (HLD noted as later).
 - **Level-triggered exits** remain default; only **entries** support edge trigger (D-52).
 - **Phase 7 alerts** may need separate edge/level policy (OQ-21 partially open).

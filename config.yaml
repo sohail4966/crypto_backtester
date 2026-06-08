@@ -1,5 +1,5 @@
 symbol: BTC/USDT
-timeframe: 15m
+timeframe: 5m
 years: 8
 exchange_id: binance
 initial_capital: 10000.0
