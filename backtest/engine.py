@@ -1,8 +1,8 @@
 """
 Backtest engine with next-bar open fills (D-14 invariant).
 
-Supports long-only or long/short strategies with optional ATR stop loss and
-risk-reward take profit per side, slippage, commission, and position sizing (Phase 3).
+Supports long-only or long/short strategies with optional risk exits, slippage,
+commission, and position sizing (Phase 3).
 """
 
 from __future__ import annotations
@@ -12,9 +12,10 @@ from dataclasses import dataclass
 import pandas as pd
 
 from backtest.fills import CostModel, FillModel
+from backtest.risk import check_intrabar_exit, resolve_risk_levels, update_trailing_stop
 from backtest.sizing import compute_position_notional, resolve_sizing
 from backtest.types import BacktestConfig, ExitReason, PositionSide
-from signals.types import SideStrategy, StopLossConfig, TakeProfitConfig
+from signals.types import SideStrategy, StopLossConfig
 
 # Hardcoded invariant: signal on bar N fills at open of bar N+1 (see D-14).
 ENTRY_ON_NEXT_BAR = True
@@ -48,9 +49,15 @@ class _OpenPosition:
     entry_commission: float
     equity_at_entry: float
     cash_reserve: float
+    entry_bar_index: int
     stop_price: float = 0.0
-    target_price: float = 0.0
+    target_price: float | None = None
     risk_active: bool = False
+    stop_is_trailing: bool = False
+    stop_loss_configured: bool = False
+    take_profit_active: bool = False
+    trail_best_price: float = 0.0
+    stop_loss_config: StopLossConfig | None = None
 
 
 def _return_pct(side: PositionSide, entry_price: float, exit_price: float) -> float:
@@ -80,63 +87,6 @@ def _mark_equity(
     close_price = float(candles.iloc[bar_index]["close"])
     position_value = _proceeds(position.side, position.position_notional, position.entry_fill, close_price)
     return position.cash_reserve + position_value
-
-
-def _compute_risk_levels(
-    entry_price: float,
-    side: PositionSide,
-    atr_value: float,
-    stop_loss: StopLossConfig,
-    take_profit: TakeProfitConfig,
-) -> tuple[float, float]:
-    """Derive stop loss and take profit prices from ATR risk and reward ratio."""
-    if stop_loss["type"] != "atr":
-        raise ValueError(f"Unsupported stop_loss type: {stop_loss['type']}")
-    if take_profit["type"] != "risk_reward":
-        raise ValueError(f"Unsupported take_profit type: {take_profit['type']}")
-
-    multiplier = float(stop_loss["multiplier"])
-    ratio = float(take_profit["ratio"])
-    if side == "long":
-        stop_price = entry_price - (atr_value * multiplier)
-        risk = entry_price - stop_price
-        target_price = entry_price + (risk * ratio)
-        return stop_price, target_price
-
-    stop_price = entry_price + (atr_value * multiplier)
-    risk = stop_price - entry_price
-    target_price = entry_price - (risk * ratio)
-    return stop_price, target_price
-
-
-def _check_risk_exit(
-    candles: pd.DataFrame,
-    bar_index: int,
-    side: PositionSide,
-    stop_price: float,
-    target_price: float,
-) -> tuple[float, ExitReason] | None:
-    """
-    Check whether stop loss or take profit was hit on the current bar.
-
-    Stop loss is checked before take profit when both could occur on one bar.
-    """
-    bar = candles.iloc[bar_index]
-    high = float(bar["high"])
-    low = float(bar["low"])
-
-    if side == "long":
-        if low <= stop_price:
-            return stop_price, "stop_loss"
-        if high >= target_price:
-            return target_price, "take_profit"
-        return None
-
-    if high >= stop_price:
-        return stop_price, "stop_loss"
-    if low <= target_price:
-        return target_price, "take_profit"
-    return None
 
 
 def _entry_cost(notional: float, cost_model: CostModel) -> tuple[float, float]:
@@ -189,6 +139,66 @@ def _close_position(
     return cash
 
 
+def _apply_risk_to_position(
+    position: _OpenPosition,
+    side_config: SideStrategy | None,
+    atr_value: float | None,
+) -> None:
+    """Attach stop/target levels to a newly opened position."""
+    if side_config is None:
+        return
+
+    levels = resolve_risk_levels(
+        position.entry_fill,
+        position.side,
+        side_config.get("stop_loss"),
+        side_config.get("take_profit"),
+        atr_value,
+    )
+    if levels is None:
+        return
+
+    position.stop_price = levels.stop_price
+    position.target_price = levels.target_price
+    position.stop_is_trailing = levels.stop_is_trailing
+    position.take_profit_active = levels.take_profit_active
+    position.stop_loss_configured = side_config.get("stop_loss") is not None
+    position.risk_active = position.stop_loss_configured or position.take_profit_active
+    position.trail_best_price = position.entry_fill
+    position.stop_loss_config = side_config.get("stop_loss")
+
+
+def _maybe_update_trailing(
+    position: _OpenPosition,
+    candles: pd.DataFrame,
+    bar_index: int,
+    atr_series: pd.Series | None,
+    signal_bar: int,
+) -> None:
+    """Ratchet trailing stops from the bar after entry (D-41)."""
+    if not position.risk_active or not position.stop_is_trailing:
+        return
+    if bar_index <= position.entry_bar_index:
+        return
+    if position.stop_loss_config is None or atr_series is None:
+        return
+
+    atr_value = float(atr_series.iloc[signal_bar])
+    if pd.isna(atr_value):
+        return
+
+    bar = candles.iloc[bar_index]
+    position.stop_price, position.trail_best_price = update_trailing_stop(
+        position.side,
+        position.stop_price,
+        position.trail_best_price,
+        float(bar["high"]),
+        float(bar["low"]),
+        position.stop_loss_config,
+        atr_value,
+    )
+
+
 def _enter_position(
     candles: pd.DataFrame,
     bar_index: int,
@@ -222,7 +232,6 @@ def _enter_position(
 
     try:
         if sizing.mode == "full_capital":
-            # Legacy behavior: commission is charged on total equity; remainder is deployed.
             entry_commission = cost_model.compute(equity_at_entry)
             notional = equity_at_entry - entry_commission
             total_debit = equity_at_entry
@@ -252,19 +261,9 @@ def _enter_position(
         entry_commission=entry_commission,
         equity_at_entry=equity_at_entry,
         cash_reserve=equity_at_entry - total_debit,
+        entry_bar_index=bar_index,
     )
-
-    if side_config is not None and atr_value is not None and stop_loss is not None and "take_profit" in side_config:
-        stop_price, target_price = _compute_risk_levels(
-            entry_fill,
-            side,
-            atr_value,
-            stop_loss,
-            side_config["take_profit"],
-        )
-        position.stop_price = stop_price
-        position.target_price = target_price
-        position.risk_active = True
+    _apply_risk_to_position(position, side_config, atr_value)
 
     return position, position.cash_reserve
 
@@ -322,12 +321,17 @@ def run_backtest(
             signal_bar = bar_index - 1
 
             if position is not None and position.risk_active:
-                risk_exit = _check_risk_exit(
-                    candles,
-                    bar_index,
+                _maybe_update_trailing(position, candles, bar_index, atr_series, signal_bar)
+                bar = candles.iloc[bar_index]
+                risk_exit = check_intrabar_exit(
                     position.side,
+                    float(bar["high"]),
+                    float(bar["low"]),
                     position.stop_price,
                     position.target_price,
+                    take_profit_active=position.take_profit_active,
+                    stop_is_trailing=position.stop_is_trailing,
+                    stop_loss_configured=position.stop_loss_configured,
                 )
                 if risk_exit is not None:
                     raw_exit_price, exit_reason = risk_exit

@@ -77,7 +77,7 @@ def compute_position_notional(
         return sizing.amount if sizing.amount <= equity else 0.0
 
     if sizing.mode == "risk_pct":
-        if atr_value is None or stop_loss is None or stop_loss.get("type") != "atr":
+        if atr_value is None or stop_loss is None or stop_loss.get("type") not in {"atr", "atr_trail"}:
             raise ValueError("risk_pct sizing requires an ATR stop_loss (D-51)")
         distance = _stop_distance(entry_fill, side, atr_value, stop_loss)
         if distance <= 0.0:
