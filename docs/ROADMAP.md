@@ -109,6 +109,8 @@ POC `basic.py` removed; full suite green. See
 
 ## Phase 3 — Backtest Engine (full)
 
+**Design doc:** [PHASE_3_HLD.md](PHASE_3_HLD.md) (approved — ready for implementation)
+
 **Theme:** Turn the POC backtest skeleton into a real, reliable simulation engine.
 
 **Goal:** Backtest results are trustworthy enough to make strategy decisions from.

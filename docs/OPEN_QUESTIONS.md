@@ -288,22 +288,62 @@ In a screener, traders often want to know a pattern is forming before it complet
 
 ### OQ-16 — Multiple position management rules
 **Priority:** BEFORE PHASE 3  
-**Question:** When multiple positions are allowed, what are the rules?
-Max concurrent positions? Per-symbol limit? Total capital allocation?  
-**Why it matters:** Without clear rules, a backtest can over-allocate capital and
-produce unrealistic results.  
-**Decision needed:** Default rules for Phase 3, with user-configurable overrides.
+**Status:** **Resolved → D-43**  
+**Decision:** Phase 3 allows **one position only** (`max_positions: 1`). Multiple
+concurrent positions deferred to **Phase 7**.
 
 ---
 
 ### OQ-17 — Benchmark for comparison
 **Priority:** BEFORE PHASE 3  
-**Question:** What is the default benchmark to compare strategy performance against?  
-**Options:**
-- Buy and hold BTC (most common for crypto)
-- Buy and hold the specific symbol being tested
-- No benchmark (just absolute metrics)  
-**Decision needed:** Default benchmark in Phase 3 metrics output.
+**Status:** **Resolved → D-42**  
+**Decision:** Per-strategy `benchmark: symbol | none`. `symbol` = buy-and-hold the
+backtested pair; `none` = skip benchmark for that strategy.
+
+---
+
+### OQ-39 — Sharpe/Sortino on intraday data
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-46**  
+**Decision:** Resample equity to **daily** (UTC) before annualized Sharpe/Sortino when
+timeframe is below `1d`.
+
+---
+
+### OQ-40 — Intrabar stop vs signal exit same bar
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-37**  
+**Decision:** Intrabar stop/TP checked first; signal exit at next open only if still open.
+
+---
+
+### OQ-41 — Simultaneous long and short
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-49**  
+**Decision:** One net position only (long **or** short).
+
+---
+
+### OQ-42 — Trailing stop activation bar
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-41**  
+**Decision:** Trailing stop checks start on the **bar after entry**, not the entry bar.
+
+---
+
+### OQ-43 — Risk-based sizing without stop / complete position close
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-47, D-51**  
+**Decision:** (1) Every exit **closes 100% of the open position** — complete
+liquidation, no partial exits (D-47). (2) `risk_pct` sizing **requires** a defined
+`stop_loss`; otherwise **`ValueError` at startup** (D-51).
+
+---
+
+### OQ-44 — Phase 3 scope
+**Priority:** PHASE 3  
+**Status:** **Resolved → D-48**  
+**Decision:** Full Phase 3 scope in one implementation pass.
 
 ---
 
@@ -545,8 +585,14 @@ higher-timeframe reads.
 | OQ-13 | Pattern definition reference | Phase 5 | Open |
 | OQ-14 | Pattern confidence scoring | Phase 5 | Open |
 | OQ-15 | Pattern completion vs formation | Phase 5 | Open |
-| OQ-16 | Multiple position rules | Phase 3 | Open |
-| OQ-17 | Backtest benchmark | Phase 3 | Open |
+| OQ-16 | Multiple position rules | Phase 3 | Resolved → D-43 |
+| OQ-17 | Backtest benchmark | Phase 3 | Resolved → D-42 |
+| OQ-39 | Sharpe on intraday data | Phase 3 | Resolved → D-46 |
+| OQ-40 | Stop vs signal same bar | Phase 3 | Resolved → D-37 |
+| OQ-41 | Simultaneous long/short | Phase 3 | Resolved → D-49 |
+| OQ-42 | Trailing stop start bar | Phase 3 | Resolved → D-41 |
+| OQ-43 | Complete position close / risk sizing | Phase 3 | Resolved → D-47, D-51 |
+| OQ-44 | Phase 3 scope | Phase 3 | Resolved → D-48 |
 | OQ-18 | Look-ahead bias enforcement | POC | Resolved → D-14 |
 | OQ-19 | SMC reference framework | Phase 6 | Open |
 | OQ-20 | FVG invalidation rules | Phase 6 | Open |

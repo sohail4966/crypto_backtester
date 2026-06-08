@@ -422,6 +422,140 @@ stored `1m` when on intraday timeframes). On `1d` timeframe, use the prior bar's
 
 ---
 
+## D-37 — Execution model: signal fills vs intrabar risk exits
+
+**Decision:** Signal entries and exits fill at `open[N+1]` ± slippage (D-14). Stop loss,
+take profit, and trailing stops use intrabar high/low on the breach bar. When both stop
+and take profit could trigger on the same bar, **stop loss is checked first**. Forced
+close at last bar uses `close[N]`.
+
+**Resolves:** OQ-40
+
+---
+
+## D-38 — Slippage: fixed basis points
+
+**Decision:** Adverse fixed slippage in basis points on every fill. Production default
+in `config.yaml`: **`slippage_bps: 5`** (minimal realistic value for liquid USDT spot
+pairs in the Phase 1 universe: BTC, ETH, SOL). Unit tests use **`0`** bps for
+deterministic baselines.
+
+**Resolves:** (Phase 3 cost model)
+
+---
+
+## D-39 — Commission: percent per fill
+
+**Decision:** Commission `type: percent` with **`rate: 0.001`** (0.1% per fill) as the
+production default in `config.yaml`. Flat per-fill commission remains supported. Tests
+default to **`0`**.
+
+---
+
+## D-40 — Position sizing modes
+
+**Decision:** Four sizing modes per strategy or per side: `full_capital`, `fixed_pct`,
+`fixed_notional`, `risk_pct`. Default remains `full_capital` when unspecified.
+
+---
+
+## D-41 — Trailing stop types
+
+**Decision:** Support `atr_trail` and `fixed_pct_trail`. Trailing is checked from the
+**bar after entry** (not the entry bar itself). Ratchet only in the favorable direction.
+
+**Resolves:** OQ-42
+
+---
+
+## D-42 — Benchmark: per-strategy symbol or none
+
+**Decision:** Each strategy (or global `backtest` default) sets `benchmark`:
+
+- `symbol` — buy-and-hold the **backtested symbol** over the same window
+- `none` — skip benchmark metrics for that run
+
+No fixed “always BTC” default. Example: trend strategies may use `symbol`; pure alpha
+strategies may use `none`.
+
+**Resolves:** OQ-17
+
+---
+
+## D-43 — One position only in Phase 3
+
+**Decision:** Phase 3 engine allows **`max_positions: 1` only**. Multiple concurrent
+positions on the same or different symbols are **deferred to Phase 7**.
+
+**Resolves:** OQ-16
+
+---
+
+## D-44 — Trade log CSV export
+
+**Decision:** Each backtest run writes a trades CSV (default `output/trades.csv`) with
+entry/exit, side, prices, return, exit reason, size, commission, and PnL columns.
+
+---
+
+## D-45 — Extended performance metrics
+
+**Decision:** Add Sharpe, Sortino, Calmar, profit factor, and benchmark comparison
+fields to `BacktestMetrics`. Risk ratios use **daily-resampled equity** when the
+backtest timeframe is intraday (see D-46).
+
+---
+
+## D-46 — Sharpe/Sortino on intraday backtests
+
+**Decision:** For timeframes below `1d` (e.g. `1m`, `1h`), resample the equity curve to
+**one point per UTC calendar day** (last equity of the day) before computing daily
+returns and annualized Sharpe/Sortino. Raw per-bar returns are not used for these
+metrics.
+
+**Resolves:** OQ-39
+
+---
+
+## D-47 — Every exit is a complete position close
+
+**Decision:** Phase 3 **never partial-closes** a position. Every exit path (signal,
+stop loss, take profit, trailing stop, forced close) liquidates **100% of the open
+position** in one fill. No scale-out or reduce-size exits.
+
+**Resolves:** OQ-43 (user intent: “complete position close,” not a sizing fallback)
+
+---
+
+## D-51 — Risk sizing requires a stop
+
+**Decision:** If `sizing.mode` is `risk_pct` but the strategy side has no usable
+`stop_loss` config, raise **`ValueError` at startup** — stop distance is required to
+compute risk-based size.
+
+**Resolves:** OQ-43 (sizing sub-question)
+
+---
+
+## D-48 — Phase 3 full scope in one pass
+
+**Decision:** Ship slippage, commission, all four sizing modes, fixed + ATR + trailing
+stops, extended metrics, per-strategy benchmark, and CSV export in a single Phase 3
+implementation (no MVP sub-phase).
+
+**Resolves:** OQ-44
+
+---
+
+## D-49 — Dual strategy: one net position
+
+**Decision:** Long/short dual strategies hold **at most one net position** (long or
+short, never both). Opposite-side entry requires closing the current position first.
+
+**Resolves:** OQ-41
+
+---
+
 ## D-14 — Look-ahead bias prevention: entry at next-bar open is a hardcoded engine invariant
 
 **Decision:** The backtest engine always executes entry and exit at the **open price of
