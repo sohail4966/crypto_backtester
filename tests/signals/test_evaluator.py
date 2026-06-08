@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from exceptions import InvalidSignalError
-from signals.evaluator import evaluate_signals
+from backtest.engine import run_backtest
+from signals.evaluator import apply_entry_trigger, edge_trigger, evaluate_signals
 from signals.types import Strategy
 
 
@@ -175,6 +176,73 @@ def test_evaluate_signals_supertrend_above_close_compare() -> None:
     entry_signals, exit_signals = evaluate_signals(candles, strategy)
     assert entry_signals.dtype == bool
     assert len(entry_signals) == len(candles)
+
+
+def test_edge_trigger_fires_only_on_false_to_true_transition() -> None:
+    """Edge trigger fires once per rising edge, not on every true bar."""
+    level = pd.Series([False, True, True, True, False, True])
+    edge = edge_trigger(level)
+    assert edge.tolist() == [False, True, False, False, False, True]
+
+
+def test_evaluate_signals_edge_trigger_reduces_entry_count_vs_level() -> None:
+    """Default edge entry avoids repeated True bars while conditions stay latched."""
+    from signals.evaluator import _evaluate_condition
+
+    strategy: Strategy = {
+        "entry": {"indicator": "RSI", "params": {"period": 14}, "op": "<", "value": 100},
+        "exit": {"indicator": "RSI", "params": {"period": 14}, "op": ">", "value": 70},
+    }
+    candles = _sample_candles()
+    raw_entry = _evaluate_condition(candles, strategy["entry"])
+    level_entry = apply_entry_trigger(raw_entry, "level")
+    edge_entry = apply_entry_trigger(raw_entry, "edge")
+    assert edge_entry.sum() <= level_entry.sum()
+    if level_entry.sum() > 1:
+        assert edge_entry.sum() < level_entry.sum()
+
+
+def test_engine_churn_level_entry_reenters_edge_entry_does_not() -> None:
+    """Level entry re-enters after stop while edge entry waits for a new flip."""
+    candles = pd.DataFrame(
+        {
+            "ts": pd.date_range("2024-01-01", periods=8, freq="h", tz="UTC"),
+            "open": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            "high": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+            "low": [100.0, 100.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0],
+            "close": [100.0, 100.0, 92.0, 92.0, 92.0, 92.0, 92.0, 92.0],
+            "volume": 1.0,
+        }
+    )
+    level_entry = pd.Series([True, True, True, True, True, True, True, True])
+    edge_entry = edge_trigger(level_entry)
+    exit_signals = pd.Series([False] * 8)
+    side = {
+        "entry": {"indicator": "RSI", "op": "<", "value": 30},
+        "exit": {"indicator": "RSI", "op": ">", "value": 70},
+        "stop_loss": {"type": "atr", "period": 14, "multiplier": 2.0},
+    }
+    atr_series = pd.Series([2.0] * 8)
+
+    level_trades, _ = run_backtest(
+        candles,
+        level_entry,
+        exit_signals,
+        initial_capital=1000.0,
+        long_side=side,
+        atr_series=atr_series,
+    )
+    edge_trades, _ = run_backtest(
+        candles,
+        edge_entry,
+        exit_signals,
+        initial_capital=1000.0,
+        long_side=side,
+        atr_series=atr_series,
+    )
+
+    assert len(level_trades) > len(edge_trades)
+    assert len(edge_trades) == 1
 
 
 def test_evaluate_signals_invalid_indicator_params_raise_invalid_signal_error() -> None:

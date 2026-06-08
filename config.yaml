@@ -1,6 +1,6 @@
-symbol: ETH/USDT
-timeframe: 1m
-years: 4
+symbol: BTC/USDT
+timeframe: 15m
+years: 8
 exchange_id: binance
 initial_capital: 10000.0
 output_dir: output
@@ -16,29 +16,21 @@ backtest:
   export_trades: true
   trades_csv: output/trades.csv
 
-# Which named strategy to run.
-# Options: rsi_mean_reversion, trend_momentum, golden_trend, supertrend_ema_dual
-active_strategy: supertrend_ema_dual
+# Showcase strategy: dual long/short, multi-indicator AND groups, cross-indicator
+# comparisons, volume + momentum + trend filters, per-side sizing, ATR trail vs
+# fixed stops, risk-reward vs fixed take profit, benchmark, fees, and CSV export.
+active_strategy: full_stack_confluence
 
 strategies:
-  rsi_mean_reversion:
-    benchmark: none
-    entry:
-      indicator: RSI
-      params:
-        period: 14
-      op: "<"
-      value: 20
-    exit:
-      indicator: RSI
-      params:
-        period: 14
-      op: ">"
-      value: 80
-
-  trend_momentum:
+  full_stack_confluence:
     benchmark: symbol
+    # edge = one entry per signal flip (fixes stop-out re-entry churn on 15m/1h)
+    entry_trigger: edge
+
     long:
+      sizing:
+        mode: risk_pct
+        risk_pct: 0.04
       entry:
         all:
           - indicator: ADX
@@ -46,124 +38,10 @@ strategies:
               period: 14
             op: ">"
             value: 25
-          - indicator: MACD_HIST
-            params:
-              fast: 12
-              slow: 26
-              signal: 9
-            op: ">"
-            value: 0
-          - indicator: RSI
-            params:
-              period: 14
-            op: "<"
-            value: 40
-      exit:
-        all:
-          - indicator: MACD_HIST
-            params:
-              fast: 12
-              slow: 26
-              signal: 9
-            op: "<"
-            value: 0
-      stop_loss:
-        type: atr
-        period: 14
-        multiplier: 1
-      take_profit:
-        type: risk_reward
-        ratio: 1
-
-    short:
-      entry:
-        all:
-          - indicator: ADX
-            params:
-              period: 14
-            op: ">"
-            value: 25
-          - indicator: MACD_HIST
-            params:
-              fast: 12
-              slow: 26
-              signal: 9
-            op: "<"
-            value: 0
-          - indicator: RSI
-            params:
-              period: 14
-            op: ">"
-            value: 70
-      exit:
-        all:
-          - indicator: MACD_HIST
-            params:
-              fast: 12
-              slow: 26
-              signal: 9
-            op: ">"
-            value: 0
-      stop_loss:
-        type: atr
-        period: 14
-        multiplier: 1
-      take_profit:
-        type: risk_reward
-        ratio: 1
-
-  golden_trend:
-    benchmark: symbol
-    entry:
-      all:
-        - indicator: EMA
-          params:
-            period: 9
-          op: ">"
-          compare:
-            indicator: EMA
-            params:
-              period: 21
-        - indicator: SMA
-          params:
-            period: 50
-          op: "<"
-          compare: close
-        - indicator: SMA
-          params:
-            period: 200
-          op: "<"
-          compare: close
-        - indicator: SUPERTREND
-          params:
-            period: 10
-            multiplier: 3.0
-          op: "<"
-          compare: close
-    exit:
-      indicator: EMA
-      params:
-        period: 9
-      op: "<"
-      compare:
-        indicator: EMA
-        params:
-          period: 21
-
-  supertrend_ema_dual:
-    benchmark: symbol
-    long:
-      entry:
-        all:
           - indicator: SUPERTREND
             params:
               period: 10
               multiplier: 3.0
-            op: "<"
-            compare: close
-          - indicator: EMA
-            params:
-              period: 50
             op: "<"
             compare: close
           - indicator: EMA
@@ -179,33 +57,53 @@ strategies:
               period: 50
             op: "<"
             compare: close
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: ">"
+            value: 0
+          - indicator: CMF
+            params:
+              period: 20
+            op: ">"
+            value: 0
+          - indicator: RSI
+            params:
+              period: 14
+            op: "<"
+            value: 70
       exit:
         indicator: SUPERTREND
         params:
           period: 10
-          multiplier: 3.0
+          multiplier: 2.0
         op: ">"
         compare: close
       stop_loss:
-        type: atr
+        type: atr_trail
         period: 14
-        multiplier: 2.0
+        multiplier: 2.5
       take_profit:
         type: risk_reward
-        ratio: 2.0
+        ratio: 3.0
 
     short:
+      sizing:
+        mode: fixed_pct
+        pct: 0.5
       entry:
         all:
+          - indicator: ADX
+            params:
+              period: 14
+            op: ">"
+            value: 25
           - indicator: SUPERTREND
             params:
               period: 10
               multiplier: 3.0
-            op: ">"
-            compare: close
-          - indicator: EMA
-            params:
-              period: 50
             op: ">"
             compare: close
           - indicator: EMA
@@ -221,6 +119,23 @@ strategies:
               period: 50
             op: ">"
             compare: close
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: "<"
+            value: 0
+          - indicator: MFI
+            params:
+              period: 14
+            op: ">"
+            value: 70
+          - indicator: RSI
+            params:
+              period: 14
+            op: ">"
+            value: 60
       exit:
         indicator: SUPERTREND
         params:
@@ -231,7 +146,7 @@ strategies:
       stop_loss:
         type: atr
         period: 14
-        multiplier: 2.0
+        multiplier: 1.5
       take_profit:
-        type: risk_reward
-        ratio: 2.0
+        type: fixed
+        offset_pct: 0.06

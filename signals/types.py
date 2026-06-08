@@ -4,7 +4,9 @@ Typed structures for the signal dict schema.
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
+
+EntryTrigger = Literal["edge", "level"]
 
 
 class IndicatorRef(TypedDict, total=False):
@@ -80,6 +82,7 @@ class Strategy(TypedDict, total=False):
     """Long-only strategy with separate entry and exit conditions."""
 
     benchmark: str
+    entry_trigger: EntryTrigger
     entry: SignalCondition
     exit: SignalCondition
     sizing: SizingConfig
@@ -89,5 +92,6 @@ class DualStrategy(TypedDict, total=False):
     """Long and short strategy with per-side risk management."""
 
     benchmark: str
+    entry_trigger: EntryTrigger
     long: SideStrategy
     short: SideStrategy

@@ -12,7 +12,9 @@ import pandas as pd
 
 from exceptions import InvalidSignalError
 from indicators.registry import INDICATOR_META, INDICATORS, IndicatorFn, IndicatorMeta
-from signals.types import DualStrategy, IndicatorRef, SignalCondition, Strategy
+from signals.types import DualStrategy, EntryTrigger, IndicatorRef, SignalCondition, Strategy
+
+DEFAULT_ENTRY_TRIGGER: EntryTrigger = "edge"
 
 OPS: dict[str, Callable[[pd.Series, float], pd.Series]] = {
     "<": lambda series, threshold: series < threshold,
@@ -146,6 +148,33 @@ def _evaluate_condition(candles: pd.DataFrame, condition: SignalCondition) -> pd
     return result.fillna(False)
 
 
+def edge_trigger(level: pd.Series) -> pd.Series:
+    """
+    Convert a level-triggered boolean series to edge-triggered (OQ-21).
+
+    Fires only on bars where the condition becomes true after being false.
+    """
+    previous = level.shift(1, fill_value=False).astype(bool)
+    return level & ~previous
+
+
+def apply_entry_trigger(level: pd.Series, mode: EntryTrigger) -> pd.Series:
+    """Apply edge or level semantics to entry signals."""
+    if mode == "level":
+        return level
+    if mode == "edge":
+        return edge_trigger(level)
+    raise InvalidSignalError(f"Unknown entry_trigger: {mode!r}")
+
+
+def _resolve_entry_trigger(strategy: Strategy | DualStrategy) -> EntryTrigger:
+    """Return configured entry trigger mode; defaults to edge."""
+    mode = str(strategy.get("entry_trigger", DEFAULT_ENTRY_TRIGGER))
+    if mode not in {"edge", "level"}:
+        raise InvalidSignalError(f"Unknown entry_trigger: {mode!r}")
+    return mode  # type: ignore[return-value]
+
+
 def evaluate_signals(
     candles: pd.DataFrame,
     strategy: Strategy,
@@ -160,7 +189,8 @@ def evaluate_signals(
     Returns:
         Tuple of (entry_signals, exit_signals) boolean Series aligned to candles.
     """
-    entry = _evaluate_condition(candles, strategy["entry"])
+    entry_mode = _resolve_entry_trigger(strategy)
+    entry = apply_entry_trigger(_evaluate_condition(candles, strategy["entry"]), entry_mode)
     exit_ = _evaluate_condition(candles, strategy["exit"])
     return entry, exit_
 
@@ -179,9 +209,16 @@ def evaluate_dual_strategy(
     Returns:
         Dict with long_entry, long_exit, short_entry, and short_exit boolean Series.
     """
+    entry_mode = _resolve_entry_trigger(strategy)
     return {
-        "long_entry": _evaluate_condition(candles, strategy["long"]["entry"]),
+        "long_entry": apply_entry_trigger(
+            _evaluate_condition(candles, strategy["long"]["entry"]),
+            entry_mode,
+        ),
         "long_exit": _evaluate_condition(candles, strategy["long"]["exit"]),
-        "short_entry": _evaluate_condition(candles, strategy["short"]["entry"]),
+        "short_entry": apply_entry_trigger(
+            _evaluate_condition(candles, strategy["short"]["entry"]),
+            entry_mode,
+        ),
         "short_exit": _evaluate_condition(candles, strategy["short"]["exit"]),
     }
