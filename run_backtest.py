@@ -13,11 +13,12 @@ from datetime import UTC, datetime, timedelta
 
 from backtest.engine import run_backtest
 from backtest.metrics import compute_metrics, save_equity_curve
-from config import load_config
+from config import is_dual_strategy, load_config
 from data.loader import get_candles
 from data.storage import candle_count, run_migrations_on_startup
 from exceptions import DataGapError
-from signals.evaluator import evaluate_signals
+from indicators.registry import INDICATORS
+from signals.evaluator import evaluate_dual_strategy, evaluate_signals
 
 DAYS_PER_YEAR = 365
 
@@ -79,12 +80,42 @@ def main() -> None:
             f"between {start_date} and {end_date}"
         )
 
-    entry_signals, exit_signals = evaluate_signals(candles, app_config.strategy)
+    logger.info("Running strategy: %s", app_config.active_strategy)
+
+    atr_series = None
+    long_side = None
+    short_side = None
+    short_entry_signals = None
+    short_exit_signals = None
+
+    if is_dual_strategy(app_config.strategy):
+        signals = evaluate_dual_strategy(candles, app_config.strategy)
+        entry_signals = signals["long_entry"]
+        exit_signals = signals["long_exit"]
+        short_entry_signals = signals["short_entry"]
+        short_exit_signals = signals["short_exit"]
+        long_side = app_config.strategy["long"]
+        short_side = app_config.strategy["short"]
+        atr_period = int(long_side["stop_loss"]["period"])
+        atr_series = INDICATORS["ATR"](
+            candles["close"],
+            high=candles["high"],
+            low=candles["low"],
+            period=atr_period,
+        )
+    else:
+        entry_signals, exit_signals = evaluate_signals(candles, app_config.strategy)
+
     trades, equity = run_backtest(
         candles,
         entry_signals,
         exit_signals,
         initial_capital=app_config.initial_capital,
+        short_entry_signals=short_entry_signals,
+        short_exit_signals=short_exit_signals,
+        long_side=long_side,
+        short_side=short_side,
+        atr_series=atr_series,
     )
     metrics = compute_metrics(trades, equity)
 
@@ -92,11 +123,13 @@ def main() -> None:
     for index, trade in enumerate(trades, 1):
         forced_flag = " [forced close]" if trade.forced_close else ""
         logger.info(
-            "%3d. %s -> %s  %+.2f%%%s",
+            "%3d. %s %s -> %s  %+.2f%% [%s]%s",
             index,
+            trade.side.upper(),
             trade.entry_date.date(),
             trade.exit_date.date(),
             trade.return_pct,
+            trade.exit_reason,
             forced_flag,
         )
 
@@ -116,12 +149,6 @@ def main() -> None:
     equity_path = app_config.output_dir / app_config.equity_curve_filename
     saved_path = save_equity_curve(equity, candles, equity_path)
     logger.info("Equity curve saved to %s", saved_path.resolve())
-
-    # Level-triggered: every bar where RSI crossed the threshold, not only trade entries.
-    logger.info("--- Entry signal dates ---")
-    entry_dates = candles.loc[entry_signals, "ts"]
-    for timestamp in entry_dates:
-        logger.info("  %s", timestamp.date())
 
 
 if __name__ == "__main__":

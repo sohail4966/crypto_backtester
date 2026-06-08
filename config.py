@@ -13,14 +13,14 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from signals.types import Strategy
+from signals.types import DualStrategy, Strategy
 
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    """Runtime settings for the POC pipeline."""
+    """Runtime settings for the backtest pipeline."""
 
     symbol: str
     timeframe: str
@@ -29,7 +29,36 @@ class AppConfig:
     initial_capital: float
     output_dir: Path
     equity_curve_filename: str
-    strategy: Strategy
+    active_strategy: str
+    strategy: Strategy | DualStrategy
+
+
+def is_dual_strategy(strategy: Strategy | DualStrategy) -> bool:
+    """Return True when the strategy defines separate long and short legs."""
+    return "long" in strategy and "short" in strategy
+
+
+def _resolve_active_strategy(raw: dict[str, Any]) -> tuple[str, Strategy | DualStrategy]:
+    """
+    Resolve the active strategy from config.yaml.
+
+    Supports the named `strategies` map with `active_strategy`, and falls back to
+    a legacy top-level `strategy` block for older configs.
+    """
+    strategies = raw.get("strategies")
+    if strategies:
+        active_name = str(raw.get("active_strategy", "")).strip()
+        if not active_name:
+            raise ValueError("config.yaml must define active_strategy when strategies are present")
+        if active_name not in strategies:
+            known = ", ".join(sorted(strategies))
+            raise ValueError(f"Unknown active_strategy '{active_name}'. Known strategies: {known}")
+        return active_name, strategies[active_name]
+
+    strategy = raw.get("strategy")
+    if not strategy or "entry" not in strategy or "exit" not in strategy:
+        raise ValueError("config.yaml must define strategies or legacy strategy.entry and strategy.exit")
+    return "legacy", strategy
 
 
 def load_config(path: Path | None = None) -> AppConfig:
@@ -55,10 +84,7 @@ def load_config(path: Path | None = None) -> AppConfig:
     with config_path.open(encoding="utf-8") as handle:
         raw: dict[str, Any] = yaml.safe_load(handle)
 
-    # POC only supports a single entry/exit leg; full DSL comes in a later phase.
-    strategy = raw.get("strategy")
-    if not strategy or "entry" not in strategy or "exit" not in strategy:
-        raise ValueError("config.yaml must define strategy.entry and strategy.exit")
+    active_strategy, strategy = _resolve_active_strategy(raw)
 
     return AppConfig(
         symbol=str(raw["symbol"]),
@@ -68,5 +94,6 @@ def load_config(path: Path | None = None) -> AppConfig:
         initial_capital=float(raw["initial_capital"]),
         output_dir=Path(str(raw.get("output_dir", "output"))),
         equity_curve_filename=str(raw.get("equity_curve_filename", "equity_curve.png")),
+        active_strategy=active_strategy,
         strategy=strategy,
     )

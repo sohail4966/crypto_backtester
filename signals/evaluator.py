@@ -12,7 +12,7 @@ import pandas as pd
 
 from exceptions import InvalidSignalError
 from indicators.registry import INDICATOR_META, INDICATORS, IndicatorFn, IndicatorMeta
-from signals.types import SignalCondition, Strategy
+from signals.types import DualStrategy, IndicatorRef, SignalCondition, Strategy
 
 OPS: dict[str, Callable[[pd.Series, float], pd.Series]] = {
     "<": lambda series, threshold: series < threshold,
@@ -20,6 +20,14 @@ OPS: dict[str, Callable[[pd.Series, float], pd.Series]] = {
     ">": lambda series, threshold: series > threshold,
     ">=": lambda series, threshold: series >= threshold,
     "==": lambda series, threshold: series == threshold,
+}
+
+OPS_SERIES: dict[str, Callable[[pd.Series, pd.Series], pd.Series]] = {
+    "<": lambda left, right: left < right,
+    "<=": lambda left, right: left <= right,
+    ">": lambda left, right: left > right,
+    ">=": lambda left, right: left >= right,
+    "==": lambda left, right: left == right,
 }
 
 
@@ -40,6 +48,28 @@ def _call_indicator(
     if "close" in inputs:
         return fn(candles["close"], **kwargs, **params)
     return fn(**kwargs, **params)
+
+
+def _resolve_compare_series(candles: pd.DataFrame, compare: str | IndicatorRef) -> pd.Series:
+    """
+    Resolve the right-hand side of a cross-comparison condition.
+
+    Supports comparing against close or another registered indicator.
+    """
+    if compare == "close":
+        return candles["close"]
+
+    if isinstance(compare, dict) and "indicator" in compare:
+        ref: SignalCondition = {
+            "indicator": compare["indicator"],
+            "op": ">",
+            "value": 0.0,
+        }
+        if "params" in compare:
+            ref["params"] = compare["params"]
+        return _resolve_indicator(candles, ref)
+
+    raise InvalidSignalError(f"Invalid compare reference: {compare!r}")
 
 
 def _resolve_indicator(candles: pd.DataFrame, condition: SignalCondition) -> pd.Series:
@@ -73,22 +103,45 @@ def _evaluate_condition(candles: pd.DataFrame, condition: SignalCondition) -> pd
     """
     Evaluate one condition leg to a boolean Series.
 
+    Supports a single indicator leg or an AND group via `all`.
+
     Args:
         candles: OHLCV DataFrame.
-        condition: Signal condition with op and value threshold.
+        condition: Signal condition with op and value threshold, or nested `all`.
 
     Returns:
         Boolean Series; NaN indicator values are treated as False.
 
     Raises:
-        InvalidSignalError: If the operator is not supported.
+        InvalidSignalError: If the operator is not supported or the condition is invalid.
     """
+    if "all" in condition:
+        if not condition["all"]:
+            raise InvalidSignalError("Condition group 'all' must contain at least one leg")
+        combined = pd.Series(True, index=candles.index)
+        for leg in condition["all"]:
+            combined &= _evaluate_condition(candles, leg)
+        return combined
+
+    required = ("indicator", "op")
+    if "compare" not in condition:
+        required = (*required, "value")
+    missing = [key for key in required if key not in condition]
+    if missing:
+        raise InvalidSignalError(f"Condition missing required keys: {', '.join(missing)}")
+
     series = _resolve_indicator(candles, condition)
     op = condition["op"]
-    if op not in OPS:
-        raise InvalidSignalError(f"Unknown operator: {op}")
-    threshold = condition["value"]
-    result = OPS[op](series, threshold)
+    if "compare" in condition:
+        if op not in OPS_SERIES:
+            raise InvalidSignalError(f"Unknown operator: {op}")
+        rhs = _resolve_compare_series(candles, condition["compare"])
+        result = OPS_SERIES[op](series, rhs)
+    else:
+        if op not in OPS:
+            raise InvalidSignalError(f"Unknown operator: {op}")
+        threshold = condition["value"]
+        result = OPS[op](series, threshold)
     # Warmup NaNs are not tradable signals — treat as False, not "unknown".
     return result.fillna(False)
 
@@ -110,3 +163,25 @@ def evaluate_signals(
     entry = _evaluate_condition(candles, strategy["entry"])
     exit_ = _evaluate_condition(candles, strategy["exit"])
     return entry, exit_
+
+
+def evaluate_dual_strategy(
+    candles: pd.DataFrame,
+    strategy: DualStrategy,
+) -> dict[str, pd.Series]:
+    """
+    Evaluate long and short entry/exit conditions for a dual-side strategy.
+
+    Args:
+        candles: OHLCV DataFrame used for indicator computation.
+        strategy: Dict with long and short SideStrategy blocks.
+
+    Returns:
+        Dict with long_entry, long_exit, short_entry, and short_exit boolean Series.
+    """
+    return {
+        "long_entry": _evaluate_condition(candles, strategy["long"]["entry"]),
+        "long_exit": _evaluate_condition(candles, strategy["long"]["exit"]),
+        "short_entry": _evaluate_condition(candles, strategy["short"]["entry"]),
+        "short_exit": _evaluate_condition(candles, strategy["short"]["exit"]),
+    }

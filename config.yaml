@@ -1,21 +1,223 @@
-symbol: BTC/USDT
-timeframe: 1d
-years: 3
+symbol: ETH/USDT
+timeframe: 1m
+years: 4
 exchange_id: binance
 initial_capital: 10000.0
 output_dir: output
 equity_curve_filename: equity_curve.png
 
-strategy:
-  entry:
-    indicator: RSI
-    params:
-      period: 14
-    op: "<"
-    value: 20
-  exit:
-    indicator: RSI
-    params:
-      period: 14
-    op: ">"
-    value: 80
+# Which named strategy to run.
+# Options: rsi_mean_reversion, trend_momentum, golden_trend, supertrend_ema_dual
+active_strategy: supertrend_ema_dual
+
+strategies:
+  rsi_mean_reversion:
+    entry:
+      indicator: RSI
+      params:
+        period: 14
+      op: "<"
+      value: 20
+    exit:
+      indicator: RSI
+      params:
+        period: 14
+      op: ">"
+      value: 80
+
+  trend_momentum:
+    long:
+      entry:
+        all:
+          - indicator: ADX
+            params:
+              period: 14
+            op: ">"
+            value: 25
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: ">"
+            value: 0
+          - indicator: RSI
+            params:
+              period: 14
+            op: "<"
+            value: 40
+      exit:
+        all:
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: "<"
+            value: 0
+      stop_loss:
+        type: atr
+        period: 14
+        multiplier: 1
+      take_profit:
+        type: risk_reward
+        ratio: 1
+
+    short:
+      entry:
+        all:
+          - indicator: ADX
+            params:
+              period: 14
+            op: ">"
+            value: 25
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: "<"
+            value: 0
+          - indicator: RSI
+            params:
+              period: 14
+            op: ">"
+            value: 70
+      exit:
+        all:
+          - indicator: MACD_HIST
+            params:
+              fast: 12
+              slow: 26
+              signal: 9
+            op: ">"
+            value: 0
+      stop_loss:
+        type: atr
+        period: 14
+        multiplier: 1
+      take_profit:
+        type: risk_reward
+        ratio: 1
+
+  golden_trend:
+    entry:
+      all:
+        - indicator: EMA
+          params:
+            period: 9
+          op: ">"
+          compare:
+            indicator: EMA
+            params:
+              period: 21
+        - indicator: SMA
+          params:
+            period: 50
+          op: "<"
+          compare: close
+        - indicator: SMA
+          params:
+            period: 200
+          op: "<"
+          compare: close
+        - indicator: SUPERTREND
+          params:
+            period: 10
+            multiplier: 3.0
+          op: "<"
+          compare: close
+    exit:
+      indicator: EMA
+      params:
+        period: 9
+      op: "<"
+      compare:
+        indicator: EMA
+        params:
+          period: 21
+
+  supertrend_ema_dual:
+    long:
+      entry:
+        all:
+          - indicator: SUPERTREND
+            params:
+              period: 10
+              multiplier: 3.0
+            op: "<"
+            compare: close
+          - indicator: EMA
+            params:
+              period: 50
+            op: "<"
+            compare: close
+          - indicator: EMA
+            params:
+              period: 9
+            op: ">"
+            compare:
+              indicator: EMA
+              params:
+                period: 21
+          - indicator: SMA
+            params:
+              period: 50
+            op: "<"
+            compare: close
+      exit:
+        indicator: SUPERTREND
+        params:
+          period: 10
+          multiplier: 3.0
+        op: ">"
+        compare: close
+      stop_loss:
+        type: atr
+        period: 14
+        multiplier: 2.0
+      take_profit:
+        type: risk_reward
+        ratio: 2.0
+
+    short:
+      entry:
+        all:
+          - indicator: SUPERTREND
+            params:
+              period: 10
+              multiplier: 3.0
+            op: ">"
+            compare: close
+          - indicator: EMA
+            params:
+              period: 50
+            op: ">"
+            compare: close
+          - indicator: EMA
+            params:
+              period: 9
+            op: "<"
+            compare:
+              indicator: EMA
+              params:
+                period: 21
+          - indicator: SMA
+            params:
+              period: 50
+            op: ">"
+            compare: close
+      exit:
+        indicator: SUPERTREND
+        params:
+          period: 10
+          multiplier: 3.0
+        op: "<"
+        compare: close
+      stop_loss:
+        type: atr
+        period: 14
+        multiplier: 2.0
+      take_profit:
+        type: risk_reward
+        ratio: 2.0
