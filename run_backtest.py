@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from backtest.benchmark import compute_buy_and_hold_return
 from backtest.engine import run_backtest
+from backtest.export import export_trades_csv
 from backtest.metrics import compute_metrics, save_equity_curve
 from config import get_strategy_benchmark, is_dual_strategy, load_config
 from data.loader import get_candles
@@ -170,6 +171,10 @@ def main() -> None:
     equity_path = app_config.output_dir / app_config.equity_curve_filename
     saved_path = save_equity_curve(equity, candles, equity_path)
     logger.info("Equity curve saved to %s", saved_path.resolve())
+
+    if app_config.backtest.export_trades:
+        trades_path = export_trades_csv(trades, app_config.backtest.trades_csv)
+        logger.info("Trades exported to %s", trades_path)
 
 
 if __name__ == "__main__":
