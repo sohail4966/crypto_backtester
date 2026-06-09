@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a3f8c2e1-9b4d-4f6a-8c1e-2d5b7e904f31",
     "name": "Crypto Backtester API (Phase 4)",
-    "description": "Phase 4 REST + replay WebSocket API.\n\n**Setup**\n1. `docker compose up -d` and `python run_sync.py --backfill`\n2. `python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Candles → Indicators\n2. Users → Watchlists\n3. Replay REST (create session) → Replay WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Open the WS request after creating a replay session. Send JSON commands from the folder descriptions.",
+    "description": "Phase 4 REST + replay WebSocket API.\n\n**Setup**\n1. `cd backend && docker compose up -d && python run_sync.py --backfill`\n2. `cd backend && python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Candles → Indicators\n2. Users → Watchlists\n3. Replay REST (create session) → Replay WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Open the WS request after creating a replay session. Send JSON commands from the folder descriptions.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
