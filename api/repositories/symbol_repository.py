@@ -64,12 +64,15 @@ class SymbolRepository:
         Returns:
             Matching symbol rows ordered by sort_order.
         """
-        pattern = f"%{query}%" if query else None
         with conn.cursor() as cur:
-            cur.execute(
-                queries.SELECT_SYMBOLS,
-                (pattern, pattern, pattern, active_only),
-            )
+            if query:
+                pattern = f"%{query}%"
+                cur.execute(
+                    queries.SELECT_SYMBOLS_SEARCH,
+                    (pattern, pattern, active_only),
+                )
+            else:
+                cur.execute(queries.SELECT_SYMBOLS, (active_only,))
             return [_row_to_symbol(row) for row in cur.fetchall()]
 
     def get_symbol(self, conn: psycopg.Connection, symbol: str) -> SymbolRow | None:
