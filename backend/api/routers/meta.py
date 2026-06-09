@@ -23,7 +23,7 @@ def health() -> HealthResponse:
                 cur.execute("SELECT 1")
     except Exception:
         db_status = "error"
-    return HealthResponse(status="ok", version="0.4.0", database=db_status)
+    return HealthResponse(status="ok", version="0.4.1", database=db_status)
 
 
 @router.get("/timeframes", response_model=TimeframesResponse)

@@ -783,6 +783,10 @@ Users and watchlists are stored in DB; clients pass **`user_id`** explicitly.
 **Decision:** Replay state lives in an **in-process memory store** only. Client controls
 playback via WebSocket; indicators recomputed on candle **prefix** only.
 
+**Note (2026-06-09):** Phase 4 shipped this WS transport as interim API. Frontend MVP
+targets REST chunked replay per **D-80**; Phase 4b adds chunk endpoints. WS may remain
+for other clients until then.
+
 **Resolves:** OQ-53
 
 ---
@@ -1065,6 +1069,147 @@ need to run in CI yet.
 auditing is useful for operations, but logs are enough until ingestion behavior is
 stable. Local integration tests give confidence in migrations, repository methods, and
 sync behavior without adding CI infrastructure complexity.
+
+---
+
+## Frontend architecture (SPEC-001) — locked 2026-06-09
+
+The following decisions govern the TradingView-style chart client
+([SPEC-001](../../frontend/docs/SPEC-001.md)). They supersede conflicting transport
+or API-shape assumptions in Phase 4 where noted. Backend implementation plan:
+[PHASE_4B_HLD.md](PHASE_4B_HLD.md).
+
+---
+
+## D-80 — Hybrid replay: backend data, frontend playback (no replay WS in MVP)
+
+**Decision:** Replay uses a **hybrid architecture**. The backend is authoritative for
+all replay data (candles, indicators, signals, trades). The **browser owns playback
+state and controls** — play, pause, speed, step-forward, jump-to-date — without a
+backend round-trip per bar. Data arrives in **REST chunks**; when the buffer nears
+its edge, the frontend prefetches the next chunk. **No replay-specific WebSocket**
+in frontend MVP (post-MVP streaming → SPEC-010).
+
+**Reasoning:** Combines backend consistency with frontend responsiveness; simpler
+backend than per-bar WS push; aligns with chunked chart-data model (D-81).
+
+**Phase 4 note:** D-71 shipped **in-memory sessions + replay WebSocket** as an interim
+API. Frontend MVP targets **`GET /replay/{runId}/chunk`** (Phase 4b). Phase 4 WS
+may remain for other clients until REST chunks land.
+
+**Spec:** [SPEC-001 §4.5](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-81 — Unified chart-data endpoint (candles + indicators + signals + trades)
+
+**Decision:** The frontend consumes a **single chart-data response** per request window.
+Every response bundles **OHLCV candles, indicator series, signal markers, and trade
+events** for the requested symbol and timeframe. The frontend **never** makes separate
+candle and indicator requests for the same view.
+
+**Reasoning:** Guaranteed timestamp alignment; fewer race conditions; simpler React
+Query cache keys; efficient replay buffering. Backend remains sole calculator (D-72);
+frontend renders only.
+
+**Phase 4 note:** Phase 4 exposes separate `/candles` and `/indicators/compute`.
+**Phase 4b** adds `GET /api/v1/chart-data` bundling existing services. Until then,
+frontend may use a **client adapter** that composes the two calls.
+
+**Spec:** [SPEC-001 §4.1](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-82 — Windowed chart data loading (chunk manager)
+
+**Decision:** The browser **never holds full historical datasets**. Charts maintain
+only the **visible range plus configurable look-back and look-ahead buffers**. A
+**Chunk Manager** prefetches on scroll/replay, merges chunks for lw-charts `setData()`,
+and **evicts** chunks outside the retention window.
+
+**Reasoning:** Predictable memory regardless of total history; seamless scroll-back
+and replay without loading millions of bars.
+
+**Constants (defaults, tunable):** 500 bars/chunk; 2 look-back chunks; 1 look-ahead
+chunk; prefetch at 20% of chunk boundary.
+
+**Spec:** [SPEC-001 §4.2](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-83 — MVP drawing scope (five tools)
+
+**Decision:** MVP drawing toolkit includes only: **Trend Line**, **Horizontal Line**,
+**Rectangle**, **Price Range**, **Text Note**. Explicitly **excluded from MVP:**
+Fibonacci Retracement, Vertical Line, Channels, Rays, Brushes, Pattern Tools
+(future → SPEC-002).
+
+**Reasoning:** Scope aligned with backtesting UX; drawings stored as serializable
+objects per symbol+timeframe; synced via workspace API (D-85).
+
+**Spec:** [SPEC-001 §5.5](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-84 — Price Range as first-class drawing primitive
+
+**Decision:** **Price Range** is a **first-class primitive**, not a composite of other
+tools. It defines entry, target, and stop levels and displays **risk, reward, and R:R**
+on-chart. Implementation may render as grouped horizontal lines + fill zones under one
+`PriceRangeDrawing` entity.
+
+**Reasoning:** Risk management is core to backtesting; more MVP value than advanced TA
+drawing tools.
+
+**Spec:** [SPEC-001 §5.6](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-85 — Backend-primary workspace sync; IndexedDB as cache
+
+**Decision:** Workspace data — **watchlists, drawings, layouts, user preferences** —
+is **authoritative in the backend** and synchronized across devices. **IndexedDB** is
+a **local cache** for fast startup and offline resilience, not source of truth. On
+startup: hydrate from cache → fetch backend → resolve conflicts (backend wins if newer).
+Mutations: store → cache → debounced backend sync.
+
+**Reasoning:** Multi-user SaaS model; consistent state across devices. Phase 4 has
+watchlists only; **drawings/layouts/workspace payload** → Phase 4d.
+
+**Related:** D-69 (`user_id` client-scoped until auth in Phase 11).
+
+**Spec:** [SPEC-001 §6.2](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-86 — Structured Symbol entities from backend
+
+**Decision:** The frontend is **symbol-agnostic** — it never constructs ticker strings.
+Symbols are **structured entities** from the backend: stable `id`, display ticker,
+exchange, base/quote assets, tick size, lot size, asset type. Charts, watchlists, and
+replay reference **`symbol.id`** in all API calls.
+
+**Reasoning:** Supports multi-exchange and multi-asset expansion without frontend
+refactors. Extends D-76 catalog with richer metadata (**Phase 4b** schema/API).
+
+**Spec:** [SPEC-001 §4.3](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-87 — Multi-chart sync: configurable categories
+
+**Decision:** Multi-chart layouts support **per-layout, per-category sync**:
+
+| Category | Default |
+|---|---|
+| Crosshair time | on |
+| Visible range (zoom/scroll) | on |
+| Symbol | off |
+| Timeframe | off |
+
+Users may disable categories for independent panes (multi-TF analysis vs monitoring).
+
+**Spec:** [SPEC-001 §4.4](../../frontend/docs/SPEC-001.md)
 
 ---
 

@@ -13,8 +13,8 @@ import pytest
 from api.exceptions import ValidationError
 from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository, WatchlistRow
-from api.schemas.symbols import SymbolResponse
 from api.schemas.users import UserCreate
+from tests.api.conftest import make_symbol_response
 from api.schemas.watchlists import WatchlistCreate
 from api.services.symbol_service import SymbolService
 from api.services.user_service import UserService
@@ -44,8 +44,8 @@ def test_user_create_provisions_default_watchlist() -> None:
 
     symbol_service = MagicMock(spec=SymbolService)
     symbol_service.list_symbols.return_value = [
-        SymbolResponse(symbol="BTC/USDT", base="BTC", quote="USDT", is_active=True, sort_order=1),
-        SymbolResponse(symbol="ETH/USDT", base="ETH", quote="USDT", is_active=True, sort_order=2),
+        make_symbol_response("BTC/USDT", "BTC", "USDT", sort_order=1),
+        make_symbol_response("ETH/USDT", "ETH", "USDT", sort_order=2),
     ]
 
     service = UserService(

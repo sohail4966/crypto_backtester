@@ -28,6 +28,11 @@ def candle_default_limit() -> int:
     return int(os.environ.get("CANDLE_DEFAULT_LIMIT", "1000"))
 
 
+def chart_data_default_limit() -> int:
+    """Default number of bars per chart-data request (D-82)."""
+    return int(os.environ.get("CHART_DATA_DEFAULT_LIMIT", "1500"))
+
+
 def candle_max_limit() -> int:
     """Maximum candles per historical request."""
     return int(os.environ.get("CANDLE_MAX_LIMIT", "5000"))

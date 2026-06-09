@@ -166,6 +166,33 @@ watchlists, and run **bar replay** over WebSocket with indicators at variable sp
 
 ---
 
+## Phase 4b — Frontend-Ready API Extensions
+
+**Status:** Complete — [PHASE_4B_HLD.md](PHASE_4B_HLD.md) (API v0.4.1)  
+**Prerequisite:** Phase 4 complete  
+**Enables:** [SPEC-001](../frontend/docs/SPEC-001.md) chart + replay (D-80, D-81, D-86)
+
+**Theme:** Close the contract gap between Phase 4 and the TradingView-style frontend —
+unified chart data, structured symbols, REST replay chunks.
+
+**Goal:** Frontend can load aligned candle + indicator windows in one request and buffer
+replay data via REST without a client-side adapter or replay WebSocket.
+
+| Area | What gets built |
+|---|---|
+| Chart data | `GET /chart-data` — candles + indicators (+ empty signals/trades until 4c) |
+| Symbols | `V006` migration — exchange, tick/lot size, asset type; v2 response; `/symbols/search` alias |
+| Replay | `POST /replay/runs`, `GET /replay/{run_id}/chunk`, `GET /replay/{run_id}/trades` (stub) |
+| Compatibility | Phase 4 REST + replay WS unchanged |
+
+**Deferred:** Workspace sync → **Phase 4d**; backtest HTTP + real trades → **Phase 4c**;
+auth / live WS → **Phase 11**.
+
+**Done when:** All [Phase 4b done criteria](PHASE_4B_HLD.md#done-criteria) pass; OpenAPI
+and Postman updated; FE can consume `/chart-data` and replay chunks without adapter.
+
+---
+
 ## Phase 5 — Market Structure Detection
 
 **Theme:** Build the structural layer that patterns and SMC depend on. Swing detection

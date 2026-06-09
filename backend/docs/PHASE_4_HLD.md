@@ -3,7 +3,8 @@
 **Status:** Approved — implementation complete  
 **Prerequisite:** Phase 3 complete ([PHASE_3_HLD.md](PHASE_3_HLD.md))  
 **Supersedes:** Previous Phase 4 (Market Structure Detection) — moved to **Phase 5**  
-**Next phase after this:** [Phase 5 — Market Structure Detection](ROADMAP.md#phase-5--market-structure-detection)
+**Next phase after this:** [Phase 4b — Frontend-Ready API](PHASE_4B_HLD.md) ✅ complete, then Phase 5 or FE in parallel  
+**See also:** [PHASE_4B_HLD.md](PHASE_4B_HLD.md) — unified chart-data, symbol v2, REST replay chunks (D-80, D-81, D-86)
 
 ---
 

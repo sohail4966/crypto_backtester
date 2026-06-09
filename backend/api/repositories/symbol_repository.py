@@ -23,6 +23,10 @@ class SymbolRow:
         is_active: bool,
         sort_order: int,
         created_at: datetime | None,
+        exchange: str = "binance",
+        tick_size: float = 0.01,
+        lot_size: float = 0.0001,
+        asset_type: str = "spot",
     ) -> None:
         self.symbol = symbol
         self.base = base
@@ -30,6 +34,10 @@ class SymbolRow:
         self.is_active = is_active
         self.sort_order = sort_order
         self.created_at = created_at
+        self.exchange = exchange
+        self.tick_size = tick_size
+        self.lot_size = lot_size
+        self.asset_type = asset_type
 
 
 def _row_to_symbol(row: tuple[Any, ...]) -> SymbolRow:
@@ -41,6 +49,10 @@ def _row_to_symbol(row: tuple[Any, ...]) -> SymbolRow:
         is_active=row[3],
         sort_order=row[4],
         created_at=row[5],
+        exchange=row[6],
+        tick_size=float(row[7]),
+        lot_size=float(row[8]),
+        asset_type=row[9],
     )
 
 

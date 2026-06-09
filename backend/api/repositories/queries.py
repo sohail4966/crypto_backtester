@@ -3,14 +3,16 @@ Native SQL for app schema tables (users, symbols, watchlists).
 """
 
 SELECT_SYMBOLS = """
-SELECT symbol, base, quote, is_active, sort_order, created_at
+SELECT symbol, base, quote, is_active, sort_order, created_at,
+       exchange, tick_size, lot_size, asset_type
 FROM app.symbols
 WHERE (%s = FALSE OR is_active = TRUE)
 ORDER BY sort_order ASC, symbol ASC
 """
 
 SELECT_SYMBOLS_SEARCH = """
-SELECT symbol, base, quote, is_active, sort_order, created_at
+SELECT symbol, base, quote, is_active, sort_order, created_at,
+       exchange, tick_size, lot_size, asset_type
 FROM app.symbols
 WHERE (symbol ILIKE %s OR base ILIKE %s)
   AND (%s = FALSE OR is_active = TRUE)
@@ -18,7 +20,8 @@ ORDER BY sort_order ASC, symbol ASC
 """
 
 SELECT_SYMBOL_BY_NAME = """
-SELECT symbol, base, quote, is_active, sort_order, created_at
+SELECT symbol, base, quote, is_active, sort_order, created_at,
+       exchange, tick_size, lot_size, asset_type
 FROM app.symbols
 WHERE symbol = %s
 """

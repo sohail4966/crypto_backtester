@@ -10,21 +10,15 @@ import pandas as pd
 import pytest
 
 from api.exceptions import ValidationError
-from api.schemas.symbols import SymbolResponse
 from api.services.candle_service import CandleService
+from tests.api.conftest import make_symbol_response
 
 
 @patch("api.services.candle_service.get_candles")
 @patch("api.services.candle_service.SymbolService.require_active_symbol")
 def test_candle_default_limit(mock_require: MagicMock, mock_get: MagicMock) -> None:
     """Default limit is 1000 when not specified."""
-    mock_require.return_value = SymbolResponse(
-        symbol="BTC/USDT",
-        base="BTC",
-        quote="USDT",
-        is_active=True,
-        sort_order=1,
-    )
+    mock_require.return_value = make_symbol_response()
     ts = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
     mock_get.return_value = pd.DataFrame(
         {
@@ -46,13 +40,7 @@ def test_candle_default_limit(mock_require: MagicMock, mock_get: MagicMock) -> N
 @patch("api.services.candle_service.SymbolService.require_active_symbol")
 def test_candle_limit_exceeded_raises(mock_require: MagicMock, mock_get: MagicMock) -> None:
     """Limit above max raises validation error."""
-    mock_require.return_value = SymbolResponse(
-        symbol="BTC/USDT",
-        base="BTC",
-        quote="USDT",
-        is_active=True,
-        sort_order=1,
-    )
+    mock_require.return_value = make_symbol_response()
     service = CandleService()
     with pytest.raises(ValidationError):
         service.get_candles(

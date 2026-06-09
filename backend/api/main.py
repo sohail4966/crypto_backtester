@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from api import settings
 from api.exceptions import ApiError
-from api.routers import candles, indicators, meta, replay, symbols, users, watchlists
+from api.routers import candles, chart_data, indicators, meta, replay, symbols, users, watchlists
 from api.schemas.common import ErrorBody, ErrorResponse
 from api.ws import replay as replay_ws
 from data.storage import run_migrations_on_startup
@@ -35,8 +35,8 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="Crypto Backtester API",
-        version="0.4.0",
-        description="Phase 4 chart client API — historical candles, indicators, replay.",
+        version="0.4.1",
+        description="Phase 4/4b chart client API — chart-data, candles, indicators, replay.",
         lifespan=lifespan,
     )
 
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     api_prefix = "/api/v1"
     app.include_router(meta.router, prefix=api_prefix)
     app.include_router(symbols.router, prefix=api_prefix)
+    app.include_router(chart_data.router, prefix=api_prefix)
     app.include_router(candles.router, prefix=api_prefix)
     app.include_router(indicators.router, prefix=api_prefix)
     app.include_router(users.router, prefix=api_prefix)

@@ -15,11 +15,14 @@ import psycopg
 from api import settings
 from api.exceptions import NotFoundError, ValidationError
 from api.schemas.candles import Bar
+from api.schemas.chart_data import ChartDataResponse, ReplayRunCreate
 from api.schemas.indicators import IndicatorSeries, IndicatorSpec
 from api.schemas.replay import ReplaySessionCreate, ReplayStateResponse
 from api.services.candle_service import CandleService, _ts_to_unix
+from api.services.chart_data_service import indicator_series_id
 from api.services.indicator_service import IndicatorService, max_warmup_bars
-from api.services.timeframes import validate_timeframe
+from api.services.symbol_service import SymbolService
+from api.services.timeframes import TIMEFRAME_SECONDS, validate_timeframe
 from indicators.warmup import frame_window_indices
 
 
@@ -53,9 +56,11 @@ class ReplayService:
         self,
         candle_service: CandleService | None = None,
         indicator_service: IndicatorService | None = None,
+        symbol_service: SymbolService | None = None,
     ) -> None:
         self._candles = candle_service or CandleService()
         self._indicators = indicator_service or IndicatorService()
+        self._symbols = symbol_service or SymbolService()
         self._sessions: dict[UUID, ReplaySession] = {}
 
     def _evict_idle(self) -> None:
@@ -229,11 +234,9 @@ class ReplayService:
         if bar is None:
             return None, [], completed
 
-        prefix_end = session.window_start_index + session.cursor_index
-        indicators = self._indicators.compute_on_dataframe(
-            session.frame,
-            session.indicators,
-            prefix_end=prefix_end,
+        indicators = self.compute_prefix_indicators(
+            session,
+            visible_end_index=session.cursor_index,
             output_from_ts=session.start,
             output_to_ts=session.end,
         )
@@ -300,6 +303,119 @@ class ReplayService:
         """Replace indicator set for future steps."""
         session.indicators = indicators
         self._touch(session)
+
+    def create_run(self, conn: psycopg.Connection, body: ReplayRunCreate) -> ReplaySession:
+        """Create a replay run for REST chunk buffering (run_id == session_id)."""
+        session_body = ReplaySessionCreate(
+            symbol=body.symbol_id,
+            timeframe=body.timeframe,
+            start=body.start,
+            end=body.end,
+            indicators=list(body.indicators),
+            step_timeframe=body.step_timeframe,
+        )
+        return self.create_session(conn, session_body)
+
+    def compute_prefix_indicators(
+        self,
+        session: ReplaySession,
+        visible_end_index: int,
+        output_from_ts: int,
+        output_to_ts: int,
+    ) -> list[IndicatorSeries]:
+        """Compute indicators through a visible bar index in the replay window."""
+        prefix_end = session.window_start_index + visible_end_index
+        return self._indicators.compute_on_dataframe(
+            session.frame,
+            session.indicators,
+            prefix_end=prefix_end,
+            output_from_ts=output_from_ts,
+            output_to_ts=output_to_ts,
+        )
+
+    def get_chunk(
+        self,
+        conn: psycopg.Connection,
+        run_id: UUID,
+        from_ts: int,
+        limit: int | None = None,
+    ) -> ChartDataResponse:
+        """
+        Return a chart-data slice from a preloaded replay run.
+
+        Args:
+            conn: Database connection (symbol metadata lookup).
+            run_id: In-memory replay run identifier.
+            from_ts: First bar at or after this unix time.
+            limit: Max bars in the chunk.
+
+        Returns:
+            ChartDataResponse for the chunk window.
+        """
+        session = self.get_session(run_id)
+        effective_limit = limit if limit is not None else settings.chart_data_default_limit()
+        max_limit = settings.candle_max_limit()
+        if effective_limit > max_limit:
+            raise ValidationError("LIMIT_EXCEEDED", f"limit must be <= {max_limit}")
+
+        if not session.bars:
+            symbol = self._symbols.require_active_symbol(conn, session.symbol)
+            return ChartDataResponse(
+                symbol=symbol,
+                timeframe=session.step_timeframe,
+                start=from_ts,
+                end=from_ts,
+                candles=[],
+                indicators={},
+                signals=[],
+                trades=[],
+            )
+
+        start_index = next(
+            (idx for idx, bar in enumerate(session.bars) if bar.time >= from_ts),
+            -1,
+        )
+        if start_index < 0:
+            raise ValidationError("CHUNK_OUT_OF_RANGE", "from is after the replay window")
+
+        end_index = min(start_index + effective_limit - 1, len(session.bars) - 1)
+        chunk_bars = session.bars[start_index : end_index + 1]
+        chunk_start = chunk_bars[0].time
+        chunk_end = chunk_bars[-1].time
+
+        indicator_map: dict[str, list] = {}
+        if session.indicators:
+            series_list = self.compute_prefix_indicators(
+                session,
+                visible_end_index=end_index,
+                output_from_ts=chunk_start,
+                output_to_ts=chunk_end,
+            )
+            for series in series_list:
+                indicator_map[indicator_series_id(series.key, series.params)] = series.points
+
+        next_start: int | None = None
+        if end_index < len(session.bars) - 1:
+            next_start = session.bars[end_index + 1].time
+        else:
+            bar_seconds = TIMEFRAME_SECONDS[session.step_timeframe]
+            candidate = chunk_end + bar_seconds
+            if candidate <= session.end:
+                next_start = candidate
+
+        symbol = self._symbols.require_active_symbol(conn, session.symbol)
+        self._touch(session)
+        return ChartDataResponse(
+            symbol=symbol,
+            timeframe=session.step_timeframe,
+            start=chunk_start,
+            end=chunk_end,
+            candles=chunk_bars,
+            indicators=indicator_map,
+            signals=[],
+            trades=[],
+            next_start=next_start,
+        )
 
 
 _replay_service: ReplayService | None = None

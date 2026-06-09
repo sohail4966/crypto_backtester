@@ -14,7 +14,22 @@ from fastapi.testclient import TestClient
 
 from api.main import create_app
 from api.repositories.symbol_repository import SymbolRow
+from api.schemas.symbols import SymbolResponse
 from api.services.replay_service import get_replay_service
+from api.services.symbol_service import SymbolService
+
+
+def make_symbol_response(
+    symbol: str = "BTC/USDT",
+    base: str = "BTC",
+    quote: str = "USDT",
+    *,
+    sort_order: int = 1,
+) -> SymbolResponse:
+    """Build a v2 symbol response for service mocks."""
+    return SymbolService.row_to_response(
+        SymbolRow(symbol, base, quote, True, sort_order, None),
+    )
 
 
 @pytest.fixture

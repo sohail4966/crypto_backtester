@@ -5,7 +5,7 @@ Monorepo for crypto strategy research: data sync, indicators, backtest engine, a
 | Directory | Purpose |
 |-----------|---------|
 | [`backend/`](backend/) | Python platform — TimescaleDB, indicators, backtest, FastAPI |
-| [`frontend/`](frontend/) | Chart client (Phase 5+) — not started |
+| [`frontend/`](frontend/) | Chart client — [SPEC-001](frontend/docs/SPEC-001.md) (not started) |
 
 ## Quick start
 

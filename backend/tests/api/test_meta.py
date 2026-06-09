@@ -13,7 +13,7 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.4.0"
+    assert body["version"] == "0.4.1"
     assert body["database"] in {"ok", "error"}
 
 

@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "a3f8c2e1-9b4d-4f6a-8c1e-2d5b7e904f31",
-    "name": "Crypto Backtester API (Phase 4)",
-    "description": "Phase 4 REST + replay WebSocket API.\n\n**Setup**\n1. `cd backend && docker compose up -d && python run_sync.py --backfill`\n2. `cd backend && python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Candles → Indicators\n2. Users → Watchlists\n3. Replay REST (create session) → Replay WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Open the WS request after creating a replay session. Send JSON commands from the folder descriptions.",
+    "name": "Crypto Backtester API (Phase 4 / 4b)",
+    "description": "Phase 4 REST + Phase 4b chart-data / replay chunks + replay WebSocket.\n\n**Setup**\n1. `cd backend && docker compose up -d && python run_sync.py --backfill`\n2. `cd backend && python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Chart Data (or Candles + Indicators)\n2. Users → Watchlists\n3. Replay Chunks (FE MVP) **or** Replay REST session → WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`, `run_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Optional — frontend MVP uses REST replay chunks (folder 06b).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,7 +14,8 @@
     { "key": "to_ts", "value": "1735689600" },
     { "key": "user_id", "value": "" },
     { "key": "watchlist_id", "value": "" },
-    { "key": "session_id", "value": "" }
+    { "key": "session_id", "value": "" },
+    { "key": "run_id", "value": "" }
   ],
   "item": [
     {
@@ -71,11 +72,74 @@
           }
         },
         {
+          "name": "Search symbols (alias)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/symbols/search?q=BTC&active_only=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "symbols", "search"],
+              "query": [
+                { "key": "q", "value": "BTC" },
+                { "key": "active_only", "value": "true" }
+              ]
+            }
+          }
+        },
+        {
           "name": "Get symbol",
           "request": {
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/symbols/{{symbol}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02b Chart Data",
+      "description": "Phase 4b unified chart window — candles + indicators in one response. Default limit 500 bars.",
+      "item": [
+        {
+          "name": "Chart data (default limit)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chart-data?symbolId={{symbol}}&timeframe={{timeframe}}&start={{from_ts}}&end={{to_ts}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "chart-data"],
+              "query": [
+                { "key": "symbolId", "value": "{{symbol}}" },
+                { "key": "timeframe", "value": "{{timeframe}}" },
+                { "key": "start", "value": "{{from_ts}}" },
+                { "key": "end", "value": "{{to_ts}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Chart data (with RSI + EMA)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chart-data?symbolId={{symbol}}&timeframe=1h&start={{from_ts}}&end={{to_ts}}&limit=200&indicators=%5B%7B%22key%22%3A%22RSI%22%2C%22params%22%3A%7B%22period%22%3A14%7D%7D%2C%7B%22key%22%3A%22EMA%22%2C%22params%22%3A%7B%22period%22%3A20%7D%7D%5D",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "chart-data"],
+              "query": [
+                { "key": "symbolId", "value": "{{symbol}}" },
+                { "key": "timeframe", "value": "1h" },
+                { "key": "start", "value": "{{from_ts}}" },
+                { "key": "end", "value": "{{to_ts}}" },
+                { "key": "limit", "value": "200" },
+                {
+                  "key": "indicators",
+                  "value": "[{\"key\":\"RSI\",\"params\":{\"period\":14}},{\"key\":\"EMA\",\"params\":{\"period\":20}}]"
+                }
+              ]
+            }
           }
         }
       ]
@@ -342,6 +406,71 @@
             "method": "DELETE",
             "header": [],
             "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists/{{watchlist_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06b Replay Chunks (FE MVP)",
+      "description": "Phase 4b REST replay buffering — no WebSocket required. **Create run** sets `run_id`; then fetch chunks with `from` = window start timestamp.",
+      "item": [
+        {
+          "name": "Create replay run",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('run_id', data.runId);",
+                  "    console.log('run_id set to', data.runId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbolId\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"start\": {{from_ts}},\n  \"end\": {{to_ts}},\n  \"indicators\": [\n    {\"key\": \"RSI\", \"params\": {\"period\": 14}}\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/replay/runs"
+          }
+        },
+        {
+          "name": "Get replay chunk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/replay/{{run_id}}/chunk?from={{from_ts}}&limit=500",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "replay", "{{run_id}}", "chunk"],
+              "query": [
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "limit", "value": "500" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get replay trades (stub)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/replay/{{run_id}}/trades"
+          }
+        },
+        {
+          "name": "Delete replay run",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/replay/{{run_id}}"
           }
         }
       ]

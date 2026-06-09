@@ -92,6 +92,11 @@ SELECT MAX(ts) FROM candles
 WHERE symbol = %s AND timeframe = %s
 """
 
+SELECT_MIN_TS = """
+SELECT MIN(ts) FROM candles
+WHERE symbol = %s AND timeframe = %s
+"""
+
 # --- data_gaps DML ---
 
 INSERT_GAP = """

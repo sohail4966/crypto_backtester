@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Crypto Backtester API
-  version: 0.4.0
+  version: 0.4.1
   description: |
-    Phase 4 chart client API — historical candles, indicator compute, users,
-    watchlists, and bar replay (REST control plane + WebSocket stream).
+    Phase 4/4b chart client API — unified chart-data, historical candles, indicator
+    compute, structured symbols, users, watchlists, and replay (REST chunks + WS).
 
     **Base path (REST):** `/api/v1`
 
@@ -38,8 +38,10 @@ tags:
     description: User CRUD (no auth — dev/trust model)
   - name: watchlists
     description: Per-user symbol watchlists
+  - name: chart-data
+    description: Unified chart window (candles + indicators)
   - name: replay
-    description: In-memory bar replay sessions (REST control plane)
+    description: In-memory bar replay (REST chunks + WebSocket control plane)
 
 paths:
   /api/v1/meta/health:
@@ -96,6 +98,56 @@ paths:
                 items:
                   $ref: "#/components/schemas/SymbolResponse"
 
+  /api/v1/symbols/search:
+    get:
+      tags: [symbols]
+      summary: Search symbols (alias of list)
+      operationId: searchSymbols
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: active_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Matching symbols (v2 shape)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SymbolResponse"
+
+  /api/v1/symbols/{symbol}/data-range:
+    get:
+      tags: [symbols]
+      summary: Stored candle date range for a symbol
+      description: >
+        Returns earliest/latest unix timestamps and bar count for chart window
+        anchoring. Frontend uses this instead of wall-clock now.
+      operationId: getSymbolDataRange
+      parameters:
+        - $ref: "#/components/parameters/SymbolPath"
+        - $ref: "#/components/parameters/TimeframeQuery"
+      responses:
+        "200":
+          description: Available candle bounds
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandleDataRangeResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /api/v1/symbols/{symbol}:
     get:
       tags: [symbols]
@@ -112,6 +164,74 @@ paths:
                 $ref: "#/components/schemas/SymbolResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/chart-data:
+    get:
+      tags: [chart-data]
+      summary: Unified chart window
+      description: >
+        Returns structured symbol, candles, and indicator series in one response.
+        Default limit 500 bars (max 5000). Signals/trades empty until Phase 4c.
+      operationId: getChartData
+      parameters:
+        - name: symbolId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timeframe
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: indicators
+          in: query
+          required: false
+          schema:
+            type: string
+          description: URL-encoded JSON array of IndicatorSpec
+        - name: includeSignals
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: includeTrades
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 500
+            maximum: 5000
+      responses:
+        "200":
+          description: Chart window payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChartDataResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /api/v1/candles/{symbol}:
     get:
@@ -417,6 +537,106 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/replay/runs:
+    post:
+      tags: [replay]
+      summary: Create replay run (REST chunks)
+      operationId: createReplayRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplayRunCreate"
+      responses:
+        "201":
+          description: Run id and bar count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplayRunResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/replay/{run_id}/chunk:
+    get:
+      tags: [replay]
+      summary: Fetch replay chart chunk
+      operationId: getReplayChunk
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 500
+            maximum: 5000
+      responses:
+        "200":
+          description: ChartDataResponse slice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChartDataResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/replay/{run_id}/trades:
+    get:
+      tags: [replay]
+      summary: Replay trades (stub until Phase 4c)
+      operationId: getReplayTrades
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Empty trades list in Phase 4b
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplayTradesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/replay/{run_id}:
+    delete:
+      tags: [replay]
+      summary: Delete replay run
+      operationId: deleteReplayRun
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Run torn down
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/replay/sessions:
     post:
       tags: [replay]
@@ -616,7 +836,7 @@ components:
           example: ok
         version:
           type: string
-          example: "0.4.0"
+          example: "0.4.1"
         database:
           type: string
           enum: [ok, error]
@@ -633,25 +853,147 @@ components:
 
     SymbolResponse:
       type: object
-      required: [symbol, base, quote, is_active, sort_order]
+      required: [id, ticker, exchange, baseAsset, quoteAsset, tickSize, lotSize, type, active, sortOrder]
       properties:
+        id:
+          type: string
+          example: BTC/USDT
+        ticker:
+          type: string
+          example: BTC/USDT
+        exchange:
+          type: string
+          example: binance
+        baseAsset:
+          type: string
+          example: BTC
+        quoteAsset:
+          type: string
+          example: USDT
+        tickSize:
+          type: number
+          example: 0.01
+        lotSize:
+          type: number
+          example: 0.00001
+        type:
+          type: string
+          enum: [spot, perp, futures]
+        active:
+          type: boolean
+        sortOrder:
+          type: integer
         symbol:
           type: string
+          deprecated: true
           example: BTC/USDT
         base:
           type: string
-          example: BTC
+          deprecated: true
         quote:
           type: string
-          example: USDT
+          deprecated: true
         is_active:
           type: boolean
+          deprecated: true
         sort_order:
           type: integer
+          deprecated: true
         created_at:
           type: string
           format: date-time
           nullable: true
+
+    ChartDataResponse:
+      type: object
+      required: [symbol, timeframe, start, end, candles, indicators, signals, trades]
+      properties:
+        symbol:
+          $ref: "#/components/schemas/SymbolResponse"
+        timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bar"
+        indicators:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/IndicatorPoint"
+        signals:
+          type: array
+          items:
+            type: object
+        trades:
+          type: array
+          items:
+            type: object
+        nextStart:
+          type: integer
+          format: int64
+          nullable: true
+
+    ReplayRunCreate:
+      type: object
+      required: [symbolId, timeframe, start, end]
+      properties:
+        symbolId:
+          type: string
+        timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        indicators:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSpec"
+        stepTimeframe:
+          type: string
+          nullable: true
+
+    ReplayRunResponse:
+      type: object
+      required: [runId, symbolId, timeframe, start, end, totalBars]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        symbolId:
+          type: string
+        timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        totalBars:
+          type: integer
+
+    ReplayTradesResponse:
+      type: object
+      required: [runId, trades]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        trades:
+          type: array
+          items:
+            type: object
 
     Bar:
       type: object
@@ -694,6 +1036,28 @@ components:
           format: int64
           nullable: true
           description: Present when more bars exist beyond `limit`; use as next `from`
+
+    CandleDataRangeResponse:
+      type: object
+      required: [symbolId, timeframe, earliest, latest, barCount]
+      properties:
+        symbolId:
+          type: string
+        timeframe:
+          type: string
+        earliest:
+          type: integer
+          format: int64
+          nullable: true
+          description: Oldest stored bar (unix seconds UTC)
+        latest:
+          type: integer
+          format: int64
+          nullable: true
+          description: Newest stored bar (unix seconds UTC)
+        barCount:
+          type: integer
+          description: Total bars stored for this symbol and timeframe
 
     IndicatorCatalogEntry:
       type: object

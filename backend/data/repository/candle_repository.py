@@ -237,6 +237,44 @@ class CandleRepository:
             if own_conn:
                 conn.close()
 
+    def earliest_timestamp(
+        self,
+        symbol: str,
+        timeframe: str,
+        conn: psycopg.Connection | None = None,
+    ) -> datetime | None:
+        """Return the oldest stored candle timestamp for a symbol and timeframe."""
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(queries.SELECT_MIN_TS, (symbol, timeframe))
+                (min_ts,) = cur.fetchone()
+                return min_ts
+        finally:
+            if own_conn:
+                conn.close()
+
+    def bar_count(
+        self,
+        symbol: str,
+        timeframe: str,
+        conn: psycopg.Connection | None = None,
+    ) -> int:
+        """Return total stored bars for a symbol and timeframe."""
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(queries.COUNT_CANDLES, (symbol, timeframe))
+                (count,) = cur.fetchone()
+                return int(count)
+        finally:
+            if own_conn:
+                conn.close()
+
     def find_timestamps(
         self,
         symbol: str,
