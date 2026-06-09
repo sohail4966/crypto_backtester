@@ -18,11 +18,17 @@ import { ChartLegend } from '@/components/Chart/ChartLegend'
 import { ChartToolbar } from '@/components/Chart/ChartToolbar'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
 import { FIT_RIGHT_OFFSET_BARS } from '@/constants/chart'
+import type { ChartTimezoneId } from '@/constants/timezone'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
 import type { Theme } from '@/types/theme'
 import { resolveChartColor } from '@/utils/color'
+import {
+  createChartTimezoneFormatters,
+  loadChartTimezonePreference,
+  resolveChartTimeZone,
+} from '@/utils/chartTimezone'
 
 const MIN_CHART_HEIGHT = 420
 
@@ -31,7 +37,10 @@ interface ChartContainerProps {
   className?: string
 }
 
-function chartOptions(theme: Theme, showGrid: boolean) {
+function chartOptions(theme: Theme, showGrid: boolean, timezone: ChartTimezoneId) {
+  const { timeFormatter, tickMarkFormatter } = createChartTimezoneFormatters(
+    resolveChartTimeZone(timezone),
+  )
   const gridColor = resolveChartColor('var(--color-border)', theme)
   return {
     autoSize: false,
@@ -47,11 +56,15 @@ function chartOptions(theme: Theme, showGrid: boolean) {
     rightPriceScale: {
       borderColor: resolveChartColor('var(--color-border)', theme),
     },
+    localization: {
+      timeFormatter,
+    },
     timeScale: {
       borderColor: resolveChartColor('var(--color-border)', theme),
       timeVisible: true,
       secondsVisible: false,
       rightOffset: FIT_RIGHT_OFFSET_BARS,
+      tickMarkFormatter,
     },
     crosshair: {
       vertLine: { color: resolveChartColor('var(--color-accent)', theme) },
@@ -98,10 +111,14 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const onRangeChangeRef = useRef<(range: LogicalRange | null) => void>(() => {})
   const themeRef = useRef<Theme>('dark')
+  const timezoneRef = useRef<ChartTimezoneId>(loadChartTimezonePreference())
+  const showGridRef = useRef(useChartStore.getState().showGrid)
 
   const { theme } = useTheme()
   const symbol = useChartStore((state) => state.symbol)
   const timeframe = useChartStore((state) => state.timeframe)
+  const timezone = useChartStore((state) => state.timezone)
+  const showGrid = useChartStore((state) => state.showGrid)
   const symbolId = symbol?.id
   const fitKey = `${symbolId ?? 'none'}-${timeframe}`
 
@@ -111,11 +128,18 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   )
 
   const [chartReady, setChartReady] = useState(false)
-  const [showGrid, setShowGrid] = useState(true)
 
   useEffect(() => {
     themeRef.current = theme
   }, [theme])
+
+  useEffect(() => {
+    timezoneRef.current = timezone
+  }, [timezone])
+
+  useEffect(() => {
+    showGridRef.current = showGrid
+  }, [showGrid])
 
   useEffect(() => {
     onRangeChangeRef.current = onVisibleRangeChange
@@ -129,7 +153,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
     const { width, height } = measureContainer(container)
     const chart = createChart(container, {
-      ...chartOptions(themeRef.current, true),
+      ...chartOptions(themeRef.current, showGridRef.current, timezoneRef.current),
       width,
       height,
     })
@@ -177,9 +201,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
     if (!chart || !chartReady) {
       return
     }
-    chart.applyOptions(chartOptions(theme, showGrid))
+    chart.applyOptions(chartOptions(theme, showGrid, timezone))
     candleSeriesRef.current?.applyOptions(seriesColors(theme))
-  }, [showGrid, theme, chartReady])
+  }, [showGrid, theme, timezone, chartReady])
 
   const contextValue = useMemo(
     () => ({
@@ -231,11 +255,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
           <CandlestickSeries candles={candles} fitKey={fitKey} />
           <VolumeSeries candles={candles} theme={theme} />
           <ChartLegend candles={candles} theme={theme} />
-          <ChartToolbar
-            barCount={candles.length}
-            showGrid={showGrid}
-            onShowGridChange={setShowGrid}
-          />
+          <ChartToolbar barCount={candles.length} />
         </ChartContext.Provider>
       ) : null}
     </div>

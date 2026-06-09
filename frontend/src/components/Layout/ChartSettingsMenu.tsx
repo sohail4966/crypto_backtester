@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-
-interface ChartSettingsProps {
-  showGrid: boolean
-  onShowGridChange: (show: boolean) => void
-}
+import { useChartStore } from '@/stores/chartStore'
 
 function SettingsIcon() {
   return (
@@ -24,7 +20,9 @@ function SettingsIcon() {
   )
 }
 
-export function ChartSettings({ showGrid, onShowGridChange }: ChartSettingsProps) {
+export function ChartSettingsMenu() {
+  const showGrid = useChartStore((state) => state.showGrid)
+  const setShowGrid = useChartStore((state) => state.setShowGrid)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -51,20 +49,20 @@ export function ChartSettings({ showGrid, onShowGridChange }: ChartSettingsProps
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
         className={[
-          'rounded p-1.5 text-text-secondary transition-colors hover:bg-bg hover:text-text',
-          open ? 'bg-bg text-text' : '',
+          'rounded border border-border p-1.5 text-text-secondary transition-colors hover:border-accent/40 hover:text-text',
+          open ? 'border-accent/40 text-text' : '',
         ].join(' ')}
       >
         <SettingsIcon />
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-full z-30 mt-1 min-w-[10rem] rounded border border-border bg-surface p-2 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] rounded border border-border bg-surface p-2 shadow-lg">
           <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-text hover:bg-bg">
             <input
               type="checkbox"
               checked={showGrid}
-              onChange={(event) => onShowGridChange(event.target.checked)}
+              onChange={(event) => setShowGrid(event.target.checked)}
               className="accent-accent"
             />
             <span>Show grid</span>

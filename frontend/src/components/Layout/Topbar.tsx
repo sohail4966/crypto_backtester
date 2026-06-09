@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useTheme } from '@/hooks/useTheme'
+import { ChartSettingsMenu } from '@/components/Layout/ChartSettingsMenu'
 import { TimeframeSelector } from '@/components/Layout/TimeframeSelector'
+import { TimezoneSelector } from '@/components/Layout/TimezoneSelector'
 import { SymbolSearch } from '@/components/Watchlist/SymbolSearch'
-import { getHealth } from '@/services/api'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -17,17 +17,6 @@ export function Topbar() {
   const location = useLocation()
   const onChartRoute = location.pathname === '/'
   const { theme, toggleTheme } = useTheme()
-  const healthQuery = useQuery({
-    queryKey: ['meta', 'health'],
-    queryFn: getHealth,
-  })
-
-  const healthLabel = (() => {
-    if (healthQuery.isPending) return 'API: checking…'
-    if (healthQuery.isError) return 'API: unreachable'
-    const { status, version, database } = healthQuery.data
-    return `API: ${status} v${version} · DB ${database}`
-  })()
 
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
@@ -50,16 +39,12 @@ export function Topbar() {
         <div className="hidden flex-1 items-center justify-center gap-4 px-4 lg:flex">
           <SymbolSearch />
           <TimeframeSelector />
+          <TimezoneSelector />
+          <ChartSettingsMenu />
         </div>
       ) : null}
 
       <div className="flex items-center gap-3">
-        <span
-          className="hidden text-xs text-text-secondary sm:inline"
-          title={healthQuery.isError ? String(healthQuery.error) : undefined}
-        >
-          {healthLabel}
-        </span>
         <button
           type="button"
           onClick={toggleTheme}

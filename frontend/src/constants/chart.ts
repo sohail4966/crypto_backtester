@@ -9,6 +9,8 @@ export const PREFETCH_THRESHOLD = 0.2
 export const FIT_VISIBLE_BARS = 120
 export const FIT_RIGHT_OFFSET_BARS = 8
 
+export const CHART_SHOW_GRID_STORAGE_KEY = 'chart-show-grid'
+
 export const DEFAULT_TIMEFRAME = '1h'
 export const DEFAULT_SYMBOL_ID = 'BTC/USDT'
 

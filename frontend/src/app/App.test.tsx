@@ -36,14 +36,6 @@ describe('App', () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input)
 
-        if (url.includes('/meta/health')) {
-          return mockFetchResponse({
-            status: 'ok',
-            version: '0.4.1',
-            database: 'ok',
-          })
-        }
-
         if (url.includes('/symbols/BTC%2FUSDT') && url.includes('data-range')) {
           return mockFetchResponse({
             symbolId: 'BTC/USDT',
@@ -95,7 +87,6 @@ describe('App', () => {
 
     expect(screen.getByRole('navigation')).toBeInTheDocument()
     expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
-    expect(await screen.findByText(/API: ok v0\.4\.1/)).toBeInTheDocument()
   })
 
   it('renders the replay route', async () => {
