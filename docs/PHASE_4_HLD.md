@@ -212,6 +212,9 @@ Expose via `GET /api/v1/meta/timeframes`.
 **Machine-readable spec:** [openapi.yaml](openapi.yaml) — all REST endpoints with
 request/response schemas, error codes, and WebSocket message types under `x-websocket`.
 
+**Postman collection:** [postman/Crypto_Backtester_API.postman_collection.json](postman/Crypto_Backtester_API.postman_collection.json)
+(+ optional [Local.postman_environment.json](postman/Local.postman_environment.json)).
+
 **Live docs:** `http://localhost:8000/docs` (FastAPI Swagger UI, REST only).
 
 ## REST API Specification

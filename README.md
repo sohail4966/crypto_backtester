@@ -83,6 +83,9 @@ python -m api                   # or: uvicorn api.main:app --reload --port 8000
 - Public endpoints (no auth): symbols, historical candles, indicators, users, watchlists, replay
 - Replay WebSocket: `/ws/replay/{session_id}`
 
+**Postman:** Import [docs/postman/Crypto_Backtester_API.postman_collection.json](docs/postman/Crypto_Backtester_API.postman_collection.json)
+(optional environment: [docs/postman/Local.postman_environment.json](docs/postman/Local.postman_environment.json)).
+
 See [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) for the full API contract.
 
 ## Configuration
@@ -180,6 +183,7 @@ pytest
 | [docs/openapi.yaml](docs/openapi.yaml) | **API contract** — REST + WebSocket schemas (request/response bodies) |
 | [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) | Client API — completion assessment 8.5/10 |
 | [docs/openapi.yaml](docs/openapi.yaml) | Static REST + WS API reference |
+| [docs/postman/](docs/postman/) | Postman collection for manual API testing |
 | [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) | Backtest engine design + completion assessment |
 | [docs/PHASE_2_HLD.md](docs/PHASE_2_HLD.md) | Indicator library |
 | [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Data foundation |

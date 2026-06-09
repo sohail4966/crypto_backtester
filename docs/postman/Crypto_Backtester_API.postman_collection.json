@@ -1,0 +1,504 @@
+{
+  "info": {
+    "_postman_id": "a3f8c2e1-9b4d-4f6a-8c1e-2d5b7e904f31",
+    "name": "Crypto Backtester API (Phase 4)",
+    "description": "Phase 4 REST + replay WebSocket API.\n\n**Setup**\n1. `docker compose up -d` and `python run_sync.py --backfill`\n2. `python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Candles → Indicators\n2. Users → Watchlists\n3. Replay REST (create session) → Replay WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Open the WS request after creating a replay session. Send JSON commands from the folder descriptions.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "wsBase", "value": "ws://localhost:8000" },
+    { "key": "symbol", "value": "BTC/USDT" },
+    { "key": "timeframe", "value": "1d" },
+    { "key": "from_ts", "value": "1704067200" },
+    { "key": "to_ts", "value": "1735689600" },
+    { "key": "user_id", "value": "" },
+    { "key": "watchlist_id", "value": "" },
+    { "key": "session_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 Meta",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/meta/health"
+          }
+        },
+        {
+          "name": "Timeframes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/meta/timeframes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Symbols",
+      "item": [
+        {
+          "name": "List symbols",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/symbols?active_only=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "symbols"],
+              "query": [{ "key": "active_only", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "List symbols (search BTC)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/symbols?q=BTC&active_only=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "symbols"],
+              "query": [
+                { "key": "q", "value": "BTC" },
+                { "key": "active_only", "value": "true" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get symbol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/symbols/{{symbol}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Candles",
+      "item": [
+        {
+          "name": "Historical candles (default limit)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/candles/{{symbol}}?timeframe={{timeframe}}&from={{from_ts}}&to={{to_ts}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "candles", "{{symbol}}"],
+              "query": [
+                { "key": "timeframe", "value": "{{timeframe}}" },
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "to", "value": "{{to_ts}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Historical candles (limit 100)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/candles/{{symbol}}?timeframe={{timeframe}}&from={{from_ts}}&to={{to_ts}}&limit=100",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "candles", "{{symbol}}"],
+              "query": [
+                { "key": "timeframe", "value": "{{timeframe}}" },
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "to", "value": "{{to_ts}}" },
+                { "key": "limit", "value": "100" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Historical candles ETH 1h",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/candles/ETH/USDT?timeframe=1h&from={{from_ts}}&to={{to_ts}}&limit=500",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "candles", "ETH", "USDT"],
+              "query": [
+                { "key": "timeframe", "value": "1h" },
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "to", "value": "{{to_ts}}" },
+                { "key": "limit", "value": "500" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Indicators",
+      "item": [
+        {
+          "name": "Indicator catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/indicators"
+          }
+        },
+        {
+          "name": "Compute RSI + SMA",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"from\": {{from_ts}},\n  \"to\": {{to_ts}},\n  \"indicators\": [\n    {\"key\": \"RSI\", \"params\": {\"period\": 14}, \"pane\": \"subchart\"},\n    {\"key\": \"SMA\", \"params\": {\"period\": 20}, \"pane\": \"overlay\"}\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/indicators/compute"
+          }
+        },
+        {
+          "name": "Compute MACD (multi-output)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"from\": {{from_ts}},\n  \"to\": {{to_ts}},\n  \"indicators\": [\n    {\"key\": \"MACD_LINE\", \"params\": {\"fast\": 12, \"slow\": 26, \"signal\": 9}},\n    {\"key\": \"MACD_SIGNAL\", \"params\": {\"fast\": 12, \"slow\": 26, \"signal\": 9}},\n    {\"key\": \"MACD_HIST\", \"params\": {\"fast\": 12, \"slow\": 26, \"signal\": 9}}\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/indicators/compute"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Users",
+      "item": [
+        {
+          "name": "Create user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('user_id', data.id);",
+                  "    console.log('user_id set to', data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Trader\",\n  \"email\": \"demo.trader@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/users"
+          }
+        },
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?limit=100&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                { "key": "limit", "value": "100" },
+                { "key": "offset", "value": "0" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}"
+          }
+        },
+        {
+          "name": "Update user",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Trader Updated\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}"
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Watchlists",
+      "item": [
+        {
+          "name": "List watchlists",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    if (data.length > 0) {",
+                  "        pm.collectionVariables.set('watchlist_id', data[0].id);",
+                  "        console.log('watchlist_id set to', data[0].id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists"
+          }
+        },
+        {
+          "name": "Create watchlist",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('watchlist_id', pm.response.json().id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Majors\",\n  \"symbols\": [\"BTC/USDT\", \"ETH/USDT\"]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists"
+          }
+        },
+        {
+          "name": "Get watchlist",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists/{{watchlist_id}}"
+          }
+        },
+        {
+          "name": "Update watchlist",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Majors Updated\",\n  \"is_default\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists/{{watchlist_id}}"
+          }
+        },
+        {
+          "name": "Replace watchlist symbols",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbols\": [\"BTC/USDT\", \"ETH/USDT\", \"SOL/USDT\"]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists/{{watchlist_id}}/symbols"
+          }
+        },
+        {
+          "name": "Delete watchlist",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/{{user_id}}/watchlists/{{watchlist_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Replay (REST)",
+      "item": [
+        {
+          "name": "Create replay session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('session_id', data.session_id);",
+                  "    console.log('session_id set to', data.session_id);",
+                  "    console.log('Connect WebSocket:', data.ws_url);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"start\": {{from_ts}},\n  \"end\": {{to_ts}},\n  \"step_timeframe\": \"{{timeframe}}\",\n  \"speed\": 1.0,\n  \"autoplay\": false,\n  \"indicators\": [\n    {\"key\": \"RSI\", \"params\": {\"period\": 14}}\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/replay/sessions"
+          }
+        },
+        {
+          "name": "Create replay session (15m steps on 1h chart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('session_id', pm.response.json().session_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTC/USDT\",\n  \"timeframe\": \"1h\",\n  \"start\": {{from_ts}},\n  \"end\": {{to_ts}},\n  \"step_timeframe\": \"15m\",\n  \"speed\": 2.0,\n  \"autoplay\": false,\n  \"indicators\": [\n    {\"key\": \"SMA\", \"params\": {\"period\": 20}}\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/replay/sessions"
+          }
+        },
+        {
+          "name": "Get replay session state",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/replay/sessions/{{session_id}}"
+          }
+        },
+        {
+          "name": "Delete replay session",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/replay/sessions/{{session_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Replay (WebSocket)",
+      "description": "Connect after **Create replay session** sets `session_id`.\n\n**URL:** `ws://localhost:8000/ws/replay/{{session_id}}`\n\nSend these JSON messages (one per line) from the Postman WebSocket message panel:\n\n**Step 1 bar:**\n```json\n{\"action\": \"step\", \"count\": 1}\n```\n\n**Step 5 bars:**\n```json\n{\"action\": \"step\", \"count\": 5}\n```\n\n**Play at 2 bars/sec:**\n```json\n{\"action\": \"play\", \"speed\": 2.0}\n```\n\n**Pause:**\n```json\n{\"action\": \"pause\"}\n```\n\n**Seek:**\n```json\n{\"action\": \"seek\", \"to\": 1706745600}\n```\n\n**Change speed:**\n```json\n{\"action\": \"set_speed\", \"speed\": 5.0}\n```\n\n**Change step TF:**\n```json\n{\"action\": \"set_step_timeframe\", \"step_timeframe\": \"15m\"}\n```\n\n**Replace indicators:**\n```json\n{\"action\": \"set_indicators\", \"indicators\": [{\"key\": \"RSI\", \"params\": {\"period\": 14}}]}\n```\n\n**Snapshot state:**\n```json\n{\"action\": \"get_state\"}\n```\n\n**Server events:** `replay_state`, `candle`, `indicators`, `replay_completed`, `error`",
+      "item": [
+        {
+          "name": "Connect replay WebSocket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{wsBase}}/ws/replay/{{session_id}}",
+              "protocol": "ws",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["ws", "replay", "{{session_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "99 Errors (examples)",
+      "item": [
+        {
+          "name": "Unknown symbol → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/symbols/FOO/USDT"
+          }
+        },
+        {
+          "name": "Invalid timeframe → 422",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/candles/{{symbol}}?timeframe=2m&from={{from_ts}}&to={{to_ts}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "candles", "{{symbol}}"],
+              "query": [
+                { "key": "timeframe", "value": "2m" },
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "to", "value": "{{to_ts}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Limit exceeded → 422",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/candles/{{symbol}}?timeframe={{timeframe}}&from={{from_ts}}&to={{to_ts}}&limit=9999",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "candles", "{{symbol}}"],
+              "query": [
+                { "key": "timeframe", "value": "{{timeframe}}" },
+                { "key": "from", "value": "{{from_ts}}" },
+                { "key": "to", "value": "{{to_ts}}" },
+                { "key": "limit", "value": "9999" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unknown indicator → 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"from\": {{from_ts}},\n  \"to\": {{to_ts}},\n  \"indicators\": [{\"key\": \"NOT_REAL\"}]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/indicators/compute"
+          }
+        }
+      ]
+    }
+  ]
+}
