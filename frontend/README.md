@@ -2,24 +2,31 @@
 
 TradingView-style chart client for the crypto backtester platform.
 
-## Spec
+## Docs
 
-**[SPEC-001 — TradingView-Style Frontend](docs/SPEC-001.md)** (v2.0)
+| Doc | Purpose |
+|-----|---------|
+| [SPEC-001](docs/SPEC-001.md) | Full architecture spec (v2.0) |
+| [ROADMAP](docs/ROADMAP.md) | Implementation phases, status, backend gates |
+| [FE_PHASE_*_HLD](docs/FE_PHASE_0_HLD.md) | Per-phase implementation guides |
 
 ## Status
 
-All six SPEC-001 delivery phases are implemented against **Phase 4b** backend APIs.
+Follow [ROADMAP](docs/ROADMAP.md) for phase-by-phase delivery.
 
 | Phase | Scope | Status |
 |-------|--------|--------|
-| 1 | Core chart, windowed loading, symbol switching | ✅ |
-| 2 | Overlay + subchart indicators from unified `/chart-data` | ✅ |
-| 3 | Watchlists, symbol entities, user bootstrap, IndexedDB cache | ✅ |
-| 4 | Hybrid REST replay (`POST /replay/runs`, chunk polling) | ✅ |
-| 5 | MVP drawings (5 tools incl. Price Range), IndexedDB | ✅ |
-| 6 | Multi-chart layouts, sync config, workspace persistence, shortcuts | ✅ |
+| 0 | Vite scaffold, app shell, API client | ✅ |
+| 1 | Core chart, windowed loading, symbol switching | ⬜ |
+| 2 | Overlay + subchart indicators from `/chart-data` | ⬜ |
+| 3 | Watchlists, symbol entities, user bootstrap | ⬜ |
+| 4 | Hybrid REST replay (`POST /replay/runs`, chunks) | ⬜ |
+| 5 | MVP drawings (5 tools incl. Price Range) | ⬜ |
+| 6 | Multi-chart layouts, sync, workspace, shortcuts | ⬜ |
 
-**Deferred (backend):** live WS watchlist ticks (Phase 11), backtest HTTP API (Phase 4c), workspace backend sync (Phase 4d).
+**Backend ready for FE Phase 1+:** [Phase 4b](../backend/docs/PHASE_4B_HLD.md) (`/chart-data`, symbol v2, replay chunks).
+
+**Deferred:** live WS watchlist ticks (Phase 11), backtest HTTP API (Phase 4c), workspace backend sync (Phase 4d).
 
 ## Quick start
 
@@ -33,7 +40,7 @@ cd frontend && npm install && npm run dev
 
 Open http://localhost:5173
 
-## Keyboard shortcuts
+## Keyboard shortcuts (Phase 6)
 
 | Key | Action |
 |-----|--------|
