@@ -14,7 +14,10 @@ import {
 } from 'lightweight-charts'
 import { CandlestickSeries } from '@/components/Chart/CandlestickSeries'
 import { ChartContext } from '@/components/Chart/ChartContext'
+import { ChartLegend } from '@/components/Chart/ChartLegend'
+import { ChartToolbar } from '@/components/Chart/ChartToolbar'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
+import { FIT_RIGHT_OFFSET_BARS } from '@/constants/chart'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
@@ -28,7 +31,8 @@ interface ChartContainerProps {
   className?: string
 }
 
-function chartOptions(theme: Theme) {
+function chartOptions(theme: Theme, showGrid: boolean) {
+  const gridColor = resolveChartColor('var(--color-border)', theme)
   return {
     autoSize: false,
     layout: {
@@ -37,8 +41,8 @@ function chartOptions(theme: Theme) {
       attributionLogo: false,
     },
     grid: {
-      vertLines: { color: resolveChartColor('var(--color-border)', theme) },
-      horzLines: { color: resolveChartColor('var(--color-border)', theme) },
+      vertLines: { visible: showGrid, color: gridColor },
+      horzLines: { visible: showGrid, color: gridColor },
     },
     rightPriceScale: {
       borderColor: resolveChartColor('var(--color-border)', theme),
@@ -47,10 +51,23 @@ function chartOptions(theme: Theme) {
       borderColor: resolveChartColor('var(--color-border)', theme),
       timeVisible: true,
       secondsVisible: false,
+      rightOffset: FIT_RIGHT_OFFSET_BARS,
     },
     crosshair: {
       vertLine: { color: resolveChartColor('var(--color-accent)', theme) },
       horzLine: { color: resolveChartColor('var(--color-accent)', theme) },
+    },
+    handleScroll: {
+      mouseWheel: true,
+      pressedMouseMove: true,
+      horzTouchDrag: true,
+      vertTouchDrag: false,
+    },
+    handleScale: {
+      mouseWheel: true,
+      pinch: true,
+      axisPressedMouseMove: { time: true, price: true },
+      axisDoubleClickReset: { time: true, price: true },
     },
   } as const
 }
@@ -86,6 +103,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const symbol = useChartStore((state) => state.symbol)
   const timeframe = useChartStore((state) => state.timeframe)
   const symbolId = symbol?.id
+  const fitKey = `${symbolId ?? 'none'}-${timeframe}`
 
   const { candles, status, error, onVisibleRangeChange } = useChunkManager(
     symbolId,
@@ -93,6 +111,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   )
 
   const [chartReady, setChartReady] = useState(false)
+  const [showGrid, setShowGrid] = useState(true)
 
   useEffect(() => {
     themeRef.current = theme
@@ -110,7 +129,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
     const { width, height } = measureContainer(container)
     const chart = createChart(container, {
-      ...chartOptions(themeRef.current),
+      ...chartOptions(themeRef.current, true),
       width,
       height,
     })
@@ -158,9 +177,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
     if (!chart || !chartReady) {
       return
     }
-    chart.applyOptions(chartOptions(theme))
+    chart.applyOptions(chartOptions(theme, showGrid))
     candleSeriesRef.current?.applyOptions(seriesColors(theme))
-  }, [theme, chartReady])
+  }, [showGrid, theme, chartReady])
 
   const contextValue = useMemo(
     () => ({
@@ -209,8 +228,14 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       {overlay}
       {chartReady && candles.length > 0 ? (
         <ChartContext.Provider value={contextValue}>
-          <CandlestickSeries candles={candles} />
+          <CandlestickSeries candles={candles} fitKey={fitKey} />
           <VolumeSeries candles={candles} theme={theme} />
+          <ChartLegend candles={candles} theme={theme} />
+          <ChartToolbar
+            barCount={candles.length}
+            showGrid={showGrid}
+            onShowGridChange={setShowGrid}
+          />
         </ChartContext.Provider>
       ) : null}
     </div>

@@ -5,6 +5,10 @@ export const LOOKAHEAD_CHUNKS = 1
 // Prefetch prior chunk when scroll position is within 20% of the left edge.
 export const PREFETCH_THRESHOLD = 0.2
 
+// Default viewport on load and Fit click — TradingView-style density, not the full 500-bar chunk.
+export const FIT_VISIBLE_BARS = 120
+export const FIT_RIGHT_OFFSET_BARS = 8
+
 export const DEFAULT_TIMEFRAME = '1h'
 export const DEFAULT_SYMBOL_ID = 'BTC/USDT'
 

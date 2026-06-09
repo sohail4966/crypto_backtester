@@ -198,8 +198,10 @@ export function useChunkManager(
         timeframe,
         LOOKBACK_CHUNKS * CHUNK_SIZE_BARS,
       )
-      managerRef.current.evictBefore(evictBefore)
-      syncCandles(managerRef.current.getAssembled())
+      // Re-setData on every scroll frame breaks pan/zoom — only sync when chunks were evicted.
+      if (managerRef.current.evictBefore(evictBefore)) {
+        syncCandles(managerRef.current.getAssembled())
+      }
     },
     [prefetchPriorChunk, status, syncCandles, timeframe],
   )

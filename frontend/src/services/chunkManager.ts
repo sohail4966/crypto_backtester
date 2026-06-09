@@ -41,12 +41,15 @@ export class ChunkManager {
   }
 
   /** Drop chunks that fall outside the look-back window to bound memory use. */
-  evictBefore(cutoffTime: number): void {
+  evictBefore(cutoffTime: number): boolean {
+    let evicted = false
     for (const [chunkStart, bars] of this.chunks.entries()) {
       const chunkEnd = bars[bars.length - 1]?.time ?? chunkStart
       if (chunkEnd < cutoffTime) {
         this.chunks.delete(chunkStart)
+        evicted = true
       }
     }
+    return evicted
   }
 }
