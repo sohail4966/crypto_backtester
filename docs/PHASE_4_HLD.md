@@ -201,7 +201,7 @@ Persistence deferred to **Phase 11** (D-78).
 
 All TFs from `get_candles()` / repository:
 
-`1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d`, `1w`
+`1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `1d`, `1w`, `1M` (from `DERIVED_INTERVALS` + `1m`)
 
 Expose via `GET /api/v1/meta/timeframes`.
 
@@ -758,18 +758,18 @@ data/migrations/sql/V005__app_schema.sql
 
 ## Done Criteria
 
-| # | Criterion |
-|---|---|
-| 1 | D-67–D-79 in DECISIONS.md |
-| 2 | `api/` runnable via uvicorn |
-| 3 | `V005` applied: symbols seeded, users, watchlists |
-| 4 | `GET /symbols` returns 3 coins from DB |
-| 5 | Historical candles: default 1000, max 5000 |
-| 6 | Indicator catalog + compute (58 keys) |
-| 7 | User + watchlist CRUD without auth |
-| 8 | Replay WS: candles + indicators, variable speed |
-| 9 | **No** live WS; **no** auth middleware |
-| 10 | OpenAPI at `/docs`; tests green |
+| # | Criterion | Status |
+|---|---|---|
+| 1 | D-67–D-79 in DECISIONS.md | [x] |
+| 2 | `api/` runnable via uvicorn | [x] |
+| 3 | `V005` applied: symbols seeded, users, watchlists | [x] |
+| 4 | `GET /symbols` returns 3 coins from DB | [x] |
+| 5 | Historical candles: default 1000, max 5000 | [x] |
+| 6 | Indicator catalog + compute (58 keys) | [x] |
+| 7 | User + watchlist CRUD without auth | [x] |
+| 8 | Replay WS: candles + indicators, variable speed | [x] |
+| 9 | **No** live WS; **no** auth middleware | [x] |
+| 10 | OpenAPI at `/docs`; tests green | [x] (`342 passed`, 21 API tests) |
 
 ---
 
@@ -839,19 +839,63 @@ data/migrations/sql/V005__app_schema.sql
 
 ## Phase 4 Completion Assessment
 
-**Rating:** 8 / 10 — full API surface delivered; auth/live/replay persistence deferred to Phase 11.
+**Assessment date:** 2026-06-09  
+**Rating:** **8.5 / 10**  
+**Completion:** **100% for Phase 4 scope** (auth, live WS, replay DB persistence correctly deferred to Phase 11)
 
-| Area | Status | Notes |
+Phase 4 delivers a chart-ready **REST + replay WebSocket** layer on top of the existing
+data and indicator spine. Historical candles flow through `get_candles()` (D-06); indicators
+are computed server-side from the 58-key registry (D-72). Users and watchlists persist in
+`app.*` tables; replay sessions are in-memory (D-71). No authentication (D-69).
+
+### Evidence checked
+
+| Check | Result | Notes |
 |---|---|---|
-| Step 1 — Infrastructure | ✅ | `api/` package, V005 migration, meta routes |
-| Step 2 — Symbols | ✅ | `app.symbols` catalog REST |
-| Step 3 — Candles | ✅ | Historical OHLCV, default 1000 / max 5000 |
-| Step 4 — Indicators | ✅ | 58-key catalog + batch compute |
-| Step 5 — Users | ✅ | name + email, default watchlist on create |
-| Step 6 — Watchlists | ✅ | CRUD by `user_id`, symbol FK validation |
-| Step 7 — Replay REST | ✅ | In-memory sessions |
-| Step 8 — Replay WS | ✅ | play/step/seek + candle + indicators |
-| Step 9 — Integration tests | ✅ | 17 API tests |
-| Step 10 — Docs sign-off | ✅ | README, ROADMAP, this doc |
+| Full unit suite | Passing | `342 passed` (21 API tests) |
+| D-67 through D-79 in DECISIONS.md | Done | Includes no-auth, symbols table, candle limits |
+| `api/` package | Done | Routers, services, repositories, WS replay |
+| `V005__app_schema.sql` | Done | `app.symbols` seeded BTC/ETH/SOL, users, watchlists |
+| Symbols REST | Done | `GET /symbols`, search, active filter |
+| Candles REST | Done | Unix seconds (D-70), limit 1000/5000 (D-79), `next_from` cursor |
+| Indicators REST | Done | Catalog + batch compute; warmup history seeding |
+| Users + watchlists | Done | Default watchlist on create (OQ-54); symbol FK validation |
+| Replay REST + WS | Done | create/get/delete; step/seek/play/pause; prefix indicators |
+| No live WS / no auth | Done | Grep clean; no JWT deps |
+| OpenAPI | Done | Live `/docs` + static [openapi.yaml](openapi.yaml) |
+| Data boundary | Done | Candles via `get_candles()` only in services |
 
-**Test count:** 334 passed (17 new API tests).
+### Rating breakdown
+
+| Area | Score | Comment |
+|---|---|---|
+| Architecture alignment | 9/10 | Thin API layer; `app` schema separate from candles (D-73); shared replay singleton |
+| Feature completeness | 9/10 | All HLD endpoints shipped; indicator warmup seeding exceeds original spec |
+| Correctness / invariants | 8/10 | Replay uses prefix-only indicators; short windows degrade to null safely |
+| Test coverage | 8/10 | 21 API tests (services + WS + mocked HTTP); no live-DB API smoke test |
+| Documentation | 8.5/10 | HLD, ROADMAP, README, openapi.yaml; static spec may drift from `/docs` |
+| Client readiness | 8/10 | Sufficient for Phase 11 UI; no auth means local/trusted-network only |
+
+### Enhancements beyond original HLD
+
+| Enhancement | Notes |
+|---|---|
+| Indicator warmup history | `indicators/warmup.py` loads pre-window bars so chart-visible range is not all-null |
+| Extended timeframes | Repository-aligned: `3m`, `30m`, `2h`, `1w`, `1M` (replaces stale 6h/12h in early draft) |
+| Static OpenAPI export | [docs/openapi.yaml](openapi.yaml) documents REST + WS message shapes |
+
+### Known gaps (acceptable for Phase 4)
+
+- **No live-DB API integration test** — HTTP/WS tests mock `connect()` / `get_candles()`; manual `python -m api` + curl against synced DB still recommended.
+- **No golden JSON regression** for `POST /indicators/compute` (listed in testing strategy, not implemented).
+- **Replay autoplay speed** — WS `play` path exists; automated timing test not added.
+- **Public API** — any client can read/write any `user_id` (D-69; Phase 11 auth).
+- **In-memory replay** — sessions lost on restart (D-71; Phase 11 persistence).
+- **Candle pagination** — `next_from` uses `last_bar_time + 1` second, not bar-period-aware (works for sequential fetch, imprecise for sub-daily TFs).
+
+### Completion verdict
+
+Phase 4 is **complete**. Phase 5 (market structure) can start without API changes.
+Phase 11 UI can consume this API as-is for historical charts and bar replay.
+
+---

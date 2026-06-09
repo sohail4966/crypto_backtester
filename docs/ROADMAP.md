@@ -140,9 +140,10 @@ green (`317 passed`). CLI path covered by `test_run_backtest_integration.py`; ma
 
 ## Phase 4 — Client API Layer (REST + WebSocket)
 
-**Status:** Complete — [PHASE_4_HLD.md](PHASE_4_HLD.md#phase-4-completion-assessment)
+**Status:** Complete — [PHASE_4_HLD.md — Completion Assessment](PHASE_4_HLD.md#phase-4-completion-assessment)  
+**Rating:** 8.5 / 10
 
-**Design doc:** [PHASE_4_HLD.md](PHASE_4_HLD.md)
+**Design doc:** [PHASE_4_HLD.md](PHASE_4_HLD.md) · **API spec:** [openapi.yaml](openapi.yaml)
 
 **Theme:** Expose the data and indicator spine to a TradingView-like chart client.
 **Historical charts + bar replay only** — no live streaming, no auth.
@@ -160,8 +161,8 @@ watchlists, and run **bar replay** over WebSocket with indicators at variable sp
 
 **Deferred to Phase 11:** JWT auth, live candle WebSocket, replay session DB persistence.
 
-**Done when:** ✅ OpenAPI at `/docs`; symbols/candles/indicators/users/watchlists/replay WS;
-17 API tests; **334** total tests green.
+**Done when:** ✅ All [Phase 4 done criteria](PHASE_4_HLD.md#done-criteria) pass; `342 passed`
+(21 API tests). Manual smoke: `python -m api` → `/docs` → candles + replay WS on synced DB.
 
 ---
 
@@ -433,7 +434,7 @@ These may be future phases but are not part of the current vision.
 | 1 | Data foundation | Multi-symbol, multi-TF, incremental updates | Phase 0 |
 | 2 | Indicator library | Full validated indicator set | Phase 1 |
 | 3 | Full backtest engine | Fees, stops, sizing, full metrics | Phase 2 |
-| 4 | Client API | REST + WS: candles, indicators, users, watchlists, replay | Phases 1, 2 |
+| 4 | Client API | REST + replay WS: candles, indicators, users, watchlists | Phases 1, 2 | **Complete** (8.5/10) |
 | 5 | Market structure | Swing detection, trend labeling | Phase 2 |
 | 6 | Pattern recognition | Chart patterns, candles, divergence | Phase 5 |
 | 7 | SMC | BOS, CHOCH, FVG, Order Blocks | Phase 5 |

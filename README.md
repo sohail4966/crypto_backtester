@@ -178,7 +178,8 @@ pytest
 | Doc | Contents |
 |-----|----------|
 | [docs/openapi.yaml](docs/openapi.yaml) | **API contract** — REST + WebSocket schemas (request/response bodies) |
-| [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) | Client API (REST + replay WebSocket) |
+| [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) | Client API — completion assessment 8.5/10 |
+| [docs/openapi.yaml](docs/openapi.yaml) | Static REST + WS API reference |
 | [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) | Backtest engine design + completion assessment |
 | [docs/PHASE_2_HLD.md](docs/PHASE_2_HLD.md) | Indicator library |
 | [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Data foundation |

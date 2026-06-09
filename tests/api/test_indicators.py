@@ -100,11 +100,13 @@ def test_compute_unknown_indicator_raises() -> None:
         )
 
 
+@patch("api.deps.connect")
 @patch("api.routers.indicators._service.compute")
-def test_compute_endpoint(mock_compute: MagicMock, client: TestClient) -> None:
+def test_compute_endpoint(mock_compute: MagicMock, mock_connect: MagicMock, client: TestClient) -> None:
     """POST /indicators/compute delegates to service."""
     from api.schemas.indicators import IndicatorComputeResponse, IndicatorSeries
 
+    mock_connect.return_value = MagicMock()
     mock_compute.return_value = IndicatorComputeResponse(
         symbol="BTC/USDT",
         timeframe="1d",

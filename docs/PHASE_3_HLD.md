@@ -581,7 +581,7 @@ modules — sufficient for Phase 3 without a separate `RiskManager` class.
 
 ### Completion verdict
 
-Phase 3 is **complete**. Phase 4 (client API layer) can start without backtest engine changes.
+Phase 3 is **complete**. Phase 4 (client API) is **complete** — see [PHASE_4_HLD.md](PHASE_4_HLD.md#phase-4-completion-assessment). Phase 5 (market structure) is next.
 
 ---
 
