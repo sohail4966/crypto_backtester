@@ -70,8 +70,13 @@ def test_insert_new_candles_ignores_conflicts_and_returns_inserted_count() -> No
 
 def test_to_derived_interval_maps_supported_timeframes() -> None:
     """Supported derived timeframes map to SQL interval literals."""
+    assert _to_derived_interval("3m") == "3 minutes"
+    assert _to_derived_interval("30m") == "30 minutes"
+    assert _to_derived_interval("2h") == "2 hours"
     assert _to_derived_interval("1d") == "1 day"
     assert _to_derived_interval("1h") == "1 hour"
+    assert _to_derived_interval("1w") == "1 week"
+    assert _to_derived_interval("1M") == "1 month"
 
 
 def test_to_derived_interval_rejects_unknown_timeframe() -> None:
