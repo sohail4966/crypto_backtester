@@ -1,20 +1,90 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/components/Chart/ChartContainer', () => ({
+  ChartContainer: () => <div data-testid="chart-container" />,
+}))
+
 import { App } from './App'
+
+const mockSymbol = {
+  id: 'BTC/USDT',
+  ticker: 'BTC/USDT',
+  exchange: 'binance',
+  baseAsset: 'BTC',
+  quoteAsset: 'USDT',
+  tickSize: 0.01,
+  lotSize: 0.00001,
+  type: 'spot',
+  active: true,
+  sortOrder: 1,
+}
+
+function mockFetchResponse(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => body,
+  }
+}
 
 describe('App', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          status: 'ok',
-          version: '0.4.1',
-          database: 'ok',
-        }),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+
+        if (url.includes('/meta/health')) {
+          return mockFetchResponse({
+            status: 'ok',
+            version: '0.4.1',
+            database: 'ok',
+          })
+        }
+
+        if (url.includes('/symbols/BTC%2FUSDT') && url.includes('data-range')) {
+          return mockFetchResponse({
+            symbolId: 'BTC/USDT',
+            timeframe: '1h',
+            earliest: 1_700_000_000,
+            latest: 1_700_500_000,
+            barCount: 500,
+          })
+        }
+
+        if (url.includes('/symbols/BTC%2FUSDT')) {
+          return mockFetchResponse(mockSymbol)
+        }
+
+        if (url.includes('/chart-data')) {
+          return mockFetchResponse({
+            symbol: mockSymbol,
+            timeframe: '1h',
+            start: 1_700_000_000,
+            end: 1_700_500_000,
+            candles: [
+              {
+                time: 1_700_000_000,
+                open: 100,
+                high: 110,
+                low: 90,
+                close: 105,
+                volume: 12,
+              },
+            ],
+            indicators: {},
+            signals: [],
+            trades: [],
+          })
+        }
+
+        if (url.includes('/symbols/search')) {
+          return mockFetchResponse([mockSymbol])
+        }
+
+        return mockFetchResponse({})
       }),
     )
   })
@@ -23,8 +93,8 @@ describe('App', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'Chart' })).toBeInTheDocument()
     expect(screen.getByRole('navigation')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
     expect(await screen.findByText(/API: ok v0\.4\.1/)).toBeInTheDocument()
   })
 

@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { NavLink } from 'react-router-dom'
-import { useTheme } from '@/app/ThemeProvider'
+import { NavLink, useLocation } from 'react-router-dom'
+import { useTheme } from '@/hooks/useTheme'
+import { TimeframeSelector } from '@/components/Layout/TimeframeSelector'
+import { SymbolSearch } from '@/components/Watchlist/SymbolSearch'
 import { getHealth } from '@/services/api'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -12,6 +14,8 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   ].join(' ')
 
 export function Topbar() {
+  const location = useLocation()
+  const onChartRoute = location.pathname === '/'
   const { theme, toggleTheme } = useTheme()
   const healthQuery = useQuery({
     queryKey: ['meta', 'health'],
@@ -41,6 +45,13 @@ export function Topbar() {
           </NavLink>
         </nav>
       </div>
+
+      {onChartRoute ? (
+        <div className="hidden flex-1 items-center justify-center gap-4 px-4 lg:flex">
+          <SymbolSearch />
+          <TimeframeSelector />
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-3">
         <span

@@ -1,6 +1,6 @@
 # FE Phase 1 High Level Design — Core Chart
 
-**Status:** Not started  
+**Status:** Complete  
 **Prerequisite:** [FE Phase 0](FE_PHASE_0_HLD.md), [backend Phase 4b](../../backend/docs/PHASE_4B_HLD.md) ✅  
 **Enables:** FE Phases 2–6  
 **Spec:** [SPEC-001 §4.1–4.3, §5.1, §7.1](SPEC-001.md)  
@@ -84,13 +84,13 @@ chartStore ──► Symbol entity, timeframe
 
 Phase 1 is **complete** when:
 
-- [ ] Chart loads ~500 bars for BTC/USDT `1h` on first paint
-- [ ] SOL/USDT `1m` loads (data anchored on DB `latest`, not empty window)
-- [ ] Symbol search returns structured `Symbol[]`; selection updates chart
-- [ ] Timeframe change refetches with correct window
-- [ ] Scroll-left prefetches prior chunk without blanking chart
-- [ ] Volume histogram renders below candles
-- [ ] `npm run build` passes; manual smoke on synced backend DB
+- [x] Chart loads ~500 bars for BTC/USDT `1h` on first paint
+- [x] SOL/USDT `1m` loads (data anchored on DB `latest`, not empty window)
+- [x] Symbol search returns structured `Symbol[]`; selection updates chart
+- [x] Timeframe change refetches with correct window
+- [x] Scroll-left prefetches prior chunk without blanking chart
+- [x] Volume histogram renders below candles
+- [x] `npm run build` passes; manual smoke on synced backend DB
 
 ---
 
@@ -98,4 +98,5 @@ Phase 1 is **complete** when:
 
 - [SPEC-001.md](SPEC-001.md)
 - [PHASE_4B_HLD.md](../../backend/docs/PHASE_4B_HLD.md)
+- [PHASE_4B_FE_GAPS.md](../../backend/docs/PHASE_4B_FE_GAPS.md) — backend fixes to remove FE workarounds
 - [openapi.yaml](../../backend/docs/openapi.yaml)

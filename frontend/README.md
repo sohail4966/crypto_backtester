@@ -17,7 +17,7 @@ Follow [ROADMAP](docs/ROADMAP.md) for phase-by-phase delivery.
 | Phase | Scope | Status |
 |-------|--------|--------|
 | 0 | Vite scaffold, app shell, API client | ✅ |
-| 1 | Core chart, windowed loading, symbol switching | ⬜ |
+| 1 | Core chart, windowed loading, symbol switching | ✅ |
 | 2 | Overlay + subchart indicators from `/chart-data` | ⬜ |
 | 3 | Watchlists, symbol entities, user bootstrap | ⬜ |
 | 4 | Hybrid REST replay (`POST /replay/runs`, chunks) | ⬜ |

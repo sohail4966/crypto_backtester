@@ -67,7 +67,7 @@ against `GET /api/v1/meta/health` succeeds from the browser.
 
 ## Phase 1 — Core Chart
 
-**Status:** Not started  
+**Status:** Complete — [FE_PHASE_1_HLD.md](FE_PHASE_1_HLD.md)  
 **Design doc:** [FE_PHASE_1_HLD.md](FE_PHASE_1_HLD.md) · **Spec:** [SPEC-001 §4–5, §10](SPEC-001.md)  
 **Prerequisite:** [Phase 4b](../../backend/docs/PHASE_4B_HLD.md) complete ✅  
 **Backend:** `GET /chart-data`, `GET /symbols/search`, `GET /symbols/{id}/data-range`
@@ -270,5 +270,6 @@ chart-data requests. Phase 6 integrates everything.
 | [SPEC-001.md](SPEC-001.md) | Full architecture, types, components, API contracts |
 | [FE_PHASE_*_HLD.md](FE_PHASE_0_HLD.md) | Per-phase implementation guides |
 | [backend/docs/PHASE_4B_HLD.md](../../backend/docs/PHASE_4B_HLD.md) | Chart-data + replay chunk API |
+| [backend/docs/PHASE_4B_FE_GAPS.md](../../backend/docs/PHASE_4B_FE_GAPS.md) | Backend fixes for derived timeframe metadata |
 | [backend/docs/openapi.yaml](../../backend/docs/openapi.yaml) | REST contract source of truth |
 | [backend/docs/DECISIONS.md](../../backend/docs/DECISIONS.md) | D-80–D-87 frontend architecture |

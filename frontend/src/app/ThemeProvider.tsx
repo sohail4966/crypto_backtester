@@ -1,21 +1,19 @@
 import {
   createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
-
-export type Theme = 'dark' | 'light'
+import type { Theme } from '@/types/theme'
 
 interface ThemeContextValue {
   theme: Theme
   toggleTheme: () => void
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null)
+export const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 const STORAGE_KEY = 'cb-theme'
 
@@ -25,6 +23,12 @@ function readStoredTheme(): Theme {
     return stored === 'light' ? 'light' : 'dark'
   } catch {
     return 'dark'
+  }
+}
+
+function applyThemeToDocument(theme: Theme): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = theme
   }
 }
 
@@ -41,10 +45,14 @@ interface ThemeProviderProps {
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => readStoredTheme())
+  const [theme, setTheme] = useState<Theme>(() => {
+    const initial = readStoredTheme()
+    applyThemeToDocument(initial)
+    return initial
+  })
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
+    applyThemeToDocument(theme)
     persistTheme(theme)
   }, [theme])
 
@@ -61,12 +69,4 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-}
-
-export function useTheme(): ThemeContextValue {
-  const context = useContext(ThemeContext)
-  if (!context) {
-    throw new Error('useTheme must be used within ThemeProvider')
-  }
-  return context
 }

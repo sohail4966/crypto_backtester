@@ -191,6 +191,10 @@ auth / live WS → **Phase 11**.
 **Done when:** All [Phase 4b done criteria](PHASE_4B_HLD.md#done-criteria) pass; OpenAPI
 and Postman updated; FE can consume `/chart-data` and replay chunks without adapter.
 
+**Follow-up (FE Phase 1 findings):** [PHASE_4B_FE_GAPS.md](PHASE_4B_FE_GAPS.md) —
+derived-timeframe `data-range` / `get_latest_candles` fixes so the chart client does not
+need 1m metadata fallback workarounds.
+
 ---
 
 ## Phase 5 — Market Structure Detection

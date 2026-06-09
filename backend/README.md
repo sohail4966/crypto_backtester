@@ -182,6 +182,7 @@ pytest
 |-----|----------|
 | [docs/openapi.yaml](docs/openapi.yaml) | **API contract** — REST + WebSocket schemas (request/response bodies) |
 | [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) | Client API — completion assessment 8.5/10 |
+| [docs/PHASE_4B_FE_GAPS.md](docs/PHASE_4B_FE_GAPS.md) | Derived timeframe API gaps found during FE Phase 1 |
 | [docs/openapi.yaml](docs/openapi.yaml) | Static REST + WS API reference |
 | [docs/postman/](docs/postman/) | Postman collection for manual API testing |
 | [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) | Backtest engine design + completion assessment |
