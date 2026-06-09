@@ -272,9 +272,61 @@ is deferred to **Phase 5** if added.
 ---
 
 ### OQ-50 — Strict pivot comparison
-**Priority:** PHASE 4  
+**Priority:** PHASE 5 (market structure)  
 **Status:** **Resolved → D-53**  
 **Decision:** Strict **`>`** / **`<`** vs neighbors.
+
+---
+
+## Phase 4 — Client API
+
+### OQ-52 — Authentication
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-69**  
+**Decision:** **No auth** — all endpoints public.
+
+---
+
+### OQ-53 — Replay session persistence
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-71, D-78**  
+**Decision:** **In-memory** in Phase 4; DB table → **Phase 11**.
+
+---
+
+### OQ-54 — Default watchlist on user create
+**Priority:** PHASE 4  
+**Status:** **Resolved**  
+**Decision:** Auto-create **"Default"** watchlist with all active symbols (recommended).
+
+---
+
+### OQ-55 — Candle limit default
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-79**  
+**Decision:** Default **1000**, max **5000**.
+
+---
+
+### OQ-56 — Replay step vs display timeframe
+**Priority:** PHASE 4  
+**Status:** **Resolved**  
+**Decision:** **`step_timeframe`** may differ from display **`timeframe`**.
+
+---
+
+### OQ-57 — Indicator batch compute
+**Priority:** PHASE 4  
+**Status:** **Resolved**  
+**Decision:** Single **`POST /indicators/compute`** batch endpoint.
+
+---
+
+### OQ-58 — Live candle streaming in Phase 4
+**Priority:** PHASE 4  
+**Status:** **Resolved → D-78**  
+**Decision:** **No live chart tail** in Phase 4. Historical REST + replay WS only.
+Live streaming → **Phase 11**.
 
 ---
 
@@ -610,16 +662,23 @@ higher-timeframe reads.
 | OQ-36 | Pivot session boundaries | Phase 2 | Resolved → D-35 |
 | OQ-37 | SMA source | Phase 2 | Resolved → D-28 |
 | OQ-38 | Ichimoku defaults | Phase 2 | Resolved → D-36 |
-| OQ-10 | Swing detection algorithm | Phase 4 | Resolved → D-53 |
-| OQ-11 | Equal highs/lows tolerance | Phase 4 | Resolved → D-55 |
-| OQ-12 | Multi-TF structure hierarchy | Phase 4 | Resolved → D-58, D-63 |
-| OQ-45 | Confirmed vs provisional swings | Phase 4 | Resolved → D-62 |
-| OQ-46 | Swing price field | Phase 4 | Resolved → D-53 |
-| OQ-47 | S/R zones vs levels | Phase 4 | Resolved → D-57 |
-| OQ-48 | Default pivot width | Phase 4 | Resolved → D-53 |
-| OQ-49 | Evaluator hook in Phase 4 | Phase 4 | Resolved → D-63 |
-| OQ-50 | Strict pivot rule | Phase 4 | Resolved → D-53 |
-| OQ-51 | Vectorbt-style similarity in Phase 4 | Phase 4 | Resolved → D-61 |
+| OQ-10 | Swing detection algorithm | Phase 5 | Resolved → D-53 |
+| OQ-11 | Equal highs/lows tolerance | Phase 5 | Resolved → D-55 |
+| OQ-12 | Multi-TF structure hierarchy | Phase 5 | Resolved → D-58, D-63 |
+| OQ-45 | Confirmed vs provisional swings | Phase 5 | Resolved → D-62 |
+| OQ-46 | Swing price field | Phase 5 | Resolved → D-53 |
+| OQ-47 | S/R zones vs levels | Phase 5 | Resolved → D-57 |
+| OQ-48 | Default pivot width | Phase 5 | Resolved → D-53 |
+| OQ-49 | Evaluator hook in structure phase | Phase 5 | Resolved → D-63 |
+| OQ-50 | Strict pivot rule | Phase 5 | Resolved → D-53 |
+| OQ-51 | Vectorbt-style similarity | Phase 5 | Resolved → D-61 |
+| OQ-52 | API authentication | Phase 4 | Resolved → D-69 (none) |
+| OQ-53 | Replay persistence | Phase 4 | Resolved → D-71, D-78 |
+| OQ-54 | Default watchlist | Phase 4 | Resolved |
+| OQ-55 | Candle limit | Phase 4 | Resolved → D-79 |
+| OQ-56 | Replay step TF | Phase 4 | Resolved |
+| OQ-57 | Indicator batching | Phase 4 | Resolved |
+| OQ-58 | Live streaming | Phase 4 | Resolved → D-78 (deferred) |
 | OQ-13 | Pattern definition reference | Phase 5 | Open |
 | OQ-14 | Pattern confidence scoring | Phase 5 | Open |
 | OQ-15 | Pattern completion vs formation | Phase 5 | Open |

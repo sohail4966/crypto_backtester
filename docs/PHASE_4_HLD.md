@@ -1,561 +1,746 @@
-# Phase 4 High Level Design — Market Structure Detection
+# Phase 4 High Level Design — Client API Layer (REST + WebSocket)
 
-**Status:** Approved — ready for implementation (Q&A locked 2026-06-06)  
+**Status:** Approved — implementation complete  
 **Prerequisite:** Phase 3 complete ([PHASE_3_HLD.md](PHASE_3_HLD.md))  
-**Next phase after this:** [Phase 5 — Pattern Recognition](ROADMAP.md#phase-5--pattern-recognition)
+**Supersedes:** Previous Phase 4 (Market Structure Detection) — moved to **Phase 5**  
+**Next phase after this:** [Phase 5 — Market Structure Detection](ROADMAP.md#phase-5--market-structure-detection)
 
 ---
 
-## Why Phase 4 Matters
+## Why Phase 4 Is the API Layer
 
-Phase 4 is the **structural foundation** for everything that depends on price geometry:
+Phases 1–3 built a trustworthy **data → indicators → backtest** spine. Before adding
+market structure, patterns, or SMC, the platform needs a **client-facing surface** that
+a TradingView-like chart application can consume:
 
-| Downstream phase | Depends on Phase 4 for |
+| Client capability | Needs from backend |
 |---|---|
-| Phase 5 — Patterns | Double tops, H&S, triangles need swing anchors |
-| Phase 5c — Divergence | Compare indicator peaks to **price swing** peaks |
-| Phase 6 — SMC | BOS/CHOCH, liquidity sweeps need swing highs/lows |
-| Phase 8 — DSL / UI | “Daily trend up, enter on 1h pullback” needs HTF structure |
+| Symbol picker | `symbols` table + list API |
+| Historical chart | Past OHLCV via REST |
+| Indicator overlays | Server-side compute (REST + replay WS) |
+| Watchlists | Per-user persisted lists (`user_id` scoped) |
+| Users | Name + email stored (no login in Phase 4) |
+| Bar replay | WebSocket stepped playback + indicators at variable speed |
 
-Indicators (Phase 2) answer **“what is RSI?”**  
-Market structure answers **“where are the meaningful highs and lows, and what is trend?”**
+**No live chart tail in Phase 4** — only historical candles and replay-emitted candles.
 
-Getting this wrong poisons patterns, SMC, and multi-timeframe strategies. Phase 4 is
-isolated so it can be iterated and validated before pattern logic is attempted.
-
----
-
-## Starting Point
-
-Phase 3 delivers a trustworthy backtest engine. Phase 4 adds a **new layer** — it does
-not change `get_candles()`, the indicator registry, or the backtest engine.
-
-**What exists today (relevant):**
-
-| Module | What it is | Phase 4 relationship |
-|---|---|---|
-| `indicators/custom/pivots.py` | **Floor pivots** (PIVOT_P, R1, S1) from prior session H/L/C (D-35) | **Not** swing structure — keep separate |
-| `indicators/registry.py` | 58 OHLCV indicators | Unchanged in Phase 4 core |
-| `signals/evaluator.py` | Indicator + AND + compare conditions | **Unchanged** in Phase 4 (D-63) |
-| `data/loader.py` | `get_candles(symbol, tf, start, end)` | Used for multi-TF structure reads |
-| `structure/` | — | **New package** (this phase) |
-
-**No `structure/` code exists yet.** Phase 4 starts from zero in that package.
+**Market structure (Phase 5):** D-53–D-66 in [DECISIONS.md](DECISIONS.md) apply there, not here.
 
 ---
 
 ## Phase 4 Goal
 
-**Given OHLCV candle data, reliably detect swing highs/lows, label trend structure (HH/HL/LH/LL),
-derive support/resistance from swings, classify trend per timeframe, and expose multi-timeframe
-context for later signal conditions.**
+Deliver a **HTTP + WebSocket API** (all routes **public**, no authentication) with:
 
-**Done when:**
-
-1. Swing detection is implemented, tested, and documented (algorithm + parameters).
-2. HH/HL/LH/LL labeling works with configurable equal-high/low tolerance.
-3. Trend classification (`uptrend` / `downtrend` / `range` / `undefined`) is per-bar or per-swing.
-4. S/R levels are derived from recent swings (not session floor pivots).
-5. Multi-timeframe structure can be computed for at least two timeframes and aligned to a base TF.
-6. A validation path exists (tests + export for manual chart review on BTC/USDT).
-7. Phase 5 can consume swing lists without re-implementing detection.
+1. **Symbols** — DB-backed catalog (3 coins now; extendible later).
+2. **Candles** — paginated historical OHLCV (`limit` default **1000**, max **5000**).
+3. **Indicators** — catalog + batch compute on historical windows.
+4. **Users** — CRUD `name` + `email` (no passwords, no JWT).
+5. **Watchlists** — CRUD per `user_id`.
+6. **Bar replay** — in-memory sessions; WebSocket emits candles + indicator prefix per step.
 
 **Explicitly out of scope for Phase 4**
 
-- Classical chart patterns (Phase 5)
-- Candlestick patterns / TA-Lib `CDL*` (Phase 5a)
-- Divergence detection (Phase 5c) — but swing output must support it
-- SMC (BOS, CHOCH, FVG, order blocks) — Phase 6
-- Fibonacci retracement/extensions (needs anchors — may use swings in Phase 5+)
-- ZigZag indicator (deferred — see D-54)
-- VPVR / volume profile
-- ML / vectorbt PRO template matching — **deferred to Phase 5** (D-61); not Phase 4
-- Full DSL for structure conditions (OQ-23 — Phase 8); Phase 4 ships **library + minimal hooks**
-- Backtest engine changes
-- Storing structure in the database (compute on demand like indicators — D-07)
+- Authentication / authorization (deferred → **Phase 11**).
+- Live candle streaming / real-time chart tail (deferred → **Phase 11**).
+- Replay session DB persistence (deferred → **Phase 11**).
+- React / frontend UI (Phase 11).
+- Market structure, patterns, SMC (Phases 5–7).
+- Backtest execution via API.
+- Exchange WebSocket feeds.
 
 ---
 
-## Locked Decisions (carry forward)
+## Client Feature Map
 
-| ID | Decision | Phase 4 impact |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Chart Client (TV-like)                       │
+├─────────────┬──────────────┬──────────────┬─────────────────────┤
+│ Symbol pick │ Past candles │ Indicators   │ Users / Watchlists  │
+│ (REST)      │ (REST)       │ (REST)       │ (REST, user_id)     │
+├─────────────┴──────────────┴──────────────┴─────────────────────┤
+│ Bar Replay: REST create session → WS play/step + candles + ind. │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ REST (history) + WS (replay only)
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Phase 4 API Server                          │
+│  FastAPI  │  Symbols  │  Candles  │  Indicators  │  Replay (mem) │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ get_candles() only (D-06)
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│   TimescaleDB: candles hypertable + app.symbols, users, lists   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Architecture Principles
+
+| ID | Rule | Phase 4 application |
 |---|---|---|
-| D-06 | `get_candles()` is the only data boundary | HTF candles loaded via loader, not SQL in structure code |
-| D-07 | Pure functions, no DB side effects | All structure functions take DataFrame/Series in memory |
-| D-08 | Signals are structured dicts | HTF references are data in the dict, not code |
-| D-14 | Next-bar open fills | Structure used for signals must respect **confirmed** swings only in backtests |
-| D-35 | Session floor pivots | Stays in `indicators/`; not replaced by swing S/R |
-| D-61 | Pivot structure only in Phase 4 | No vectorbt-style similarity; that is Phase 5 |
-
----
-
-## Feature Catalog (ROADMAP → implementation plan)
-
-| # | Feature | Phase 4 deliverable |
-|---|---|---|
-| 1 | Swing highs / lows | `detect_swings(ohlcv, left, right) -> list[SwingPoint]` |
-| 2 | HH / HL / LH / LL labels | `label_swings(swings, tolerance) -> list[LabeledSwing]` |
-| 3 | Equal highs / equal lows | Tolerance-aware comparison (OQ-11) |
-| 4 | Trend classification | `classify_trend(swings) -> pd.Series` of trend enum |
-| 5 | S/R from swings | `swing_support_resistance(swings, k) -> StructureLevels` |
-| 6 | Multi-TF structure | `build_structure_context(symbol, base_tf, htf_list, start, end)` |
-| 7 | Confirmed vs provisional swings | No lookahead in backtest path (OQ-45) |
-| 8 | Validation export | CSV/JSON of swings + optional plot helper |
-
-**Not in Phase 4:** Floor pivot replacement, pattern geometry, SMC events.
-
-**Rejected for Phase 4:** vectorbt-style template similarity (D-61 — Phase 5).
-
----
-
-### D-61 — No similarity search in Phase 4
-
-**Status:** Locked
-
-**Decision:** Phase 4 is **pivot/fractal swings only**. Template matching like vectorbt
-PRO `find_pattern()` is **out of scope** here and belongs in Phase 5 if added at all.
-
----
-
-## Locked Decisions (Q&A complete)
-
-### D-53 — Primary swing algorithm: symmetric pivot (fractal)
-
-**Status:** Locked — resolves OQ-10, OQ-46, OQ-48, OQ-50
-
-**Decision:** Use the **symmetric pivot method** (Bill Williams–style fractal generalized):
-
-- A **swing high** at bar `i` when `high[i]` is strictly greater than highs of the previous
-  `left_bars` and the next `right_bars` bars (and symmetric for swing low on `low`).
-- Defaults: **`left_bars=5`**, **`right_bars=5`** (configurable).
-- A swing is **confirmed** only when bar `i + right_bars` has closed — no confirmation
-  before that (backtest-safe).
-
-**Rejected as primary for Phase 4:**
-
-| Method | Reason |
-|---|---|
-| ZigZag % threshold | Lookahead / repaint risk unless carefully lagged (defer D-54) |
-| Pure local-max without right bars | Confirms too early; noisy on 1m |
-
-**Uses `high` / `low`**, not close (OQ-46 — locked).
-
----
-
-### D-54 — ZigZag deferred
-
-**Status:** Locked
-
-**Decision:** ZigZag-style swing detection is **out of Phase 4**. Revisit only if pivot
-swings prove insufficient after chart validation.
-
----
-
-### D-55 — Equal high / equal low tolerance
-
-**Status:** Locked — resolves OQ-11
-
-**Decision:** Two swings at the same type (high vs high) are **equal** if:
-
-```
-abs(price_a - price_b) / mid_price <= tolerance_pct
-```
-
-Default **`tolerance_pct: 0.0015`** (0.15%). Configurable per call / config block.
-
-Optional override: **`tolerance_atr_mult`** (compare within N×ATR) — Phase 4 stretch.
-
-**Rejected:** Exact price equality.
-
----
-
-### D-56 — Trend classification rules
-
-**Status:** Locked
-
-**Decision:** Using the last two labeled swing highs and two labeled swing lows (directional
-labels only — **HH/HL/LH/LL**; **EQH/EQL** do not count as higher/lower):
-
-| Label | Condition (simplified) |
-|---|---|
-| `uptrend` | Higher high **and** higher low on latest pair |
-| `downtrend` | Lower high **and** lower low |
-| `range` | Mixed (e.g. HH + LL, or LH + HL, or any EQH/EQL on latest pair) |
-| `undefined` | Fewer than two highs or two lows confirmed |
-
-Expose as **`pd.Series[Trend]`** aligned to base candles. Updated only on confirmed swings;
-forward-filled between events (**D-66**).
-
----
-
-### D-65 — Equal highs and equal lows are first-class labels
-
-**Status:** Locked — extends D-55
-
-**Decision:** EQH/EQL are dedicated `SwingLabel` values, not folded into HH/HL/LH/LL.
-Equality uses D-55 tolerance; labeling precedence: **EQH/EQL before** directional HH/HL/LH/LL.
-
-```python
-class SwingLabel(StrEnum):
-    FIRST = "first"
-    HH = "HH"
-    HL = "HL"
-    LH = "LH"
-    LL = "LL"
-    EQH = "EQH"
-    EQL = "EQL"
-```
-
----
-
-### D-64 — StructureLevels stored by recency
-
-**Status:** Locked — refines D-57
-
-**Decision:** `StructureLevels.support` and `.resistance` are **most-recent-first** lists
-of the last **k** confirmed swing lows/highs — not price-sorted.
-
----
-
-### D-66 — Trend updates only on confirmed structural events
-
-**Status:** Locked — refines D-56
-
-**Decision:** Trend recomputed when a swing **confirms** (`confirmed_at_index`), then
-forward-filled until the next confirmation. No per-bar structural inference.
-
-```python
-class Trend(StrEnum):
-    UPTREND = "uptrend"
-    DOWNTREND = "downtrend"
-    RANGE = "range"
-    UNDEFINED = "undefined"
-```
-
----
-
-### D-57 — Support / resistance from swings (not floor pivots)
-
-**Status:** Locked
-
-**Decision:** S/R levels = prices of the last **`k` swing lows** (support) and **`k` swing
-highs** (resistance), default **`k=3`**. Discrete price levels, not zones (OQ-47).
-Stored **most-recent-first** (D-64).
-
-Distinct from `PIVOT_P` / `PIVOT_R1` (session math in `indicators/custom/pivots.py`).
-
----
-
-### D-58 — Multi-timeframe structure context
-
-**Status:** Locked — resolves OQ-12 (minimal)
-
-**Decision:** Introduce `StructureContext`:
-
-```python
-@dataclass(frozen=True)
-class StructureContext:
-    base_timeframe: str
-    swings: dict[str, list[SwingPoint]]      # per TF
-    trend: dict[str, pd.Series]             # per TF, Trend enum, forward-filled
-    levels: dict[str, StructureLevels]      # per TF
-```
-
-Load HTF candles via `get_candles()`, run swing pipeline per TF, **forward-fill** HTF
-trend/labels onto base TF index (last known HTF state). No HTF peeking: HTF swings
-use confirmed-only rule on HTF bars.
-
-**Phase 4 scope:** up to **2 HTF** + 1 base (e.g. base `1h`, HTF `4h` + `1d`).
-
-Full DSL sugar (`htf: {timeframe: 1d, field: trend}`) deferred to Phase 8 (OQ-23).
-No `structure:` YAML hook in Phase 4 (D-63).
-
----
-
-### D-62 — Confirmed swings in backtest path
-
-**Status:** Locked — resolves OQ-45
-
-**Decision:** API exposes **confirmed and provisional** swings. Backtest and signal
-consumers use **`confirmed_only=True`** by default.
-
----
-
-### D-63 — Phase 4 library-only (no evaluator hook)
-
-**Status:** Locked — resolves OQ-49
-
-**Decision:** Phase 4 ships **`structure/` library + tests + report script** only.
-No `structure:` condition in `signals/evaluator.py` until Phase 5+.
-
----
-
-### D-59 — `structure/` package separate from `indicators/`
-
-**Status:** Locked
-
-**Decision:** Market structure lives in **`structure/`**, not in `indicators/registry.py`.
-Indicators are bar-wise numeric series; structure is **event lists + labels + context**.
-No registry wrappers in Phase 4.
-
----
-
-### D-60 — Validation approach
-
-**Status:** Locked
-
-**Decision:** No TradingView mandate. Validation = **structural unit tests** + **manual
-chart review checklist** on BTC/USDT (and ETH/SOL spot-checks):
-
-- `run_structure_report.py` (or flag on a test helper) exports swings to
-  `output/swings_{symbol}_{tf}.csv`
-- Document 3 market regimes in tests: trending up, trending down, ranging (fixture slices)
-
----
-
-## Architecture
+| D-06 | `get_candles()` is the only candle boundary | API never queries `candles` SQL directly |
+| D-07 | Pure functions for compute | Indicator calls use `indicators.registry` |
+| D-69 | No auth in Phase 4 | All endpoints public; `user_id` scopes watchlists |
+| D-76 | Symbols in DB table | Catalog from `app.symbols`, not `data.yaml` at runtime |
 
 ### Layering
 
 ```
-get_candles(symbol, tf, ...) → pd.DataFrame OHLCV
-       │
-       ▼
-structure/swings.py        detect_swings()
-structure/labels.py        label_swings()  → HH/HL/LH/LL/EQH/EQL
-structure/trend.py         classify_trend()
-structure/levels.py        swing_support_resistance()
-structure/context.py       build_structure_context()  # multi-TF
-       │
-       ▼
-run_structure_report.py    CSV export for chart validation
-       │
-       ▼
-Phase 5 patterns / Phase 6 SMC   consume SwingPoint lists
+api/
+  main.py                 # FastAPI app, lifespan, CORS
+  deps.py                 # DB session, settings
+  routers/
+    symbols.py            # catalog from app.symbols
+    candles.py            # historical OHLCV
+    indicators.py         # catalog + compute
+    users.py              # CRUD name + email
+    watchlists.py         # CRUD scoped by user_id
+    replay.py             # REST: create/get/delete replay sessions
+  ws/
+    replay.py             # replay control + candle/indicator events
+  schemas/
+  services/
+    candle_service.py
+    indicator_service.py
+    symbol_service.py
+    replay_service.py     # in-memory session store only
+  repositories/
+    symbol_repository.py
+    user_repository.py
+    watchlist_repository.py
 ```
 
-### Module layout (target)
+No `auth.py`, no `auth_service.py`, no `ws/live.py`, no `replay_repository.py` in Phase 4.
+
+---
+
+## Technology Stack
+
+| Component | Choice |
+|---|---|
+| HTTP + WS | **FastAPI** + **uvicorn** |
+| App persistence | PostgreSQL (`app` schema), same `DATABASE_URL` |
+| Migrations | `V005__app_schema.sql` |
+| Tests | `httpx` + `pytest-asyncio` |
+
+**New dependencies:**
 
 ```
-structure/
-  __init__.py           # public API re-exports
-  types.py              # SwingPoint, LabeledSwing, Trend, StructureLevels, StructureContext
-  swings.py             # pivot/fractal detection
-  labels.py             # HH/HL/LH/LL + equal tolerance
-  trend.py              # uptrend/downtrend/range/undefined
-  levels.py             # S/R from recent swings
-  context.py            # multi-TF alignment
-  validation.py         # tolerance helpers, confirmed-index rules
-
-tests/structure/
-  test_swings.py
-  test_labels.py
-  test_trend.py
-  test_levels.py
-  test_context.py
-  fixtures/
-    btc_usdt_1d_trend_up.csv    # optional slices for regression
-    btc_usdt_1d_range.csv
-
-scripts/  (or tools/)
-  run_structure_report.py       # export swings for chart review
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+httpx>=0.27.0
+pytest-asyncio>=0.24.0
 ```
 
-### Core types
+No JWT / passlib / python-jose in Phase 4.
 
-```python
-class SwingKind(StrEnum):
-    HIGH = "high"
-    LOW = "low"
+---
 
-class SwingLabel(StrEnum):
-    FIRST = "first"
-    HH = "HH"
-    HL = "HL"
-    LH = "LH"
-    LL = "LL"
-    EQH = "EQH"
-    EQL = "EQL"
+## Data Model (App Schema)
 
-class Trend(StrEnum):
-    UPTREND = "uptrend"
-    DOWNTREND = "downtrend"
-    RANGE = "range"
-    UNDEFINED = "undefined"
+Migration: `data/migrations/sql/V005__app_schema.sql`
 
-@dataclass(frozen=True)
-class SwingPoint:
-    index: int                  # bar index in ohlcv
-    ts: pd.Timestamp
-    price: float
-    kind: SwingKind
-    confirmed_at_index: int     # index when swing became knowable (i + right_bars)
+### `app.symbols`
 
-@dataclass(frozen=True)
-class LabeledSwing:
-    swing: SwingPoint
-    label: SwingLabel           # D-65: EQH/EQL first-class
+Canonical symbol catalog — **source of truth for the API**, seeded with Phase 1 universe.
 
-@dataclass(frozen=True)
-class StructureLevels:
-    support: list[float]        # D-64: most recent confirmed swing low first
-    resistance: list[float]     # D-64: most recent confirmed swing high first
-```
-
-### Swing detection (pivot method) — pseudocode
-
-```python
-def is_swing_high(high: pd.Series, i: int, left: int, right: int) -> bool:
-    window_left = high.iloc[i - left : i]
-    window_right = high.iloc[i + 1 : i + right + 1]
-    if len(window_left) < left or len(window_right) < right:
-        return False
-    return high.iloc[i] > window_left.max() and high.iloc[i] > window_right.max()
-```
-
-**Backtest rule:** strategies may only use swings where
-`confirmed_at_index <= signal_bar` (enforced via **`confirmed_only=True`** default).
-
-### Distinction: floor pivots vs swing structure
-
-| | `PIVOT_P` (Phase 2 indicator) | Phase 4 swing S/R |
+| Column | Type | Notes |
 |---|---|---|
-| Source | Prior session/bar HLC formula | Recent swing high/low prices |
-| Purpose | Intraday S/R levels | Trend + pattern anchors |
-| Module | `indicators/custom/pivots.py` | `structure/levels.py` |
+| `symbol` | TEXT PK | e.g. `BTC/USDT` |
+| `base` | TEXT NOT NULL | `BTC` |
+| `quote` | TEXT NOT NULL | `USDT` |
+| `is_active` | BOOLEAN | Default `true`; soft-disable without delete |
+| `sort_order` | INT | Display order |
+| `created_at` | TIMESTAMPTZ | |
+
+**Seed data (V005):** `BTC/USDT`, `ETH/USDT`, `SOL/USDT` (from Phase 1 universe).
+Future symbols: `INSERT` into `app.symbols` + ensure candle data exists — no code change.
+
+### `app.users`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | `gen_random_uuid()` |
+| `name` | TEXT NOT NULL | Display name |
+| `email` | TEXT UNIQUE NOT NULL | |
+| `created_at` | TIMESTAMPTZ | |
+| `updated_at` | TIMESTAMPTZ | |
+
+No `password_hash`. No `is_active` gate in Phase 4 (optional soft-delete stretch).
+
+### `app.watchlists`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `user_id` | UUID FK → users | CASCADE delete |
+| `name` | TEXT NOT NULL | |
+| `is_default` | BOOLEAN | One default per user |
+| `sort_order` | INT | |
+| `created_at` | TIMESTAMPTZ | |
+
+### `app.watchlist_symbols`
+
+| Column | Type | Notes |
+|---|---|---|
+| `watchlist_id` | UUID FK | PK with `symbol_id` |
+| `symbol_id` | TEXT FK → symbols.symbol | Enforces valid symbols |
+| `sort_order` | INT | |
+
+### Replay sessions — **not in DB (Phase 4)**
+
+In-memory dict keyed by `session_id` in `replay_service.py`. Lost on process restart.
+Persistence deferred to **Phase 11** (D-78).
 
 ---
 
-## Signal evaluator integration (deferred)
+## Supported Timeframes
 
-Full structure DSL is Phase 8 (OQ-23). **Phase 4 does not change the evaluator** (D-63).
+All TFs from `get_candles()` / repository:
 
-Future hook shape (Phase 5+):
+`1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d`, `1w`
+
+Expose via `GET /api/v1/meta/timeframes`.
+
+---
+
+## API Reference (canonical)
+
+**Machine-readable spec:** [openapi.yaml](openapi.yaml) — all REST endpoints with
+request/response schemas, error codes, and WebSocket message types under `x-websocket`.
+
+**Live docs:** `http://localhost:8000/docs` (FastAPI Swagger UI, REST only).
+
+## REST API Specification
+
+Base: **`/api/v1`**. All routes **public** (no `Authorization` header). JSON bodies.
+Candle `time` = **Unix seconds UTC** (D-70).
+
+> The tables below are a summary. For full request/response bodies, see [openapi.yaml](openapi.yaml).
+
+### Meta
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/meta/timeframes` | Supported timeframe strings |
+| GET | `/meta/health` | DB reachable, API version |
+
+### Symbols
+
+| Method | Path | Query | Response |
+|---|---|---|---|
+| GET | `/symbols` | `q?`, `active_only?` (default true) | `[{symbol, base, quote, is_active, sort_order}]` |
+| GET | `/symbols/{symbol}` | | Single row or `404` |
+
+Symbol must exist in `app.symbols` **and** be active for candle/replay requests.
+
+### Candles (historical only)
+
+| Method | Path | Query | Response |
+|---|---|---|---|
+| GET | `/candles/{symbol}` | `timeframe`, `from`, `to`, `limit?` | See below |
+
+| Param | Default | Max |
+|---|---|---|
+| `limit` | **1000** (D-79) | **5000** |
+
+```json
+{
+  "symbol": "BTC/USDT",
+  "timeframe": "1h",
+  "bars": [{"time": 1704067200, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}],
+  "next_from": 1704074400
+}
+```
+
+- `from` / `to`: inclusive unix seconds.
+- `next_from` present when more bars exist beyond `limit`.
+- Unknown symbol (not in `app.symbols`) → `404`.
+
+### Indicators
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/indicators` | Registry catalog |
+| POST | `/indicators/compute` | Batch compute (no auth) |
+
+Request/response shape unchanged from prior draft; warmup → `value: null`.
+
+### Users
+
+| Method | Path | Body / notes |
+|---|---|---|
+| POST | `/users` | `{name, email}` → `{id, name, email, created_at}` |
+| GET | `/users` | List all users (paginated) |
+| GET | `/users/{user_id}` | Single user |
+| PATCH | `/users/{user_id}` | `{name?, email?}` |
+| DELETE | `/users/{user_id}` | Delete user + watchlists (CASCADE) |
+
+**Trust model:** Any client can read/write any `user_id`. Acceptable for local/dev Phase 4;
+Phase 11 adds auth and ownership checks.
+
+### Watchlists
+
+Scoped by path `user_id` (no auth).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/users/{user_id}/watchlists` | All lists with symbols |
+| POST | `/users/{user_id}/watchlists` | `{name, symbols: ["BTC/USDT", ...]}` |
+| GET | `/users/{user_id}/watchlists/{id}` | Detail |
+| PATCH | `/users/{user_id}/watchlists/{id}` | Rename, `is_default`, `sort_order` |
+| DELETE | `/users/{user_id}/watchlists/{id}` | Delete |
+| PUT | `/users/{user_id}/watchlists/{id}/symbols` | Replace ordered symbol list |
+
+Symbols in watchlists must reference active `app.symbols` rows.
+
+**On user create (OQ-54):** optionally auto-create **"Default"** watchlist with all
+active symbols — implement in `user_service` (recommended).
+
+### Replay (REST control plane)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/replay/sessions` | Create in-memory session |
+| GET | `/replay/sessions/{id}` | Snapshot |
+| DELETE | `/replay/sessions/{id}` | Tear down |
+
+**Create body:**
+
+```json
+{
+  "symbol": "BTC/USDT",
+  "timeframe": "1h",
+  "start": 1704067200,
+  "end": 1735689600,
+  "indicators": [{"key": "RSI", "params": {"period": 14}}],
+  "step_timeframe": "1h",
+  "speed": 1.0,
+  "autoplay": false
+}
+```
+
+Response: `{"session_id": "...", "ws_url": "/ws/replay/{session_id}"}`
+
+Optional `user_id` in body for logging only — not required.
+
+---
+
+## WebSocket — Replay Only
+
+**Single WS surface in Phase 4:** `WS /ws/replay/{session_id}` — no auth token.
+
+### Client commands
+
+| action | payload | Effect |
+|---|---|---|
+| `play` | `{speed?: 2.0}` | Autoplay |
+| `pause` | | Pause |
+| `step` | `{count?: 1}` | Advance N bars |
+| `seek` | `{to: 1704067200}` | Jump cursor |
+| `set_speed` | `{speed: 5.0}` | Bars per second |
+| `set_step_timeframe` | `{step_timeframe: "15m"}` | Change step TF |
+| `set_indicators` | `{indicators: [...]}` | Replace indicators |
+| `get_state` | | Full snapshot |
+
+### Server events
+
+```json
+{"type": "replay_state", "cursor": 1704067200, "state": "playing", "speed": 1.0, "bar_index": 42, "total_bars": 5000}
+```
+
+```json
+{"type": "candle", "bar": {"time": 1704067200, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}}
+```
+
+```json
+{"type": "indicators", "series": [{"key": "RSI", "params": {"period": 14}, "points": [{"time": 1704067200, "value": 55.1}]}]}
+```
+
+```json
+{"type": "replay_completed"}
+```
+
+```json
+{"type": "error", "code": "SEEK_OUT_OF_RANGE", "message": "..."}
+```
+
+Each step emits **one candle** + **indicator values for the prefix** `bars[0..cursor]` only
+(no lookahead). Autoplay interval: `max(50ms, 1/speed)`.
+
+Sessions expire after **30 min** idle or on disconnect.
+
+---
+
+## Indicator Service
+
+Unchanged core: `compute_indicators(candles, specs)` via `indicators.registry`.
+
+- **REST:** full window for chart initial load.
+- **Replay WS:** prefix recompute each step (MVP: full prefix; optimize later if needed).
+
+---
+
+## Security (Phase 4)
+
+| Topic | Decision |
+|---|---|
+| Authentication | **None** — all APIs public (D-69) |
+| `user_id` | Opaque UUID; client stores locally |
+| CORS | `CORS_ORIGINS` env for SPA dev |
+| HTTPS | Reverse proxy in production |
+| Abuse | Local/trusted network assumed; rate limiting stretch |
+
+Phase 11 adds JWT, protected routes, and replay persistence.
+
+---
+
+## Error Model
+
+```json
+{"error": {"code": "SYMBOL_NOT_FOUND", "message": "Unknown symbol: FOO/USDT"}}
+```
+
+| HTTP | Code | When |
+|---|---|---|
+| 400 | `INVALID_REQUEST` | Malformed body |
+| 404 | `NOT_FOUND` | Symbol, user, watchlist, replay session |
+| 422 | `VALIDATION_ERROR` | Invalid TF, symbol inactive, bad indicator key |
+| 500 | `INTERNAL_ERROR` | Unhandled |
+
+No `401` / `403` in Phase 4.
+
+---
+
+## Configuration
 
 ```yaml
-entry:
-  all:
-    - indicator: RSI
-      params: {period: 14}
-      op: "<"
-      value: 30
-    - structure: trend          # new condition type (not indicator)
-      timeframe: 1d
-      op: "=="
-      value: uptrend
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - http://localhost:5173
+  replay:
+    max_window_bars: 50000
+    session_idle_minutes: 30
+    min_step_interval_ms: 50
+  candles:
+    default_limit: 1000
+    max_limit: 5000
 ```
 
-Phase 4 consumers call `structure.*` directly in Python or via `run_structure_report.py`.
+Entry: `uvicorn api.main:app --reload`
 
 ---
 
-## Multi-timeframe alignment
+## Implementation Steps
 
-```mermaid
-flowchart LR
-    subgraph HTF["1d candles"]
-        D1[detect_swings]
-        D2[classify_trend]
-    end
-    subgraph BASE["1h candles"]
-        B[base index]
-    end
-    D2 --> FF[forward-fill HTF trend to 1h index]
-    FF --> B
-```
-
-Rules:
-
-1. HTF structure computed only from HTF OHLCV (derived via `get_candles()`).
-2. At each base bar `t`, HTF trend = last confirmed HTF trend as of `t` (no future HTF bars).
-3. HTF swing prices used as levels are the last known HTF levels at `t`.
-
----
-
-## Config shape (proposed)
-
-Optional `structure.yaml` or section in `config.yaml`:
-
-```yaml
-structure:
-  swing:
-    left_bars: 5
-    right_bars: 5
-  equality:
-    tolerance_pct: 0.0015
-  levels:
-    swing_count: 3
-  multi_timeframe:
-  # used by run_structure_report and future strategies
-    base: 1h
-    higher:
-      - 4h
-      - 1d
-```
-
-Backtest strategies do not require this block in Phase 4 (library-only).
-
----
-
-## Build Order
+Each step is independently verifiable. Complete steps in order.
 
 ### Step 0 — Q&A gate ✅
 
-D-53–D-63 locked; `DECISIONS.md` / `OPEN_QUESTIONS.md` updated.
+**Complete.** D-67–D-79 and OQ-52–OQ-58 recorded in [DECISIONS.md](DECISIONS.md) and
+[OPEN_QUESTIONS.md](OPEN_QUESTIONS.md).
 
 ---
 
-### Step 1 — Types + swing detection
+### Step 1 — Infrastructure
 
-**Build:** `structure/types.py`, `structure/swings.py`, tests with synthetic V-shaped data.
+**Build**
 
-**Verify:** Known peaks/valleys found; edges (start/end) lack unconfirmed swings.
+- Add to `requirements.txt`: `fastapi`, `uvicorn[standard]`, `httpx`, `pytest-asyncio`.
+- Create `api/` package layout (`main.py`, `deps.py`, `routers/`, `ws/`, `schemas/`,
+  `services/`, `repositories/`).
+- `api/main.py`: FastAPI app factory, CORS from config/env, router registration, lifespan.
+- `api/deps.py`: settings (`API_HOST`, `API_PORT`, `CORS_ORIGINS`), DB connection helper
+  reusing `data.db` / repository patterns.
+- Global exception handler → consistent `{"error": {code, message}}` JSON (see Error Model).
+- `data/migrations/sql/V005__app_schema.sql`:
+  - `CREATE SCHEMA app`
+  - `app.symbols` + seed `BTC/USDT`, `ETH/USDT`, `SOL/USDT`
+  - `app.users` (`id`, `name`, `email`, timestamps)
+  - `app.watchlists`, `app.watchlist_symbols` (FK to `symbols.symbol`)
+- Wire migration into existing startup path (same as `run_backtest.py` migration runner).
+- `GET /api/v1/meta/health`, `GET /api/v1/meta/timeframes`.
 
----
+**Files (new)**
 
-### Step 2 — Labels (HH/HL/LH/LL + equal tolerance)
+```
+api/__init__.py
+api/__main__.py              # python -m api
+api/main.py
+api/deps.py
+api/schemas/common.py
+api/schemas/meta.py
+api/routers/meta.py
+data/migrations/sql/V005__app_schema.sql
+```
 
-**Build:** `structure/labels.py`, `structure/validation.py`.
+**Verify**
 
-**Verify:** Hand-crafted swing sequences produce expected labels; tolerance merges equal highs.
-
----
-
-### Step 3 — Trend classification
-
-**Build:** `structure/trend.py` → per-bar Series.
-
-**Verify:** Fixture slices: uptrend, downtrend, range.
-
----
-
-### Step 4 — S/R levels from swings
-
-**Build:** `structure/levels.py`.
-
-**Verify:** Last k swings produce correct support/resistance lists.
-
----
-
-### Step 5 — Multi-TF context
-
-**Build:** `structure/context.py` using `get_candles()`.
-
-**Verify:** HTF trend forward-filled; no value from future HTF bars at historical base bar.
-
----
-
-### Step 6 — Report tool
-
-**Build:** `run_structure_report.py` only (no evaluator changes).
-
-**Verify:** CSV export runs on BTC/USDT 1d; manual chart spot-check documented.
+```bash
+pip install -r requirements.txt
+docker compose up -d
+pytest tests/api/test_meta.py -q
+curl http://localhost:8000/api/v1/meta/health
+```
 
 ---
 
-### Step 7 — Documentation sign-off
+### Step 2 — Symbols REST
 
-Update ROADMAP, README layout, Phase 4 completion section in this doc.
+**Build**
+
+- `api/repositories/symbol_repository.py` — list, get by symbol, `is_active` filter.
+- `api/services/symbol_service.py` — search by `q` on symbol/base.
+- `api/schemas/symbols.py` — `SymbolResponse`.
+- `api/routers/symbols.py`:
+  - `GET /api/v1/symbols`
+  - `GET /api/v1/symbols/{symbol}`
+
+**Verify**
+
+```bash
+pytest tests/api/test_symbols.py -q
+curl http://localhost:8000/api/v1/symbols
+# Expect 3 rows: BTC/USDT, ETH/USDT, SOL/USDT
+```
+
+---
+
+### Step 3 — Historical candles REST
+
+**Build**
+
+- `api/services/candle_service.py`:
+  - Wrap `get_candles(symbol, timeframe, start, end)` (D-06).
+  - Validate symbol against `app.symbols` (active only).
+  - Convert `ts` → Unix seconds (D-70).
+  - Apply `limit` default **1000**, cap **5000** (D-79).
+  - Return `next_from` cursor when truncated.
+- `api/schemas/candles.py` — `Bar`, `CandlesResponse`.
+- `api/routers/candles.py` — `GET /api/v1/candles/{symbol}`.
+
+**Verify**
+
+```bash
+pytest tests/api/test_candles.py -q
+curl "http://localhost:8000/api/v1/candles/BTC/USDT?timeframe=1d&from=1704067200&to=1735689600"
+curl "http://localhost:8000/api/v1/candles/BTC/USDT?timeframe=1d&from=1704067200&to=1735689600&limit=100"
+# Unknown symbol → 404; limit=9999 → 422
+```
+
+---
+
+### Step 4 — Indicators REST
+
+**Build**
+
+- `api/services/indicator_service.py`:
+  - `list_catalog()` from `INDICATORS` + `INDICATOR_META` (default params map).
+  - `compute(symbol, timeframe, from, to, specs)` — load candles once, batch compute.
+  - `NaN` → JSON `null`; shared_params grouping (MACD, BB, Ichimoku).
+- `api/schemas/indicators.py` — `IndicatorSpec`, `IndicatorSeries`, compute request/response.
+- `api/routers/indicators.py`:
+  - `GET /api/v1/indicators`
+  - `POST /api/v1/indicators/compute`
+
+**Verify**
+
+```bash
+pytest tests/api/test_indicators.py -q
+# RSI warmup nulls, MACD_HIST multi-key, unknown key → 422
+```
+
+---
+
+### Step 5 — Users REST
+
+**Build**
+
+- `api/repositories/user_repository.py` — CRUD on `app.users`.
+- `api/services/user_service.py`:
+  - Create user `{name, email}`.
+  - On create: auto-create **"Default"** watchlist with all active symbols (OQ-54).
+- `api/schemas/users.py`.
+- `api/routers/users.py`:
+  - `POST /api/v1/users`
+  - `GET /api/v1/users` (paginated)
+  - `GET /api/v1/users/{user_id}`
+  - `PATCH /api/v1/users/{user_id}`
+  - `DELETE /api/v1/users/{user_id}`
+
+**Verify**
+
+```bash
+pytest tests/api/test_users.py -q
+# Duplicate email → 422; delete cascades watchlists
+```
+
+---
+
+### Step 6 — Watchlists REST
+
+**Build**
+
+- `api/repositories/watchlist_repository.py` — CRUD + symbol ordering.
+- `api/services/watchlist_service.py` — validate symbols exist in `app.symbols`.
+- `api/schemas/watchlists.py`.
+- `api/routers/watchlists.py` under `/api/v1/users/{user_id}/watchlists`:
+  - `GET`, `POST`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`
+  - `PUT /{id}/symbols`
+
+**Verify**
+
+```bash
+pytest tests/api/test_watchlists.py -q
+# Invalid symbol in list → 422; wrong user_id on nested id → 404
+```
+
+---
+
+### Step 7 — Replay service + REST
+
+**Build**
+
+- `api/services/replay_service.py` — **in-memory** `dict[session_id, ReplaySession]` (D-71):
+  - Preload step-TF OHLCV via `get_candles()` for `[start, end]`.
+  - Cursor index, state (`idle` | `playing` | `paused` | `completed`).
+  - `create`, `get`, `delete`, `step`, `seek`, `set_speed`, `set_indicators`.
+  - Idle expiry (30 min); `max_window_bars` guard.
+  - On step: return bar + indicator prefix snapshot (bars `0..cursor`, no lookahead).
+- `api/schemas/replay.py`.
+- `api/routers/replay.py`:
+  - `POST /api/v1/replay/sessions`
+  - `GET /api/v1/replay/sessions/{id}`
+  - `DELETE /api/v1/replay/sessions/{id}`
+
+**Verify**
+
+```bash
+pytest tests/api/test_replay_service.py -q
+# Session gone after delete; seek out of range → error
+```
+
+---
+
+### Step 8 — Replay WebSocket
+
+**Build**
+
+- `api/ws/replay.py` — `WS /ws/replay/{session_id}` (no auth):
+  - Parse client commands: `play`, `pause`, `step`, `seek`, `set_speed`,
+    `set_step_timeframe`, `set_indicators`, `get_state`.
+  - Emit server events: `replay_state`, `candle`, `indicators`, `replay_completed`, `error`.
+  - Autoplay asyncio task: interval `max(50ms, 1/speed)` between bars.
+  - Clean up session task on disconnect.
+- Register WS route in `api/main.py`.
+
+**Verify**
+
+```bash
+pytest tests/api/test_replay_ws.py -q
+# step count=3 advances cursor by 3; indicator at bar N matches REST compute on prefix
+```
+
+---
+
+### Step 9 — Integration tests + entrypoint
+
+**Build**
+
+- `tests/api/conftest.py` — FastAPI test client, test DB fixtures.
+- `tests/api/test_integration.py` — end-to-end flow:
+  1. `GET /symbols`
+  2. `GET /candles/BTC/USDT`
+  3. `POST /indicators/compute`
+  4. `POST /users` → `POST /watchlists`
+  5. `POST /replay/sessions` → WS step through 5 bars
+- `api/__main__.py` — `uvicorn api.main:app` entry.
+- README section: **Running the API**.
+
+**Verify**
+
+```bash
+pytest tests/api/ -q
+pytest -q   # full suite still green
+uvicorn api.main:app --reload --port 8000
+open http://localhost:8000/docs
+```
+
+---
+
+### Step 10 — Documentation sign-off
+
+**Build**
+
+- Phase 4 completion section in this doc (below).
+- Update [ROADMAP.md](ROADMAP.md) status to complete when done criteria pass.
+- [Done Criteria](#done-criteria) checklist.
+
+**Verify**
+
+- All done criteria checked.
+- No `ws/live.py`, no auth middleware, no JWT deps in `requirements.txt`.
+
+---
+
+### Target file tree (end state)
+
+```
+api/
+  __init__.py
+  __main__.py
+  main.py
+  deps.py
+  routers/
+    meta.py
+    symbols.py
+    candles.py
+    indicators.py
+    users.py
+    watchlists.py
+    replay.py
+  ws/
+    replay.py
+  schemas/
+    common.py
+    meta.py
+    symbols.py
+    candles.py
+    indicators.py
+    users.py
+    watchlists.py
+    replay.py
+  services/
+    symbol_service.py
+    candle_service.py
+    indicator_service.py
+    user_service.py
+    watchlist_service.py
+    replay_service.py
+  repositories/
+    symbol_repository.py
+    user_repository.py
+    watchlist_repository.py
+
+tests/api/
+  conftest.py
+  test_meta.py
+  test_symbols.py
+  test_candles.py
+  test_indicators.py
+  test_users.py
+  test_watchlists.py
+  test_replay_service.py
+  test_replay_ws.py
+  test_integration.py
+
+data/migrations/sql/V005__app_schema.sql
+```
 
 ---
 
@@ -563,14 +748,11 @@ Update ROADMAP, README layout, Phase 4 completion section in this doc.
 
 | Layer | Requirement |
 |---|---|
-| Unit | Synthetic OHLCV with known pivots; label logic; tolerance edge cases |
-| Confirmation lag | Swing at `i` not visible before `i + right_bars` |
-| Trend | Uptrend/downtrend/range fixtures |
-| Multi-TF | HTF alignment monotonic in time; no lookahead |
-| Regression | Optional committed CSV slices (BTC 1d trending/ranging) |
-| Manual | Checklist: 3 regimes on TradingView or lightweight-charts export |
-
-**Not required:** Pixel-perfect match to TradingView swing tools (different vendors differ).
+| Unit | Pagination, indicator alignment, replay cursor |
+| Integration | Symbols from DB; candles for 3 symbols; user + watchlist CRUD |
+| Replay | Step/seek/speed; indicators at N use bars 0..N only |
+| WS | Replay play/pause/step events |
+| Regression | Golden JSON for indicator compute on BTC slice |
 
 ---
 
@@ -578,41 +760,60 @@ Update ROADMAP, README layout, Phase 4 completion section in this doc.
 
 | # | Criterion |
 |---|---|
-| 1 | D-53 through D-66 recorded in DECISIONS.md |
-| 2 | `structure/` package with swings, labels, trend, levels, context |
-| 3 | OQ-10, OQ-11, OQ-12, OQ-45–OQ-51 resolved |
-| 4 | Pivot swing algorithm with configurable left/right bars |
-| 5 | HH/HL/LH/LL + equal tolerance |
-| 6 | Trend classification Series |
-| 7 | S/R from last k swings (distinct from PIVOT_* indicators) |
-| 8 | Multi-TF context (base + at least one HTF) |
-| 9 | Confirmed-swing rule documented for backtest consumers |
-| 10 | Tests green; structure report export for manual validation |
-| 11 | No `structure/` imports of exchange APIs or raw SQL |
+| 1 | D-67–D-79 in DECISIONS.md |
+| 2 | `api/` runnable via uvicorn |
+| 3 | `V005` applied: symbols seeded, users, watchlists |
+| 4 | `GET /symbols` returns 3 coins from DB |
+| 5 | Historical candles: default 1000, max 5000 |
+| 6 | Indicator catalog + compute (58 keys) |
+| 7 | User + watchlist CRUD without auth |
+| 8 | Replay WS: candles + indicators, variable speed |
+| 9 | **No** live WS; **no** auth middleware |
+| 10 | OpenAPI at `/docs`; tests green |
 
 ---
 
-## Resolved Q&A (locked)
+## Locked Decisions
 
-| ID | Question | Decision |
-|---|---|---|
-| OQ-10 / D-53 | Swing algorithm | Symmetric pivot **5/5**, strict `>` / `<` on high/low |
-| OQ-11 / D-55 | Equal highs/lows | **0.15%** tolerance (`tolerance_pct: 0.0015`) |
-| OQ-12 / D-58 | Multi-TF structure | `StructureContext`; base **1h**, HTF **4h + 1d**; forward-fill |
-| OQ-45 / D-62 | Confirmed vs provisional | Both in API; backtest **`confirmed_only=True`** |
-| OQ-46 / D-53 | Swing price field | **high** / **low** |
-| OQ-47 / D-57 | S/R zones vs levels | **Discrete levels**, **k=3** |
-| OQ-48 / D-53 | Default pivot width | **5/5** |
-| OQ-49 / D-63 | Evaluator hook | **Library only** — no YAML hook in Phase 4 |
-| OQ-50 / D-53 | Strict pivots | **Strict** comparison |
-| OQ-51 / D-61 | Vectorbt similarity | **No** — pivots only; similarity → Phase 5 |
-| — / D-54 | ZigZag | **Deferred** |
-| — / D-56 | Trend rules | HH+HL uptrend, LH+LL downtrend, EQH/EQL → range bias |
-| — / D-64 | Level ordering | **Recency-first** support/resistance lists |
-| — / D-65 | EQ labels | **EQH/EQL** first-class `SwingLabel` values |
-| — / D-66 | Trend updates | Recompute on **confirmed swing only**, forward-fill |
-| — / D-59 | Package layout | Separate **`structure/`** package |
-| — / D-60 | Validation | Unit tests + `run_structure_report.py` chart review |
+| ID | Decision |
+|---|---|
+| D-67 | FastAPI + uvicorn |
+| D-68 | Backend only; UI → Phase 11 |
+| D-69 | **No authentication in Phase 4** — all APIs public |
+| D-70 | Candle `time` = Unix seconds UTC |
+| D-71 | Replay sessions **in-memory** only |
+| D-72 | Indicator compute on server via registry |
+| D-73 | `app` schema separate from `candles` hypertable |
+| D-75 | Market structure → Phase 5; phase renumbering |
+| D-76 | **`app.symbols` table** — API catalog source; 3 coins seeded |
+| D-77 | Users: **name + email** only; watchlists per `user_id` |
+| D-78 | Auth, live WS, replay DB → **deferred Phase 11** |
+| D-79 | Candle `limit` default **1000**, max **5000** |
+
+---
+
+## Resolved Q&A
+
+| ID | Decision |
+|---|---|
+| OQ-52 | No auth for any endpoint |
+| OQ-53 | Replay in-memory; DB → Phase 11 |
+| OQ-54 | Default watchlist on user create (recommended) |
+| OQ-55 | Default limit 1000, max 5000 |
+| OQ-56 | `step_timeframe` may differ from display `timeframe` |
+| OQ-57 | Batch `POST /indicators/compute` only |
+| — | **No live chart streaming** in Phase 4; replay WS only |
+
+---
+
+## Deferred to Phase 11
+
+| Feature | Notes |
+|---|---|
+| JWT / login / protected routes | Wrap existing user table |
+| Live candle WebSocket | Poll or push after sync |
+| `app.replay_sessions` persistence | Resume replay across restarts |
+| Ownership checks on watchlists | Requires auth |
 
 ---
 
@@ -620,34 +821,37 @@ Update ROADMAP, README layout, Phase 4 completion section in this doc.
 
 | Risk | Mitigation |
 |---|---|
-| Lookahead bias | `confirmed_at_index`; backtest uses confirmed only |
-| 1m noise (too many swings) | Configurable left/right; TF-specific defaults in docs |
-| Confusion with PIVOT_* indicators | Naming + HLD table; no registry collision |
-| Multi-TF peeking | Forward-fill from HTF bars ≤ base bar time |
-| Scope creep into SMC/patterns | Explicit out-of-scope list |
-| “Correct” swings subjective | Manual chart checklist + iteration before Phase 5 |
-
----
-
-## Relationship to Later Phases
-
-| Phase 4 output | Consumer |
-|---|---|
-| `list[SwingPoint]` | Phase 5 double top, H&S, triangles |
-| HH/HL labels | Phase 5c divergence (price leg) |
-| `StructureContext` | Phase 6 BOS/CHOCH vs prior swing |
-| HTF trend Series | Phase 8 DSL, Phase 7 screener filters |
-| `run_structure_report.py` | Phase 10 chart UI overlays |
-
-Phase 4 must not change D-14, indicator registry contracts, or `get_candles()` signature.
+| Open API in shared network | Document local-only; Phase 11 auth |
+| Spoofing `user_id` on watchlists | Acceptable Phase 4; auth later |
+| Replay memory | `max_window_bars`; coarser step TF for long ranges |
+| Indicator latency | `limit` caps; prefix recompute bounded |
 
 ---
 
 ## References
 
-- [PHASE_3_HLD.md](PHASE_3_HLD.md) — backtest engine (complete)
-- [PHASE_2_HLD.md](PHASE_2_HLD.md) — indicators; floor pivots D-35
-- [ROADMAP.md](ROADMAP.md) — Phase 4–6 dependency chain
-- [DECISIONS.md](DECISIONS.md) — D-06, D-07, D-08, D-35
-- [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) — OQ-10–12, OQ-45–51 resolved
-- [CONVENTIONS.md](CONVENTIONS.md) — pure functions, module layout
+- [PHASE_3_HLD.md](PHASE_3_HLD.md)
+- [PHASE_2_HLD.md](PHASE_2_HLD.md)
+- [ROADMAP.md](ROADMAP.md)
+- [DECISIONS.md](DECISIONS.md)
+
+---
+
+## Phase 4 Completion Assessment
+
+**Rating:** 8 / 10 — full API surface delivered; auth/live/replay persistence deferred to Phase 11.
+
+| Area | Status | Notes |
+|---|---|---|
+| Step 1 — Infrastructure | ✅ | `api/` package, V005 migration, meta routes |
+| Step 2 — Symbols | ✅ | `app.symbols` catalog REST |
+| Step 3 — Candles | ✅ | Historical OHLCV, default 1000 / max 5000 |
+| Step 4 — Indicators | ✅ | 58-key catalog + batch compute |
+| Step 5 — Users | ✅ | name + email, default watchlist on create |
+| Step 6 — Watchlists | ✅ | CRUD by `user_id`, symbol FK validation |
+| Step 7 — Replay REST | ✅ | In-memory sessions |
+| Step 8 — Replay WS | ✅ | play/step/seek + candle + indicators |
+| Step 9 — Integration tests | ✅ | 17 API tests |
+| Step 10 — Docs sign-off | ✅ | README, ROADMAP, this doc |
+
+**Test count:** 334 passed (17 new API tests).

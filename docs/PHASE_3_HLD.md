@@ -2,7 +2,7 @@
 
 **Status:** Complete — see [Phase 3 Completion Assessment](#phase-3-completion-assessment)  
 **Prerequisite:** Phase 2 complete ([PHASE_2_HLD.md](PHASE_2_HLD.md))  
-**Next phase after this:** [Phase 4 — Market Structure Detection](ROADMAP.md#phase-4--market-structure-detection)
+**Next phase after this:** [Phase 4 — Client API Layer](ROADMAP.md#phase-4--client-api-layer-rest--websocket)
 
 ---
 
@@ -581,7 +581,7 @@ modules — sufficient for Phase 3 without a separate `RiskManager` class.
 
 ### Completion verdict
 
-Phase 3 is **complete**. Phase 4 (market structure) can start without backtest engine changes.
+Phase 3 is **complete**. Phase 4 (client API layer) can start without backtest engine changes.
 
 ---
 

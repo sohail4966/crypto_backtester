@@ -1,0 +1,1156 @@
+openapi: 3.1.0
+info:
+  title: Crypto Backtester API
+  version: 0.4.0
+  description: |
+    Phase 4 chart client API — historical candles, indicator compute, users,
+    watchlists, and bar replay (REST control plane + WebSocket stream).
+
+    **Base path (REST):** `/api/v1`
+
+    **Authentication:** None in Phase 4 (public API).
+
+    **Timestamps:** Candle `time`, replay `start`/`end`/`cursor`, and indicator
+    `from`/`to` use **Unix seconds UTC**.
+
+    **Errors (REST):** JSON envelope `{"error": {"code": "...", "message": "..."}}`.
+
+    **WebSocket:** Documented under `x-websocket` (not part of OpenAPI path model).
+  contact:
+    name: crypto-backtester
+  license:
+    name: Unspecified
+
+servers:
+  - url: http://localhost:8000
+    description: Local uvicorn (`python -m api` or `uvicorn api.main:app`)
+
+tags:
+  - name: meta
+    description: Health and supported timeframes
+  - name: symbols
+    description: Tradable symbol catalog (`app.symbols`)
+  - name: candles
+    description: Historical OHLCV (read-only)
+  - name: indicators
+    description: Registry catalog and batch compute
+  - name: users
+    description: User CRUD (no auth — dev/trust model)
+  - name: watchlists
+    description: Per-user symbol watchlists
+  - name: replay
+    description: In-memory bar replay sessions (REST control plane)
+
+paths:
+  /api/v1/meta/health:
+    get:
+      tags: [meta]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: API and database status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/meta/timeframes:
+    get:
+      tags: [meta]
+      summary: Supported candle timeframes
+      operationId: getTimeframes
+      responses:
+        "200":
+          description: Timeframe strings accepted by candles and replay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeframesResponse"
+
+  /api/v1/symbols:
+    get:
+      tags: [symbols]
+      summary: List symbols
+      operationId: listSymbols
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive filter on symbol, base, or quote
+        - name: active_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Symbol rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SymbolResponse"
+
+  /api/v1/symbols/{symbol}:
+    get:
+      tags: [symbols]
+      summary: Get one symbol
+      operationId: getSymbol
+      parameters:
+        - $ref: "#/components/parameters/SymbolPath"
+      responses:
+        "200":
+          description: Symbol metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymbolResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/candles/{symbol}:
+    get:
+      tags: [candles]
+      summary: Historical OHLCV bars
+      operationId: getCandles
+      parameters:
+        - $ref: "#/components/parameters/SymbolPath"
+        - $ref: "#/components/parameters/TimeframeQuery"
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Start time (unix seconds UTC, inclusive)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: End time (unix seconds UTC, inclusive)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 1000
+          description: Max bars returned (default 1000, max 5000)
+      responses:
+        "200":
+          description: Paginated bars
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandlesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/indicators:
+    get:
+      tags: [indicators]
+      summary: Indicator registry catalog
+      operationId: listIndicators
+      responses:
+        "200":
+          description: All registered indicator keys with metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndicatorCatalogEntry"
+
+  /api/v1/indicators/compute:
+    post:
+      tags: [indicators]
+      summary: Batch-compute indicators
+      description: >
+        Loads extra candles before `from` (10× per-indicator minimum lookback) so
+        recursive indicators stabilize across chart windows. Response points cover only
+        `from`..`to`; `value` is null only when prior history is missing in the DB.
+      operationId: computeIndicators
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndicatorComputeRequest"
+      responses:
+        "200":
+          description: Computed series aligned to bar timestamps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndicatorComputeResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/users:
+    post:
+      tags: [users]
+      summary: Create user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: Created user (includes default watchlist)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    get:
+      tags: [users]
+      summary: List users
+      operationId: listUsers
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserResponse"
+
+  /api/v1/users/{user_id}:
+    get:
+      tags: [users]
+      summary: Get user
+      operationId: getUser
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [users]
+      summary: Update user
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [users]
+      summary: Delete user
+      operationId: deleteUser
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: User and watchlists deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/watchlists:
+    get:
+      tags: [watchlists]
+      summary: List watchlists
+      operationId: listWatchlists
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Watchlists with ordered symbols
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WatchlistResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [watchlists]
+      summary: Create watchlist
+      operationId: createWatchlist
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistCreate"
+      responses:
+        "201":
+          description: Created watchlist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/users/{user_id}/watchlists/{watchlist_id}:
+    get:
+      tags: [watchlists]
+      summary: Get watchlist
+      operationId: getWatchlist
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/WatchlistId"
+      responses:
+        "200":
+          description: Watchlist detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [watchlists]
+      summary: Update watchlist metadata
+      operationId: updateWatchlist
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/WatchlistId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistUpdate"
+      responses:
+        "200":
+          description: Updated watchlist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [watchlists]
+      summary: Delete watchlist
+      operationId: deleteWatchlist
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/WatchlistId"
+      responses:
+        "204":
+          description: Watchlist deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/watchlists/{watchlist_id}/symbols:
+    put:
+      tags: [watchlists]
+      summary: Replace watchlist symbols
+      operationId: replaceWatchlistSymbols
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/WatchlistId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistSymbolsUpdate"
+      responses:
+        "200":
+          description: Watchlist with new symbol order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/replay/sessions:
+    post:
+      tags: [replay]
+      summary: Create replay session
+      operationId: createReplaySession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaySessionCreate"
+      responses:
+        "201":
+          description: Session id and WebSocket URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplaySessionResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/replay/sessions/{session_id}:
+    get:
+      tags: [replay]
+      summary: Get replay session state
+      operationId: getReplaySession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplayStateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [replay]
+      summary: Delete replay session
+      operationId: deleteReplaySession
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          description: Session torn down
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# WebSocket APIs (OpenAPI has no native WS paths — documented here)
+x-websocket:
+  replay:
+    path: /ws/replay/{session_id}
+    description: |
+      Bar-by-bar replay stream. Create a session via `POST /api/v1/replay/sessions`,
+      then connect to the returned `ws_url`.
+
+      On connect the server sends `replay_state`. Client sends JSON text commands;
+      server responds with events (`candle`, `indicators`, `replay_state`,
+      `replay_completed`, `error`).
+
+      Autoplay interval: `max(50ms, 1/speed)`. Sessions expire after 30 minutes idle.
+    parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    clientMessages:
+      description: JSON text frames sent by the client
+      oneOf:
+        - $ref: "#/components/schemas/ReplayWsPlay"
+        - $ref: "#/components/schemas/ReplayWsPause"
+        - $ref: "#/components/schemas/ReplayWsStep"
+        - $ref: "#/components/schemas/ReplayWsSeek"
+        - $ref: "#/components/schemas/ReplayWsSetSpeed"
+        - $ref: "#/components/schemas/ReplayWsSetStepTimeframe"
+        - $ref: "#/components/schemas/ReplayWsSetIndicators"
+        - $ref: "#/components/schemas/ReplayWsGetState"
+    serverMessages:
+      description: JSON text frames sent by the server
+      oneOf:
+        - $ref: "#/components/schemas/ReplayWsReplayStateEvent"
+        - $ref: "#/components/schemas/ReplayWsCandleEvent"
+        - $ref: "#/components/schemas/ReplayWsIndicatorsEvent"
+        - $ref: "#/components/schemas/ReplayWsCompletedEvent"
+        - $ref: "#/components/schemas/ReplayWsErrorEvent"
+
+components:
+  parameters:
+    SymbolPath:
+      name: symbol
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Trading pair (e.g. `BTC/USDT`). Use URL encoding for slashes.
+      example: BTC/USDT
+    TimeframeQuery:
+      name: timeframe
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Candle resolution (see `/meta/timeframes`)
+      example: 1h
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WatchlistId:
+      name: watchlist_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            symbol:
+              value:
+                error:
+                  code: SYMBOL_NOT_FOUND
+                  message: "Unknown symbol: FOO/USDT"
+            user:
+              value:
+                error:
+                  code: USER_NOT_FOUND
+                  message: "Unknown user: ..."
+            replay:
+              value:
+                error:
+                  code: REPLAY_NOT_FOUND
+                  message: "Unknown replay session: ..."
+    ValidationError:
+      description: Validation or business rule failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            timeframe:
+              value:
+                error:
+                  code: INVALID_TIMEFRAME
+                  message: "Unsupported timeframe: 2m"
+            range:
+              value:
+                error:
+                  code: INVALID_RANGE
+                  message: from must be <= to
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+
+    HealthResponse:
+      type: object
+      required: [status, version, database]
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: "0.4.0"
+        database:
+          type: string
+          enum: [ok, error]
+
+    TimeframesResponse:
+      type: object
+      required: [timeframes]
+      properties:
+        timeframes:
+          type: array
+          items:
+            type: string
+          example: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"]
+
+    SymbolResponse:
+      type: object
+      required: [symbol, base, quote, is_active, sort_order]
+      properties:
+        symbol:
+          type: string
+          example: BTC/USDT
+        base:
+          type: string
+          example: BTC
+        quote:
+          type: string
+          example: USDT
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Bar:
+      type: object
+      required: [time, open, high, low, close, volume]
+      properties:
+        time:
+          type: integer
+          format: int64
+          description: Unix seconds UTC (bar open)
+        open:
+          type: number
+          format: double
+        high:
+          type: number
+          format: double
+        low:
+          type: number
+          format: double
+        close:
+          type: number
+          format: double
+        volume:
+          type: number
+          format: double
+
+    CandlesResponse:
+      type: object
+      required: [symbol, timeframe, bars]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        bars:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bar"
+        next_from:
+          type: integer
+          format: int64
+          nullable: true
+          description: Present when more bars exist beyond `limit`; use as next `from`
+
+    IndicatorCatalogEntry:
+      type: object
+      required: [key, inputs, pane]
+      properties:
+        key:
+          type: string
+          example: RSI
+        inputs:
+          type: array
+          items:
+            type: string
+          example: [close]
+        shared_params:
+          type: array
+          items:
+            type: string
+        default_params:
+          type: object
+          additionalProperties: true
+        pane:
+          type: string
+          enum: [overlay, subchart]
+
+    IndicatorSpec:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          example: RSI
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            period: 14
+        pane:
+          type: string
+          enum: [overlay, subchart]
+          nullable: true
+
+    IndicatorPoint:
+      type: object
+      required: [time, value]
+      properties:
+        time:
+          type: integer
+          format: int64
+        value:
+          type: number
+          format: double
+          nullable: true
+          description: null when insufficient prior candles exist in the database
+
+    IndicatorSeries:
+      type: object
+      required: [key, params, pane, points]
+      properties:
+        key:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+        pane:
+          type: string
+          enum: [overlay, subchart]
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+
+    IndicatorComputeRequest:
+      type: object
+      required: [symbol, timeframe, from, to, indicators]
+      properties:
+        symbol:
+          type: string
+          example: BTC/USDT
+        timeframe:
+          type: string
+          example: 1h
+        from:
+          type: integer
+          format: int64
+        to:
+          type: integer
+          format: int64
+        indicators:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/IndicatorSpec"
+
+    IndicatorComputeResponse:
+      type: object
+      required: [symbol, timeframe, series]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSeries"
+
+    UserCreate:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+          format: email
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          nullable: true
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+          format: email
+          nullable: true
+
+    UserResponse:
+      type: object
+      required: [id, name, email, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WatchlistCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        symbols:
+          type: array
+          items:
+            type: string
+          default: []
+
+    WatchlistUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          nullable: true
+        is_default:
+          type: boolean
+          nullable: true
+        sort_order:
+          type: integer
+          nullable: true
+
+    WatchlistSymbolsUpdate:
+      type: object
+      required: [symbols]
+      properties:
+        symbols:
+          type: array
+          items:
+            type: string
+          description: Ordered symbol list (active symbols only)
+
+    WatchlistResponse:
+      type: object
+      required: [id, user_id, name, is_default, sort_order, symbols, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_default:
+          type: boolean
+        sort_order:
+          type: integer
+        symbols:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ReplaySessionCreate:
+      type: object
+      required: [symbol, timeframe, start, end]
+      properties:
+        symbol:
+          type: string
+          example: BTC/USDT
+        timeframe:
+          type: string
+          example: 1h
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        indicators:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSpec"
+          default: []
+        step_timeframe:
+          type: string
+          nullable: true
+          description: Bar step resolution (defaults to `timeframe`)
+        speed:
+          type: number
+          exclusiveMinimum: 0
+          default: 1.0
+          description: Bars per second during autoplay
+        autoplay:
+          type: boolean
+          default: false
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional logging only (no auth)
+
+    ReplaySessionResponse:
+      type: object
+      required: [session_id, ws_url]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        ws_url:
+          type: string
+          example: /ws/replay/550e8400-e29b-41d4-a716-446655440000
+
+    ReplayStateResponse:
+      type: object
+      required:
+        - session_id
+        - symbol
+        - timeframe
+        - step_timeframe
+        - start
+        - end
+        - state
+        - speed
+        - bar_index
+        - total_bars
+        - indicators
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        step_timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        cursor:
+          type: integer
+          format: int64
+          nullable: true
+          description: Current bar time (unix seconds)
+        state:
+          type: string
+          enum: [idle, playing, paused, completed]
+        speed:
+          type: number
+        bar_index:
+          type: integer
+          description: Zero-based index into replay window
+        total_bars:
+          type: integer
+        indicators:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSpec"
+
+    # --- WebSocket client commands ---
+    ReplayWsPlay:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          const: play
+        speed:
+          type: number
+          exclusiveMinimum: 0
+          description: Optional bars-per-second override
+
+    ReplayWsPause:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          const: pause
+
+    ReplayWsStep:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          const: step
+        count:
+          type: integer
+          minimum: 1
+          default: 1
+
+    ReplayWsSeek:
+      type: object
+      required: [action, to]
+      properties:
+        action:
+          type: string
+          const: seek
+        to:
+          type: integer
+          format: int64
+          description: Target bar time (unix seconds)
+
+    ReplayWsSetSpeed:
+      type: object
+      required: [action, speed]
+      properties:
+        action:
+          type: string
+          const: set_speed
+        speed:
+          type: number
+          exclusiveMinimum: 0
+
+    ReplayWsSetStepTimeframe:
+      type: object
+      required: [action, step_timeframe]
+      properties:
+        action:
+          type: string
+          const: set_step_timeframe
+        step_timeframe:
+          type: string
+
+    ReplayWsSetIndicators:
+      type: object
+      required: [action, indicators]
+      properties:
+        action:
+          type: string
+          const: set_indicators
+        indicators:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSpec"
+
+    ReplayWsGetState:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          const: get_state
+
+    # --- WebSocket server events ---
+    ReplayWsReplayStateEvent:
+      allOf:
+        - type: object
+          required: [type]
+          properties:
+            type:
+              type: string
+              const: replay_state
+        - $ref: "#/components/schemas/ReplayStateResponse"
+
+    ReplayWsCandleEvent:
+      type: object
+      required: [type, bar]
+      properties:
+        type:
+          type: string
+          const: candle
+        bar:
+          $ref: "#/components/schemas/Bar"
+
+    ReplayWsIndicatorsEvent:
+      type: object
+      required: [type, series]
+      properties:
+        type:
+          type: string
+          const: indicators
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorSeries"
+
+    ReplayWsCompletedEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: replay_completed
+
+    ReplayWsErrorEvent:
+      type: object
+      required: [type, code, message]
+      properties:
+        type:
+          type: string
+          const: error
+        code:
+          type: string
+          examples:
+            - INVALID_REQUEST
+            - INVALID_ACTION
+            - SEEK_OUT_OF_RANGE
+            - INVALID_SPEED
+            - REPLAY_NOT_FOUND
+        message:
+          type: string

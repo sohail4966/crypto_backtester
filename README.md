@@ -4,7 +4,7 @@ A Python platform for crypto strategy research: sync OHLCV from exchanges, compu
 indicators, evaluate YAML-defined strategies, and run a realistic backtest engine with
 fees, sizing, risk exits, and performance analytics.
 
-**Current status:** Phases 0–3 complete (data → indicators → full backtest engine).
+**Current status:** Phases 0–4 complete (data → indicators → backtest → client API).
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## What it does
@@ -18,19 +18,22 @@ Exchange (Binance via ccxt) → TimescaleDB → get_candles() → indicators →
 - **Backtest engine (Phase 3):** long/short, slippage, commission, four sizing modes,
   fixed/ATR/trailing stops, extended metrics, buy-and-hold benchmark, trades CSV.
 - **No look-ahead on signals:** entries and signal exits fill at the **next bar open** (D-14).
+- **Client API (Phase 4):** FastAPI REST + replay WebSocket for charts (no auth; historical + replay only).
 
 ### Database migrations
 
-On every `run_backtest.py` startup, pending migrations in `data/migrations/sql/` are applied
-automatically:
+On application startup (`run_backtest.py` or `python -m api`), pending migrations in
+`data/migrations/sql/` are applied automatically:
 
 | File | Purpose |
 |------|---------|
 | `V001__schema_migrations.sql` | History table |
 | `V002__create_candles_table.sql` | OHLCV table |
 | `V003__create_candles_hypertable.sql` | Timescale hypertable |
+| `V004__data_gaps.sql` | Data gap tracking |
+| `V005__app_schema.sql` | API symbols, users, watchlists |
 
-Add `V004__your_change.sql` for schema changes — never edit applied migration files.
+Add `V006__your_change.sql` for schema changes — never edit applied migration files.
 
 ## Prerequisites
 
@@ -66,6 +69,21 @@ python run_backtest.py
 ```
 
 Writes `output/equity_curve.png` and `output/trades.csv` (when `export_trades: true`).
+
+### Client API (Phase 4)
+
+```bash
+docker compose up -d
+python run_sync.py --backfill   # ensure candle data exists
+python -m api                   # or: uvicorn api.main:app --reload --port 8000
+```
+
+- OpenAPI docs: http://localhost:8000/docs
+- Base path: `/api/v1`
+- Public endpoints (no auth): symbols, historical candles, indicators, users, watchlists, replay
+- Replay WebSocket: `/ws/replay/{session_id}`
+
+See [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) for the full API contract.
 
 ## Configuration
 
@@ -159,6 +177,8 @@ pytest
 
 | Doc | Contents |
 |-----|----------|
+| [docs/openapi.yaml](docs/openapi.yaml) | **API contract** — REST + WebSocket schemas (request/response bodies) |
+| [docs/PHASE_4_HLD.md](docs/PHASE_4_HLD.md) | Client API (REST + replay WebSocket) |
 | [docs/PHASE_3_HLD.md](docs/PHASE_3_HLD.md) | Backtest engine design + completion assessment |
 | [docs/PHASE_2_HLD.md](docs/PHASE_2_HLD.md) | Indicator library |
 | [docs/PHASE_1_HLD.md](docs/PHASE_1_HLD.md) | Data foundation |

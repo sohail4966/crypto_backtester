@@ -651,10 +651,10 @@ screeners with documented repaint risk.
 
 ---
 
-## D-63 — Phase 4 library-only (no evaluator hook)
+## D-63 — Phase 5 library-only (no evaluator hook)
 
-**Decision:** Phase 4 ships **`structure/` library + tests + report script** only.
-No `structure:` YAML condition in `signals/evaluator.py` until Phase 5+ (OQ-23 DSL).
+**Decision:** Phase 5 ships **`structure/` library + tests + report script** only.
+No `structure:` YAML condition in `signals/evaluator.py` until Phase 6+ (OQ-23 DSL).
 
 **Resolves:** OQ-49
 
@@ -735,18 +735,112 @@ keep trend deterministic and backtest-safe; aligns with HTF forward-fill (D-58).
 
 ---
 
-## D-61 — Phase 4: pivot structure only; similarity search deferred
+**Resolves:** OQ-51
 
-**Decision:** Phase 4 implements **rule-based pivot/fractal swing detection** only
+---
+
+## D-75 — Phase renumbering: Client API is Phase 4; Market Structure is Phase 5
+
+**Decision:** **Phase 4** is the **Client API layer** (REST + WebSocket for chart clients).
+Previous Phase 4 scope (**market structure**, D-53–D-66) moves to **Phase 5**. Subsequent
+phases shift by one: Patterns → 6, SMC → 7, Screener → 8, DSL → 9, AI → 10, Web UI → 11.
+
+**Reasoning:** A TradingView-like client needs candles, indicators, users, watchlists, and
+bar replay APIs before swing/pattern libraries. Structure decisions remain valid for Phase 5.
+
+---
+
+## D-67 — FastAPI for Phase 4 API
+
+**Decision:** Phase 4 HTTP + WebSocket server is **FastAPI + uvicorn**.
+
+---
+
+## D-68 — Backend only; no frontend in Phase 4
+
+**Decision:** Phase 4 delivers **API + tests + docs**. Chart UI is Phase 11.
+
+---
+
+## D-69 — No authentication in Phase 4
+
+**Decision:** **All API routes are public** — no JWT, no login, no `Authorization` header.
+Users and watchlists are stored in DB; clients pass **`user_id`** explicitly.
+
+**Resolves:** OQ-52
+
+---
+
+## D-70 — Chart-compatible candle timestamps
+
+**Decision:** API candle `time` fields are **Unix seconds UTC** (integer), matching
+`lightweight-charts`.
+
+---
+
+## D-71 — In-memory bar replay sessions
+
+**Decision:** Replay state lives in an **in-process memory store** only. Client controls
+playback via WebSocket; indicators recomputed on candle **prefix** only.
+
+**Resolves:** OQ-53
+
+---
+
+## D-72 — Indicator compute on server
+
+**Decision:** All indicator values computed via `indicators.registry` + `get_candles()`.
+
+---
+
+## D-73 — App schema separate from candles hypertable
+
+**Decision:** `app.symbols`, `app.users`, `app.watchlists` live in **`app` schema** —
+not mixed into the `candles` hypertable.
+
+---
+
+## D-76 — Symbols table is API catalog source
+
+**Decision:** **`app.symbols`** table is the canonical symbol catalog. Seeded with
+BTC/USDT, ETH/USDT, SOL/USDT. API list endpoints read from DB (future symbols = new rows).
+
+---
+
+## D-77 — Users: name and email only (Phase 4)
+
+**Decision:** `app.users` stores **`name`** and **`email`** only — no passwords.
+Watchlists FK to `user_id`.
+
+---
+
+## D-78 — Auth, live WS, replay DB deferred to Phase 11
+
+**Decision:** JWT auth, live candle WebSocket streaming, and **`app.replay_sessions`**
+persistence are **out of Phase 4** → Phase 11.
+
+---
+
+## D-79 — Candle pagination limits
+
+**Decision:** `GET /candles` default **`limit=1000`**, maximum **`5000`**.
+
+**Resolves:** OQ-55
+
+---
+
+## D-61 — Phase 5 (was Phase 4): pivot structure only; similarity search deferred
+
+**Decision:** Phase 5 implements **rule-based pivot/fractal swing detection** only
 (`structure/` package). **No** vectorbt PRO–style template matching (`find_pattern`,
-similarity scores, projections) in Phase 4.
+similarity scores, projections) in Phase 5.
 
 Vectorbt-like **pattern similarity search** is deferred to **Phase 5** as an optional
 complement to rule-based pattern detection (see ROADMAP Phase 5 reference note).
 
-**Reasoning:** Phase 4 must deliver auditable swing anchors for HH/HL trend, classical
-patterns, and Phase 6 SMC. Similarity search is fuzzy, threshold-heavy, and overlaps
-Phase 5 pattern work — not a substitute for pivot structure.
+**Reasoning:** Phase 5 must deliver auditable swing anchors for HH/HL trend, classical
+patterns, and Phase 7 SMC. Similarity search is fuzzy, threshold-heavy, and overlaps
+Phase 6 pattern work — not a substitute for pivot structure.
 
 **Resolves:** OQ-51
 

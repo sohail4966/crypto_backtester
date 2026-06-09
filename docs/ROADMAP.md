@@ -6,14 +6,15 @@ A crypto trading analysis platform where traders express ideas in plain English,
 and the platform translates those ideas into screening queries, alerts, backtests,
 and eventually automated strategies — without requiring the trader to write code.
 
-The platform is built around seven pillars:
+The platform is built around eight pillars:
 1. Market Data
 2. Indicators
-3. Market Structure
-4. Pattern Recognition
-5. Strategy & Backtesting
-6. AI Natural Language Interface
-7. Visualization & UI
+3. **Client API** (REST + WebSocket — Phase 4)
+4. Market Structure
+5. Pattern Recognition
+6. Strategy & Backtesting
+7. AI Natural Language Interface
+8. Visualization & UI
 
 Each phase below builds on the previous one. Nothing is throwaway — every module
 written in an earlier phase is the literal foundation for the next.
@@ -137,38 +138,61 @@ green (`317 passed`). CLI path covered by `test_run_backtest_integration.py`; ma
 
 ---
 
-## Phase 4 — Market Structure Detection
+## Phase 4 — Client API Layer (REST + WebSocket)
 
-**Design doc:** [PHASE_4_HLD.md](PHASE_4_HLD.md) (approved — ready for implementation)
+**Status:** Complete — [PHASE_4_HLD.md](PHASE_4_HLD.md#phase-4-completion-assessment)
 
-**Theme:** Build the structural layer that everything else depends on. Swing detection
-is the prerequisite for patterns, divergence, and SMC.
+**Design doc:** [PHASE_4_HLD.md](PHASE_4_HLD.md)
 
-**Goal:** Given a candle series, reliably detect swing highs, swing lows, pivots,
-and higher-level trend structure.
+**Theme:** Expose the data and indicator spine to a TradingView-like chart client.
+**Historical charts + bar replay only** — no live streaming, no auth.
 
-| Feature | Notes |
+**Goal:** Client can list symbols, load past candles, compute indicators, manage users/
+watchlists, and run **bar replay** over WebSocket with indicators at variable speed.
+
+| Area | What gets built |
 |---|---|
-| Swing highs / lows | Configurable lookback (e.g. 5-bar pivot) |
-| Higher highs / lower lows | Trend structure labeling |
-| Pivot levels | Support / resistance zones derived from swings |
-| Trend classification | Uptrend, downtrend, ranging per timeframe |
-| Multi-timeframe structure | Daily structure vs hourly structure |
+| REST | `app.symbols` catalog, historical candles (default 1000 / max 5000), indicators, users, watchlists |
+| WebSocket | **Replay only** — play / pause / step / seek + candle + indicator events |
+| Users | `name` + `email` in DB; scoped by `user_id` (no passwords) |
+| Persistence | `V005`: symbols (3 seeded), users, watchlists |
+| Auth | **None** — all routes public (D-69) |
 
-**Why this phase is its own thing:** Swing detection algorithms have many variants and
-edge cases (what counts as a "significant" swing, how to handle equal highs, how to
-label structure in choppy markets). Getting this right takes iteration. It is the
-foundation for phase 5, so it must be solid before patterns are attempted.
+**Deferred to Phase 11:** JWT auth, live candle WebSocket, replay session DB persistence.
 
-**Done when:** Swing points are visually correct on BTC/USDT charts across multiple
-market conditions (trending, ranging, volatile).
+**Done when:** ✅ OpenAPI at `/docs`; symbols/candles/indicators/users/watchlists/replay WS;
+17 API tests; **334** total tests green.
 
 ---
 
-## Phase 5 — Pattern Recognition
+## Phase 5 — Market Structure Detection
+
+**Theme:** Build the structural layer that patterns and SMC depend on. Swing detection
+is the prerequisite for classical patterns and liquidity logic.
+
+**Prior design:** Decisions D-53–D-66 and the original Phase 4 HLD content apply here.
+A dedicated `PHASE_5_HLD.md` will be written before implementation.
+
+**Goal:** Given a candle series, reliably detect swing highs, swing lows, label trend
+structure (HH/HL/LH/LL/EQH/EQL), derive S/R from swings, and expose multi-timeframe context.
+
+| Feature | Notes |
+|---|---|
+| Swing highs / lows | Symmetric pivot 5/5 (D-53) |
+| HH / HL / LH / LL / EQH / EQL | First-class labels (D-65) |
+| Support / resistance | Last k swings, recency-first (D-64, D-57) |
+| Trend classification | Event-driven on confirmed swings (D-66) |
+| Multi-timeframe structure | `StructureContext` forward-fill (D-58) |
+
+**Done when:** Swing points are visually correct on BTC/USDT charts across trending, ranging,
+and volatile regimes; `structure/` library + tests complete.
+
+---
+
+## Phase 6 — Pattern Recognition
 
 **Theme:** Detect classical chart patterns and candlestick patterns using the market
-structure layer from phase 4.
+structure layer from phase 5.
 
 **Note on difficulty:** Pattern detection is the hardest engineering problem in the
 platform. Classical patterns have no single universal definition. Every implementation
@@ -219,14 +243,14 @@ keep matches above a threshold, then optionally project forward paths from histo
 matches. Candlestick tutorials often pair **TA-Lib `CDL*`** with vectorbt for
 backtesting — that path is rule-based like 5a, not PRO’s similarity search. Worth
 reviewing before Phase 5 for projections and sweep performance; our spine still
-targets explicit swing + pattern rules (Phase 4 → 5).
+targets explicit swing + pattern rules (Phase 5 → 6).
 
 **Done when:** Each pattern is detectable, produces minimal false positives on clean
 historical data, and outputs standard signal format.
 
 ---
 
-## Phase 6 — Smart Money Concepts (SMC)
+## Phase 7 — Smart Money Concepts (SMC)
 
 **Theme:** Add SMC-based market structure analysis for traders who use that framework.
 
@@ -249,7 +273,7 @@ into the signal evaluator as a named condition.
 
 ---
 
-## Phase 7 — Screener & Alert Engine
+## Phase 8 — Screener & Alert Engine
 
 **Theme:** Apply the signal evaluator across many symbols simultaneously. This is
 where TimescaleDB → ClickHouse migration becomes worth doing.
@@ -277,7 +301,7 @@ seconds and alert triggers fire correctly on candle close.
 
 ---
 
-## Phase 8 — Full Trading DSL
+## Phase 9 — Full Trading DSL
 
 **Theme:** Formalize the signal dict into a real grammar that can express any
 combination of conditions.
@@ -305,7 +329,7 @@ multi-timeframe condition.
 
 ---
 
-## Phase 9 — AI Natural Language Interface
+## Phase 10 — AI Natural Language Interface
 
 **Theme:** Allow traders to describe a strategy in plain English and have it
 translated into a valid DSL signal dict.
@@ -331,29 +355,32 @@ without touching any config file or code.
 
 ---
 
-## Phase 10 — Visualization & Web UI
+## Phase 11 — Visualization & Web UI
 
-**Theme:** Give the platform a usable interface. Not a TradingView clone — a focused
-tool for analysis, screening, and backtesting.
+**Theme:** TradingView-like chart client consuming the Phase 4 API. Focused tool for
+analysis, screening, and backtesting — not a full TradingView clone.
 
 | Feature | Notes |
 |---|---|
-| Candle charts | Interactive OHLCV charts (lightweight-charts or Recharts) |
-| Indicator overlays | SMA, EMA, BB on the chart |
-| Signal markers | Show entry / exit points on chart |
-| Pattern overlays | Show detected patterns on chart |
+| Candle charts | Historical load via Phase 4 REST |
+| Indicator overlays | Phase 4 `/indicators/compute` + replay WS |
+| Bar replay UI | Phase 4 replay WebSocket |
+| Watchlists | Phase 4 user/watchlist APIs (`user_id`, no auth yet) |
+| **Auth (JWT)** | **Phase 11** — wrap existing user table |
+| **Live chart tail** | **Phase 11** — WebSocket after sync |
+| **Replay persistence** | **Phase 11** — `app.replay_sessions` table |
+| Signal markers | Show entry / exit points on chart (backtest API stretch) |
+| Pattern overlays | Phase 6+ structure/pattern endpoints |
 | Backtest results UI | Equity curve, trade list, metrics dashboard |
-| Screener UI | Input conditions, see matching symbols |
+| Screener UI | Phase 8 conditions |
 | Strategy builder UI | Visual condition builder (pre-AI) |
-| Strategy chat | AI chat interface for NL → strategy |
-| Alert management | View, configure, and manage active alerts |
+| Strategy chat | Phase 10 AI chat interface |
+| Alert management | Phase 8 alerts |
 
-**Backend:** FastAPI serving existing Python modules as API endpoints.
-**Frontend:** React + TypeScript. Charts via `lightweight-charts` (TradingView's
-open-source library).
+**Frontend:** React + TypeScript. **Backend:** Phase 4 FastAPI (extend with later phases).
 
-**Done when:** Core workflows (fetch data → run backtest → see results on a chart)
-are usable in a browser.
+**Done when:** Core workflows (create user → watchlist → historical chart + indicators →
+bar replay → backtest results) work in a browser. Login optional until Phase 11 auth ships.
 
 ---
 
@@ -364,21 +391,23 @@ Phase 0 (POC)
     └── Phase 1 (Data)
             └── Phase 2 (Indicators)
                     ├── Phase 3 (Backtest engine)
-                    │       └── Phase 9 (AI) ← depends on Phase 8 DSL
-                    ├── Phase 4 (Market structure)
-                    │       ├── Phase 5 (Patterns)
-                    │       │       └── Phase 6 (SMC)
-                    │       └── Phase 7 (Screener) ← also needs Phase 2
-                    └── Phase 8 (DSL)
-                            └── Phase 9 (AI)
-                                    └── Phase 10 (UI)
+                    │       └── Phase 10 (AI) ← depends on Phase 9 DSL
+                    ├── Phase 4 (Client API — REST + WS)
+                    │       └── Phase 11 (Web UI)
+                    ├── Phase 5 (Market structure)
+                    │       ├── Phase 6 (Patterns)
+                    │       │       └── Phase 7 (SMC)
+                    │       └── Phase 8 (Screener) ← also needs Phase 2, 4
+                    └── Phase 9 (DSL)
+                            └── Phase 10 (AI)
 ```
 
-Phases 3, 4, and 7 can be developed in parallel once Phase 2 is stable.
-Phase 8 (DSL) can be designed in parallel with Phases 4–6 and formalized once
+Phases 4, 5, and 8 can be developed in parallel once Phase 2 is stable (Phase 4 only
+needs Phases 1–2; no backtest dependency).
+Phase 9 (DSL) can be designed in parallel with Phases 5–7 and formalized once
 the full set of signal types is known.
-Phase 10 (UI) can begin in parallel with Phase 9 — the API layer can be wired up
-as modules complete.
+Phase 11 (UI) starts once Phase 4 API contracts are stable; features accrete as
+Phases 5–10 complete.
 
 ---
 
@@ -387,7 +416,10 @@ as modules complete.
 - Not a live trading / execution platform (no order placement, no broker integration)
 - Not a copy-trading or signal subscription service
 - Not a portfolio tracker
-- Not a TradingView replacement (no real-time streaming charts)
+- Not a full TradingView replacement (no social, no script marketplace, no drawing sync cloud)
+
+Phase 4 adds **historical chart APIs** and **bar replay** — not live exchange feeds.
+Live streaming and auth ship in Phase 11.
 
 These may be future phases but are not part of the current vision.
 
@@ -401,10 +433,11 @@ These may be future phases but are not part of the current vision.
 | 1 | Data foundation | Multi-symbol, multi-TF, incremental updates | Phase 0 |
 | 2 | Indicator library | Full validated indicator set | Phase 1 |
 | 3 | Full backtest engine | Fees, stops, sizing, full metrics | Phase 2 |
-| 4 | Market structure | Swing detection, trend labeling | Phase 2 |
-| 5 | Pattern recognition | Chart patterns, candles, divergence | Phase 4 |
-| 6 | SMC | BOS, CHOCH, FVG, Order Blocks | Phase 4 |
-| 7 | Screener & alerts | Multi-symbol scans, alert triggers | Phases 2, 3 |
-| 8 | Full DSL | AND/OR, multi-TF, sequence conditions | Phases 5, 6, 7 |
-| 9 | AI NL interface | Plain English → backtest results | Phase 8 |
-| 10 | Web UI | Full browser-based platform | Phases 3, 9 |
+| 4 | Client API | REST + WS: candles, indicators, users, watchlists, replay | Phases 1, 2 |
+| 5 | Market structure | Swing detection, trend labeling | Phase 2 |
+| 6 | Pattern recognition | Chart patterns, candles, divergence | Phase 5 |
+| 7 | SMC | BOS, CHOCH, FVG, Order Blocks | Phase 5 |
+| 8 | Screener & alerts | Multi-symbol scans, alert triggers | Phases 2, 3, 4 |
+| 9 | Full DSL | AND/OR, multi-TF, sequence conditions | Phases 6, 7, 8 |
+| 10 | AI NL interface | Plain English → backtest results | Phase 9 |
+| 11 | Web UI | Browser chart client on Phase 4 API | Phase 4 |
