@@ -18,11 +18,16 @@ WARMUP_MULTIPLIER = 10
 # Bars of prior session needed for pivot points (D-35) by timeframe.
 _PIVOT_WARMUP_BY_TIMEFRAME: dict[str, int] = {
     "1m": 1440,
+    "3m": 480,
     "5m": 288,
     "15m": 96,
+    "30m": 48,
     "1h": 24,
+    "2h": 12,
     "4h": 6,
     "1d": 1,
+    "1w": 1,
+    "1M": 1,
 }
 
 

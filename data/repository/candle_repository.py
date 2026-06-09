@@ -21,11 +21,16 @@ WriteRow = tuple[str, str, Any, float, float, float, float, float]
 
 REQUIRED_COLUMNS = {"ts", "open", "high", "low", "close", "volume"}
 DERIVED_INTERVALS = {
+    "3m": "3 minutes",
     "5m": "5 minutes",
     "15m": "15 minutes",
+    "30m": "30 minutes",
     "1h": "1 hour",
+    "2h": "2 hours",
     "4h": "4 hours",
     "1d": "1 day",
+    "1w": "1 week",
+    "1M": "1 month",
 }
 
 
@@ -316,7 +321,7 @@ class CandleRepository:
 
         Args:
             symbol: Trading pair identifier.
-            timeframe: Requested derived timeframe (5m, 15m, 1h, 4h, 1d).
+            timeframe: Requested derived timeframe (3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d, 1w, 1M).
             start: Inclusive start date (ISO).
             end: Inclusive end date (ISO).
             conn: Optional existing connection.

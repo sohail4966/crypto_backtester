@@ -19,7 +19,7 @@ EQUITY_FIGURE_HEIGHT = 5
 EQUITY_LINE_COLOR = "#2563eb"
 EQUITY_DPI = 120
 
-INTRADAY_TIMEFRAMES = frozenset({"1m", "5m", "15m", "30m", "1h", "4h"})
+INTRADAY_TIMEFRAMES = frozenset({"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h"})
 TRADING_DAYS_PER_YEAR = 365.0
 
 
