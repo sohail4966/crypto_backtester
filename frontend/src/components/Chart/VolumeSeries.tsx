@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { Theme } from '@/types/theme'
 import { useChartContext } from '@/components/Chart/ChartContext'
+import { useChartStore } from '@/stores/chartStore'
 import type { OHLCVBar } from '@/types/candle'
 import { resolveChartColor } from '@/utils/color'
 
@@ -12,6 +13,11 @@ interface VolumeSeriesProps {
 
 export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
   const { volumeSeries } = useChartContext()
+  const showVolume = useChartStore((state) => state.showVolume)
+
+  useEffect(() => {
+    volumeSeries?.applyOptions({ visible: showVolume })
+  }, [showVolume, volumeSeries])
 
   useEffect(() => {
     if (!volumeSeries) {

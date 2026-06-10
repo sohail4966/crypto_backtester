@@ -8,22 +8,24 @@ import {
   type SeriesType,
   type UTCTimestamp,
 } from 'lightweight-charts'
+import { IndicatorTab } from '@/components/Indicators/IndicatorTab'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import { useTheme } from '@/hooks/useTheme'
-import { isMacdKey, type ActiveIndicator, type IndicatorPoint } from '@/types/indicator'
+import { useIndicatorStore } from '@/stores/indicatorStore'
+import { type ActiveIndicator, type IndicatorPoint } from '@/types/indicator'
 import {
   formatIndicatorValue,
   indicatorDisplayLabel,
   indicatorValueAtTime,
 } from '@/utils/indicatorDisplay'
 import { resolveChartColor } from '@/utils/color'
-
-const SUBCHART_HEIGHT = 112
+import { indicatorChipLabel } from '@/utils/indicatorCatalog'
 
 interface IndicatorSubPaneProps {
   paneId: string
   group: ActiveIndicator[]
   indicators: Record<string, IndicatorPoint[]>
+  chartHeight: number
 }
 
 function toLineData(points: IndicatorPoint[]): LineData[] {
@@ -43,7 +45,12 @@ function primaryIndicator(group: ActiveIndicator[]): ActiveIndicator | undefined
   )
 }
 
-export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPaneProps) {
+export function IndicatorSubPane({
+  paneId,
+  group,
+  indicators,
+  chartHeight,
+}: IndicatorSubPaneProps) {
   const {
     chart: mainChart,
     crosshairTime,
@@ -56,16 +63,24 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
   const seriesRef = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>>>(new Map())
   const groupRef = useRef(group)
   const indicatorsRef = useRef(indicators)
+  const chartHeightRef = useRef(chartHeight)
+  const onSubChartCrosshairMoveRef = useRef(onSubChartCrosshairMove)
   const { theme } = useTheme()
+  const themeRef = useRef(theme)
+
+  chartHeightRef.current = chartHeight
+  onSubChartCrosshairMoveRef.current = onSubChartCrosshairMove
+  themeRef.current = theme
+  const toggleVisible = useIndicatorStore((state) => state.toggleVisible)
+  const openSettings = useIndicatorStore((state) => state.openSettings)
+  const remove = useIndicatorStore((state) => state.remove)
+
+  const visible = group[0]?.visible !== false
 
   groupRef.current = group
   indicatorsRef.current = indicators
 
   const primary = primaryIndicator(group)
-
-  const title = group.some((item) => isMacdKey(item.key))
-    ? 'MACD'
-    : indicatorDisplayLabel(group[0]?.key ?? 'Indicator', group[0]?.params ?? {})
 
   const latestTime = useMemo(() => {
     for (const item of group) {
@@ -104,26 +119,30 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
       return
     }
 
-    const accentColor = resolveChartColor('var(--color-accent)', theme)
+    const currentTheme = themeRef.current
+    const accentColor = resolveChartColor('var(--color-accent)', currentTheme)
     const chart = createChart(container, {
       autoSize: false,
       width: container.clientWidth,
-      height: SUBCHART_HEIGHT,
+      height: chartHeightRef.current,
       layout: {
-        background: { type: ColorType.Solid, color: resolveChartColor('var(--color-bg)', theme) },
-        textColor: resolveChartColor('var(--color-text-secondary)', theme),
+        background: {
+          type: ColorType.Solid,
+          color: resolveChartColor('var(--color-bg)', currentTheme),
+        },
+        textColor: resolveChartColor('var(--color-text-secondary)', currentTheme),
         attributionLogo: false,
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: resolveChartColor('var(--color-border)', theme) },
+        horzLines: { color: resolveChartColor('var(--color-border)', currentTheme) },
       },
       rightPriceScale: {
-        borderColor: resolveChartColor('var(--color-border)', theme),
+        borderColor: resolveChartColor('var(--color-border)', currentTheme),
       },
       timeScale: {
         visible: false,
-        borderColor: resolveChartColor('var(--color-border)', theme),
+        borderColor: resolveChartColor('var(--color-border)', currentTheme),
       },
       handleScroll: false,
       handleScale: false,
@@ -139,6 +158,10 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
 
     chartRef.current = chart
 
+    const onCrosshairMove = (param: Parameters<typeof onSubChartCrosshairMove>[0]) => {
+      onSubChartCrosshairMoveRef.current(param)
+    }
+
     const observer = new ResizeObserver(() => {
       if (!chartRef.current || !containerRef.current) {
         return
@@ -146,30 +169,42 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
       const { width } = containerRef.current.getBoundingClientRect()
       chartRef.current.applyOptions({
         width: Math.max(1, Math.floor(width)),
-        height: SUBCHART_HEIGHT,
+        height: chartHeightRef.current,
       })
     })
     observer.observe(container)
 
-    chart.subscribeCrosshairMove(onSubChartCrosshairMove)
+    chart.subscribeCrosshairMove(onCrosshairMove)
 
     return () => {
-      chart.unsubscribeCrosshairMove(onSubChartCrosshairMove)
+      chart.unsubscribeCrosshairMove(onCrosshairMove)
       observer.disconnect()
       seriesRef.current.clear()
       chart.remove()
       chartRef.current = null
     }
-  }, [onSubChartCrosshairMove, theme])
+  }, [paneId])
 
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) {
       return
     }
-
     const accentColor = resolveChartColor('var(--color-accent)', theme)
     chart.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: resolveChartColor('var(--color-bg)', theme) },
+        textColor: resolveChartColor('var(--color-text-secondary)', theme),
+      },
+      grid: {
+        horzLines: { color: resolveChartColor('var(--color-border)', theme) },
+      },
+      rightPriceScale: {
+        borderColor: resolveChartColor('var(--color-border)', theme),
+      },
+      timeScale: {
+        borderColor: resolveChartColor('var(--color-border)', theme),
+      },
       crosshair: {
         vertLine: {
           visible: true,
@@ -180,6 +215,19 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
       },
     })
   }, [theme])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    const container = containerRef.current
+    if (!chart || !container) {
+      return
+    }
+    const { width } = container.getBoundingClientRect()
+    chart.applyOptions({
+      width: Math.max(1, Math.floor(width)),
+      height: chartHeight,
+    })
+  }, [chartHeight])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -271,28 +319,42 @@ export function IndicatorSubPane({ paneId, group, indicators }: IndicatorSubPane
       } else {
         series.setData(toLineData(points))
       }
+
+      series.applyOptions({ visible })
     }
-  }, [group, indicators, theme])
+  }, [group, indicators, theme, visible])
+
+  const tabLabel = indicatorChipLabel(group[0]?.key ?? 'Indicator', group[0]?.params ?? {})
+  const tabValue =
+    visible && valueRows.length > 0
+      ? valueRows.map((row) => row.value).join(' · ')
+      : undefined
+  const hasSettings = Object.keys(group[0]?.params ?? {}).length > 0
+  const instanceId = group[0]?.instanceId
 
   return (
-    <div className="shrink-0 border-t border-border bg-bg">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-1 font-mono text-[10px] leading-tight">
-        <span className="font-semibold uppercase tracking-wider text-text-secondary">
-          {title}
-        </span>
-        {valueRows.map((row) => (
-          <span key={row.key} className="text-text">
-            {group.length > 1 || isMacdKey(group[0]?.key ?? '') ? (
-              <>
-                <span className="text-text-secondary">{row.label}</span>
-                <span className="mx-1 text-text-secondary">·</span>
-              </>
-            ) : null}
-            {row.value}
-          </span>
-        ))}
+    <div className={`shrink-0 bg-bg ${visible ? '' : 'opacity-60'}`}>
+      <div className="pointer-events-auto px-3 py-1">
+        <IndicatorTab
+          label={tabLabel}
+          value={tabValue}
+          visible={visible}
+          hasSettings={hasSettings}
+          onToggleVisible={() => {
+            if (instanceId) {
+              toggleVisible(instanceId)
+            }
+          }}
+          onOpenSettings={hasSettings && instanceId ? () => openSettings(instanceId) : undefined}
+          onRemove={instanceId ? () => remove(instanceId) : undefined}
+          compact
+        />
       </div>
-      <div ref={containerRef} style={{ height: SUBCHART_HEIGHT }} />
+      <div
+        ref={containerRef}
+        className={visible ? '' : 'overflow-hidden'}
+        style={{ height: visible ? chartHeight : 0 }}
+      />
     </div>
   )
 }

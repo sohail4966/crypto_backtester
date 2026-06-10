@@ -11,6 +11,7 @@ interface OverlayIndicatorSeriesProps {
   label: string
   points: IndicatorPoint[]
   colorIndex: number
+  visible?: boolean
 }
 
 export function OverlayIndicatorSeries({
@@ -18,6 +19,7 @@ export function OverlayIndicatorSeries({
   label,
   points,
   colorIndex,
+  visible = true,
 }: OverlayIndicatorSeriesProps) {
   const { chart } = useChartContext()
   const { theme } = useTheme()
@@ -48,8 +50,8 @@ export function OverlayIndicatorSeries({
   }, [chart, seriesId])
 
   useEffect(() => {
-    seriesRef.current?.applyOptions({ color, title: label })
-  }, [color, label])
+    seriesRef.current?.applyOptions({ color, title: label, visible })
+  }, [color, label, visible])
 
   useEffect(() => {
     const series = seriesRef.current

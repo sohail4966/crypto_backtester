@@ -22,15 +22,16 @@ import { OverlayIndicatorSeries } from '@/components/Indicators/OverlayIndicator
 import { IndicatorSubPane } from '@/components/Indicators/IndicatorSubPane'
 import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
-import { FIT_RIGHT_OFFSET_BARS } from '@/constants/chart'
-import type { ChartTimezoneId } from '@/constants/timezone'
-import { useChunkManager } from '@/hooks/useChunkManager'
+import { FIT_RIGHT_OFFSET_BARS, MIN_MAIN_PANE_HEIGHT } from '@/constants/chart'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
 import type { OHLCVBar } from '@/types/candle'
 import type { ActiveIndicator, IndicatorSpec } from '@/types/indicator'
-import { isMacdKey } from '@/types/indicator'
+import { useChunkManager } from '@/hooks/useChunkManager'
+import { usePaneLayout } from '@/hooks/usePaneLayout'
+import type { ChartTimezoneId } from '@/constants/timezone'
+import { PaneResizeHandle } from '@/components/Chart/PaneResizeHandle'
 import type { Theme } from '@/types/theme'
 import { resolveChartColor } from '@/utils/color'
 import {
@@ -40,9 +41,10 @@ import {
 } from '@/utils/chartTimezone'
 import { specsCacheKey } from '@/utils/indicatorId'
 import { indicatorDisplayLabel } from '@/utils/indicatorDisplay'
-import { candleCloseAtTime } from '@/utils/crosshairSync'
+import { candleCloseAtTime, safeSetCrosshairPosition } from '@/utils/crosshairSync'
+import { bundleGroupKey } from '@/utils/indicatorCatalog'
 
-const MIN_CHART_HEIGHT = 420
+const MIN_CHART_HEIGHT = MIN_MAIN_PANE_HEIGHT
 
 interface ChartContainerProps {
   paneId?: string
@@ -86,7 +88,7 @@ function chartOptions(theme: Theme, showGrid: boolean, timezone: ChartTimezoneId
       mouseWheel: true,
       pressedMouseMove: true,
       horzTouchDrag: true,
-      vertTouchDrag: false,
+      vertTouchDrag: true,
     },
     handleScale: {
       mouseWheel: true,
@@ -108,15 +110,17 @@ function seriesColors(theme: Theme) {
   }
 }
 
-function measureContainer(container: HTMLDivElement) {
-  const { width, height } = container.getBoundingClientRect()
+function measureChartArea(container: HTMLDivElement, height?: number) {
+  const { width, height: rectHeight } = container.getBoundingClientRect()
+  const resolvedHeight = height ?? rectHeight
   return {
     width: Math.max(1, Math.floor(width)),
-    height: Math.max(MIN_CHART_HEIGHT, Math.floor(height)),
+    height: Math.max(MIN_CHART_HEIGHT, Math.floor(resolvedHeight)),
   }
 }
 
 export function ChartContainer({ paneId = 'main', className }: ChartContainerProps) {
+  const layoutRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -141,6 +145,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
     const seen = new Set<string>()
     const specs: IndicatorSpec[] = []
     for (const item of activeIndicators) {
+      if (item.visible === false) {
+        continue
+      }
       const id = `${item.key}:${JSON.stringify(item.params)}:${item.pane}`
       if (seen.has(id)) {
         continue
@@ -162,9 +169,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       if (item.pane !== 'subchart') {
         continue
       }
-      const groupKey = isMacdKey(item.key)
-        ? `MACD:${JSON.stringify(item.params)}`
-        : item.seriesId
+      const groupKey = bundleGroupKey(item.key, item.params)
       const list = groups.get(groupKey) ?? []
       list.push(item)
       groups.set(groupKey, list)
@@ -184,8 +189,32 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
   const [chartReady, setChartReady] = useState(false)
   const [crosshairTime, setCrosshairTime] = useState<number | null>(null)
+  const [layoutHeight, setLayoutHeight] = useState(0)
+
+  const {
+    mainPaneHeight,
+    visibleGroups,
+    visibleKeys,
+    getSubChartHeight,
+    onResizeAboveSub,
+    onResizeBetweenSubs,
+  } = usePaneLayout(layoutHeight, subchartGroups)
 
   candlesRef.current = candles
+
+  useEffect(() => {
+    const layout = layoutRef.current
+    if (!layout) {
+      return
+    }
+
+    const observer = new ResizeObserver(() => {
+      setLayoutHeight(Math.floor(layout.clientHeight))
+    })
+    observer.observe(layout)
+    setLayoutHeight(Math.floor(layout.clientHeight))
+    return () => observer.disconnect()
+  }, [])
 
   const registerSubChart = useCallback((id: string, handle: SubChartHandle) => {
     subChartsRef.current.set(id, handle)
@@ -218,7 +247,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       if (candleSeries) {
         const close = candleCloseAtTime(candlesRef.current, time)
         if (close != null) {
-          main.setCrosshairPosition(close, time, candleSeries)
+          safeSetCrosshairPosition(main, close, time, candleSeries)
         }
       }
 
@@ -226,7 +255,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
         const series = handle.getPrimarySeries()
         const price = handle.getPriceAtTime(time)
         if (series && price != null) {
-          handle.chart.setCrosshairPosition(price, time, series)
+          safeSetCrosshairPosition(handle.chart, price, time, series)
         }
       })
     } finally {
@@ -308,7 +337,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       return
     }
 
-    const { width, height } = measureContainer(container)
+    const { width, height } = measureChartArea(container)
     const chart = createChart(container, {
       ...chartOptions(themeRef.current, showGridRef.current, timezoneRef.current),
       width,
@@ -338,7 +367,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       if (!chartRef.current || !containerRef.current) {
         return
       }
-      const next = measureContainer(containerRef.current)
+      const next = measureChartArea(containerRef.current)
       chartRef.current.applyOptions(next)
     })
     observer.observe(container)
@@ -352,6 +381,15 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       setChartReady(false)
     }
   }, [paneId])
+
+  useEffect(() => {
+    const container = containerRef.current
+    const chart = chartRef.current
+    if (!container || !chart || !chartReady) {
+      return
+    }
+    chart.applyOptions(measureChartArea(container, mainPaneHeight))
+  }, [chartReady, mainPaneHeight])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -411,14 +449,17 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   return (
     <ChartContext.Provider value={contextValue}>
       <div
-        className={className ?? 'relative flex min-h-[420px] w-full flex-col'}
+        ref={layoutRef}
+        className={`${className ?? 'relative flex h-full min-h-[420px] w-full flex-col'} overflow-hidden`}
         onMouseLeave={clearCrosshair}
       >
-        <div className="relative min-h-0 flex-1">
+        <div
+          className="relative min-h-0 shrink-0"
+          style={{ height: mainPaneHeight }}
+        >
           <div
             ref={containerRef}
             className="h-full w-full"
-            style={{ minHeight: MIN_CHART_HEIGHT }}
             data-pane-id={paneId}
           />
           {overlay}
@@ -426,15 +467,18 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
             <>
               <CandlestickSeries candles={candles} fitKey={fitKey} />
               <VolumeSeries candles={candles} theme={theme} />
-              {overlayIndicators.map((item, index) => (
-                <OverlayIndicatorSeries
-                  key={item.instanceId}
-                  seriesId={item.seriesId}
-                  label={indicatorDisplayLabel(item.key, item.params)}
-                  points={indicators[item.seriesId] ?? []}
-                  colorIndex={index}
-                />
-              ))}
+              {activeIndicators
+                .filter((item) => item.pane === 'overlay')
+                .map((item, index) => (
+                  <OverlayIndicatorSeries
+                    key={item.instanceId}
+                    seriesId={item.seriesId}
+                    label={indicatorDisplayLabel(item.key, item.params)}
+                    points={indicators[item.seriesId] ?? []}
+                    colorIndex={index}
+                    visible={item.visible !== false}
+                  />
+                ))}
               <ChartLegend
                 candles={candles}
                 theme={theme}
@@ -445,15 +489,30 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
             </>
           ) : null}
         </div>
-        {chartReady && subchartGroups.length > 0
-          ? subchartGroups.map((group) => (
-              <IndicatorSubPane
-                key={group.map((item) => item.seriesId).join('-')}
-                paneId={group.map((item) => item.seriesId).join('-')}
-                group={group}
-                indicators={indicators}
-              />
-            ))
+        {chartReady
+          ? visibleGroups.map((group, index) => {
+              const groupKey = visibleKeys[index]
+              const paneIdKey = group.map((item) => item.seriesId).join('-')
+              return (
+                <div key={paneIdKey} className="shrink-0">
+                  <PaneResizeHandle
+                    onDrag={(deltaY) => {
+                      if (index === 0) {
+                        onResizeAboveSub(groupKey, deltaY)
+                      } else {
+                        onResizeBetweenSubs(visibleKeys[index - 1], groupKey, deltaY)
+                      }
+                    }}
+                  />
+                  <IndicatorSubPane
+                    paneId={paneIdKey}
+                    group={group}
+                    indicators={indicators}
+                    chartHeight={getSubChartHeight(groupKey)}
+                  />
+                </div>
+              )
+            })
           : null}
       </div>
     </ChartContext.Provider>

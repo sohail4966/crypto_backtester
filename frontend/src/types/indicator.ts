@@ -29,6 +29,7 @@ export interface ActiveIndicator {
   pane: IndicatorPane
   /** Backend map key, e.g. EMA_20 or RSI_14. */
   seriesId: string
+  visible: boolean
 }
 
 /** MACD is three registry keys with shared params — one UI action adds all three. */

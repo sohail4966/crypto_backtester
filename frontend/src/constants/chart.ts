@@ -10,6 +10,15 @@ export const FIT_VISIBLE_BARS = 120
 export const FIT_RIGHT_OFFSET_BARS = 8
 export const ZOOM_CONTROLS_AUTO_HIDE_MS = 2_000
 
+/** Sub-chart pane limits and default sizes (TradingView-style stacked panes). */
+export const MAX_SUB_PANES = 3
+export const DEFAULT_SUB_PANE_CHART_HEIGHT = 112
+export const MIN_SUB_PANE_CHART_HEIGHT = 64
+export const MAX_SUB_PANE_CHART_HEIGHT = 320
+export const MIN_MAIN_PANE_HEIGHT = 180
+export const PANE_RESIZE_HANDLE_HEIGHT = 10
+export const SUB_PANE_TAB_HEIGHT = 36
+
 export const CHART_SHOW_GRID_STORAGE_KEY = 'chart-show-grid'
 
 export const DEFAULT_TIMEFRAME = '1h'

@@ -1,39 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useIndicatorCatalog } from '@/hooks/useIndicatorCatalog'
 import { useIndicatorStore } from '@/stores/indicatorStore'
+import { MAX_SUB_PANES } from '@/constants/chart'
+import type { IndicatorCatalogEntry } from '@/types/indicator'
 import {
-  isMacdKey,
-  type IndicatorCatalogEntry,
-  type IndicatorPane,
-} from '@/types/indicator'
-import { indicatorSeriesId } from '@/utils/indicatorId'
-
-const QUICK_KEYS = new Set(['EMA', 'SMA', 'RSI', 'MACD_LINE'])
-
-function normalizeCatalogEntry(row: Record<string, unknown>): IndicatorCatalogEntry {
-  return {
-    key: String(row.key),
-    inputs: (row.inputs as string[]) ?? [],
-    sharedParams: (row.shared_params as string[]) ?? (row.sharedParams as string[]) ?? [],
-    defaultParams:
-      (row.default_params as Record<string, unknown>) ??
-      (row.defaultParams as Record<string, unknown>) ??
-      {},
-    pane: (row.pane as IndicatorPane) ?? 'overlay',
-  }
-}
-
-function pickerLabel(entry: IndicatorCatalogEntry): string {
-  if (isMacdKey(entry.key)) {
-    return 'MACD'
-  }
-  const period = entry.defaultParams.period
-  return period != null ? `${entry.key} (${period})` : entry.key
-}
+  bundleGroupKey,
+  catalogPickerLabel,
+  normalizeCatalogEntry,
+  pickerCatalogEntries,
+} from '@/utils/indicatorCatalog'
 
 interface IndicatorPanelProps {
   open: boolean
   onClose: () => void
+}
+
+function countSubchartGroups(active: { pane: string; key: string; params: Record<string, unknown> }[]): number {
+  const keys = new Set<string>()
+  for (const item of active) {
+    if (item.pane === 'subchart') {
+      keys.add(bundleGroupKey(item.key, item.params))
+    }
+  }
+  return keys.size
 }
 
 export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
@@ -42,37 +31,25 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
   const addFromCatalog = useIndicatorStore((state) => state.addFromCatalog)
   const active = useIndicatorStore((state) => state.active)
   const [filter, setFilter] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  const activeSeriesIds = useMemo(
-    () => new Set(active.map((item) => item.seriesId)),
+  const activeGroupKeys = useMemo(
+    () => new Set(active.map((item) => bundleGroupKey(item.key, item.params))),
     [active],
   )
 
+  const subchartCount = useMemo(() => countSubchartGroups(active), [active])
+  const atSubPaneLimit = subchartCount >= MAX_SUB_PANES
+
   const entries = useMemo(() => {
     const rows = (catalogQuery.data ?? []).map((entry) =>
-      typeof entry === 'object' && entry != null && 'key' in entry
-        ? normalizeCatalogEntry(entry as unknown as Record<string, unknown>)
-        : (entry as IndicatorCatalogEntry),
+      normalizeCatalogEntry(entry as unknown as Record<string, unknown>),
     )
-
-    const seen = new Set<string>()
-    const picked: IndicatorCatalogEntry[] = []
-    for (const entry of rows) {
-      if (!QUICK_KEYS.has(entry.key)) {
-        continue
-      }
-      const label = isMacdKey(entry.key) ? 'MACD' : entry.key
-      if (seen.has(label)) {
-        continue
-      }
-      seen.add(label)
-      picked.push(entry)
-    }
-    return picked.sort((a, b) => a.key.localeCompare(b.key))
+    return pickerCatalogEntries(rows)
   }, [catalogQuery.data])
 
   const filtered = entries.filter((entry) =>
-    pickerLabel(entry).toLowerCase().includes(filter.toLowerCase()),
+    catalogPickerLabel(entry).toLowerCase().includes(filter.toLowerCase()),
   )
 
   useEffect(() => {
@@ -90,14 +67,31 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [onClose, open])
 
+  useEffect(() => {
+    if (!open) {
+      setError(null)
+    }
+  }, [open])
+
   if (!open) {
     return null
+  }
+
+  function isDisabled(entry: IndicatorCatalogEntry): boolean {
+    const groupKey = bundleGroupKey(entry.key, entry.defaultParams)
+    if (activeGroupKeys.has(groupKey)) {
+      return true
+    }
+    if (entry.pane === 'subchart' && atSubPaneLimit) {
+      return true
+    }
+    return false
   }
 
   return (
     <div
       ref={rootRef}
-      className="absolute left-0 top-full z-50 mt-1 w-72 rounded border border-border bg-surface p-2 shadow-lg"
+      className="absolute left-0 top-full z-50 mt-1 w-80 rounded border border-border bg-surface p-2 shadow-lg"
     >
       <input
         type="search"
@@ -107,6 +101,14 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
         className="mb-2 w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text outline-none"
       />
 
+      {atSubPaneLimit ? (
+        <p className="mb-2 px-1 text-[10px] text-text-secondary">
+          Sub-chart limit: {MAX_SUB_PANES} panes (e.g. RSI, MACD). Remove one to add another.
+        </p>
+      ) : null}
+
+      {error ? <p className="mb-2 px-1 text-xs text-bear">{error}</p> : null}
+
       {catalogQuery.isPending ? (
         <p className="px-2 py-3 text-xs text-text-secondary">Loading catalog…</p>
       ) : null}
@@ -115,11 +117,9 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
         <p className="px-2 py-3 text-xs text-bear">Failed to load indicator catalog.</p>
       ) : null}
 
-      <ul className="max-h-64 overflow-auto">
+      <ul className="max-h-72 overflow-auto">
         {filtered.map((entry) => {
-          const disabled = isMacdKey(entry.key)
-            ? active.some((item) => isMacdKey(item.key))
-            : activeSeriesIds.has(indicatorSeriesId(entry.key, entry.defaultParams))
+          const disabled = isDisabled(entry)
 
           return (
             <li key={entry.key}>
@@ -127,12 +127,17 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
                 type="button"
                 disabled={disabled}
                 onClick={() => {
-                  addFromCatalog(entry)
+                  const result = addFromCatalog(entry)
+                  if (!result.ok) {
+                    setError(result.error)
+                    return
+                  }
+                  setError(null)
                   onClose()
                 }}
                 className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-xs transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span className="font-medium text-text">{pickerLabel(entry)}</span>
+                <span className="font-medium text-text">{catalogPickerLabel(entry)}</span>
                 <span className="text-text-secondary">{entry.pane}</span>
               </button>
             </li>

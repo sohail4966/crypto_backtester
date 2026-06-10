@@ -26,11 +26,13 @@ interface ChartState {
   timeframe: ChartTimeframe
   timezone: ChartTimezoneId
   showGrid: boolean
+  showVolume: boolean
   zoomControlsPulse: number
   setSymbol: (symbol: Symbol) => void
   setTimeframe: (timeframe: ChartTimeframe) => void
   setTimezone: (timezone: ChartTimezoneId) => void
   setShowGrid: (showGrid: boolean) => void
+  setShowVolume: (showVolume: boolean) => void
   pulseZoomControls: () => void
 }
 
@@ -39,6 +41,7 @@ export const useChartStore = create<ChartState>((set) => ({
   timeframe: DEFAULT_TIMEFRAME,
   timezone: loadChartTimezonePreference(),
   showGrid: loadShowGridPreference(),
+  showVolume: true,
   zoomControlsPulse: 0,
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
@@ -50,6 +53,7 @@ export const useChartStore = create<ChartState>((set) => ({
     localStorage.setItem(CHART_SHOW_GRID_STORAGE_KEY, String(showGrid))
     set({ showGrid })
   },
+  setShowVolume: (showVolume) => set({ showVolume }),
   pulseZoomControls: () =>
     set((state) => ({ zoomControlsPulse: state.zoomControlsPulse + 1 })),
 }))
