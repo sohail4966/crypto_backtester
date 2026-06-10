@@ -1,50 +1,62 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { useTheme } from '@/hooks/useTheme'
-import { ChartSettingsMenu } from '@/components/Layout/ChartSettingsMenu'
+import { useLocation } from 'react-router-dom'
+import { IndicatorsBar } from '@/components/Layout/IndicatorsBar'
 import { TimeframeSelector } from '@/components/Layout/TimeframeSelector'
-import { TimezoneSelector } from '@/components/Layout/TimezoneSelector'
 import { SymbolSearch } from '@/components/Watchlist/SymbolSearch'
+import { useTheme } from '@/hooks/useTheme'
+import { useLayoutStore } from '@/stores/layoutStore'
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  [
-    'rounded px-3 py-1.5 text-sm font-medium transition-colors',
-    isActive
-      ? 'bg-accent/15 text-accent'
-      : 'text-text-secondary hover:bg-surface hover:text-text',
-  ].join(' ')
+function SidebarToggleIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden
+    >
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  )
+}
 
 export function Topbar() {
   const location = useLocation()
   const onChartRoute = location.pathname === '/'
   const { theme, toggleTheme } = useTheme()
+  const sidebarOpen = useLayoutStore((state) => state.sidebarOpen)
+  const toggleSidebar = useLayoutStore((state) => state.toggleSidebar)
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
-      <div className="flex items-center gap-6">
+    <header className="flex items-center gap-4 border-b border-border bg-surface px-4 py-3">
+      <div className="flex shrink-0 items-center gap-3">
+        {!sidebarOpen ? (
+          <button
+            type="button"
+            aria-label="Show sidebar"
+            onClick={toggleSidebar}
+            className="rounded border border-border p-1.5 text-text-secondary transition-colors hover:border-accent/40 hover:text-text"
+          >
+            <SidebarToggleIcon />
+          </button>
+        ) : null}
         <span className="text-sm font-semibold tracking-wide">Crypto Backtester</span>
-        <nav className="flex items-center gap-1">
-          <NavLink to="/" end className={navLinkClass}>
-            Chart
-          </NavLink>
-          <NavLink to="/replay" className={navLinkClass}>
-            Replay
-          </NavLink>
-          <NavLink to="/backtest" className={navLinkClass}>
-            Backtest
-          </NavLink>
-        </nav>
       </div>
 
       {onChartRoute ? (
-        <div className="hidden flex-1 items-center justify-center gap-4 px-4 lg:flex">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
           <SymbolSearch />
           <TimeframeSelector />
-          <TimezoneSelector />
-          <ChartSettingsMenu />
+          <IndicatorsBar />
         </div>
-      ) : null}
+      ) : (
+        <div className="flex-1" />
+      )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center">
         <button
           type="button"
           onClick={toggleTheme}

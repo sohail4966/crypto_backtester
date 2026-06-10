@@ -15,7 +15,7 @@ import {
 import { CandlestickSeries } from '@/components/Chart/CandlestickSeries'
 import { ChartContext } from '@/components/Chart/ChartContext'
 import { ChartLegend } from '@/components/Chart/ChartLegend'
-import { ChartToolbar } from '@/components/Chart/ChartToolbar'
+import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
 import { FIT_RIGHT_OFFSET_BARS } from '@/constants/chart'
 import type { ChartTimezoneId } from '@/constants/timezone'
@@ -119,6 +119,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const timeframe = useChartStore((state) => state.timeframe)
   const timezone = useChartStore((state) => state.timezone)
   const showGrid = useChartStore((state) => state.showGrid)
+  const pulseZoomControls = useChartStore((state) => state.pulseZoomControls)
   const symbolId = symbol?.id
   const fitKey = `${symbolId ?? 'none'}-${timeframe}`
 
@@ -144,6 +145,21 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   useEffect(() => {
     onRangeChangeRef.current = onVisibleRangeChange
   }, [onVisibleRangeChange])
+
+  // Reveal bottom zoom bar briefly after mouse-wheel zoom on the chart.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || !chartReady) {
+      return
+    }
+
+    const onWheel = () => {
+      pulseZoomControls()
+    }
+
+    container.addEventListener('wheel', onWheel, { passive: true })
+    return () => container.removeEventListener('wheel', onWheel)
+  }, [chartReady, pulseZoomControls])
 
   useEffect(() => {
     const container = containerRef.current
@@ -255,7 +271,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
           <CandlestickSeries candles={candles} fitKey={fitKey} />
           <VolumeSeries candles={candles} theme={theme} />
           <ChartLegend candles={candles} theme={theme} />
-          <ChartToolbar barCount={candles.length} />
+          <ChartZoomControls barCount={candles.length} />
         </ChartContext.Provider>
       ) : null}
     </div>

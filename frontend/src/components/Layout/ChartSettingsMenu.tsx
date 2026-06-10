@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useChartStore } from '@/stores/chartStore'
 
+interface ChartSettingsMenuProps {
+  layout?: 'topbar' | 'sidebar'
+}
+
 function SettingsIcon() {
   return (
     <svg
@@ -20,11 +24,12 @@ function SettingsIcon() {
   )
 }
 
-export function ChartSettingsMenu() {
+export function ChartSettingsMenu({ layout = 'topbar' }: ChartSettingsMenuProps) {
   const showGrid = useChartStore((state) => state.showGrid)
   const setShowGrid = useChartStore((state) => state.setShowGrid)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const inSidebar = layout === 'sidebar'
 
   useEffect(() => {
     if (!open) {
@@ -42,22 +47,30 @@ export function ChartSettingsMenu() {
   }, [open])
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className={inSidebar ? 'relative w-full' : 'relative'}>
       <button
         type="button"
         aria-label="Chart settings"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
         className={[
-          'rounded border border-border p-1.5 text-text-secondary transition-colors hover:border-accent/40 hover:text-text',
+          inSidebar
+            ? 'flex w-full items-center gap-2 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-accent/40 hover:text-text'
+            : 'rounded border border-border p-1.5 text-text-secondary transition-colors hover:border-accent/40 hover:text-text',
           open ? 'border-accent/40 text-text' : '',
         ].join(' ')}
       >
         <SettingsIcon />
+        {inSidebar ? <span>Chart settings</span> : null}
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] rounded border border-border bg-surface p-2 shadow-lg">
+        <div
+          className={[
+            'absolute z-50 min-w-[10rem] rounded border border-border bg-surface p-2 shadow-lg',
+            inSidebar ? 'bottom-full left-0 mb-1' : 'right-0 top-full mt-1',
+          ].join(' ')}
+        >
           <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-text hover:bg-bg">
             <input
               type="checkbox"

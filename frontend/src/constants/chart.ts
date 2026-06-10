@@ -8,6 +8,7 @@ export const PREFETCH_THRESHOLD = 0.2
 // Default viewport on load and Fit click — TradingView-style density, not the full 500-bar chunk.
 export const FIT_VISIBLE_BARS = 120
 export const FIT_RIGHT_OFFSET_BARS = 8
+export const ZOOM_CONTROLS_AUTO_HIDE_MS = 2_000
 
 export const CHART_SHOW_GRID_STORAGE_KEY = 'chart-show-grid'
 

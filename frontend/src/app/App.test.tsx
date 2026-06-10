@@ -85,8 +85,9 @@ describe('App', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(screen.getByRole('navigation')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
     expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
+    expect(screen.getByText('Indicators')).toBeInTheDocument()
   })
 
   it('renders the replay route', async () => {
