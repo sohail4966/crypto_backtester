@@ -13,12 +13,15 @@ import {
 } from '@/services/chartDataAdapter'
 import { ChunkManager } from '@/services/chunkManager'
 import type { CandleDataRange, OHLCVBar } from '@/types/candle'
+import type { IndicatorSeriesMap, IndicatorSpec } from '@/types/indicator'
+import { specsCacheKey } from '@/utils/indicatorId'
 import { chartWindowFromDataRange, shiftUnixByBars, timeframeSeconds } from '@/utils/time'
 
 type ChunkStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 interface UseChunkManagerResult {
   candles: OHLCVBar[]
+  indicators: IndicatorSeriesMap
   status: ChunkStatus
   error: Error | null
   onVisibleRangeChange: (range: LogicalRange | null) => void
@@ -27,6 +30,7 @@ interface UseChunkManagerResult {
 export function useChunkManager(
   symbolId: string | undefined,
   timeframe: string,
+  indicatorSpecs: IndicatorSpec[],
 ): UseChunkManagerResult {
   const queryClient = useQueryClient()
   const managerRef = useRef(new ChunkManager())
@@ -34,22 +38,31 @@ export function useChunkManager(
   const dataRangeRef = useRef<CandleDataRange | null>(null)
   const prefetchingRef = useRef(false)
   const candlesRef = useRef<OHLCVBar[]>([])
-  // Prefetch only after the user scrolls left — not on fitContent's initial from≈0.
+  const indicatorsRef = useRef<IndicatorSeriesMap>({})
   const lastVisibleFromRef = useRef<number | null>(null)
+  const indicatorSpecsKey = specsCacheKey(indicatorSpecs)
 
   const [candles, setCandles] = useState<OHLCVBar[]>([])
+  const [indicators, setIndicators] = useState<IndicatorSeriesMap>({})
   const [status, setStatus] = useState<ChunkStatus>('idle')
   const [error, setError] = useState<Error | null>(null)
 
-  const syncCandles = useCallback((next: OHLCVBar[]) => {
-    candlesRef.current = next
-    setCandles(next)
+  const syncAssembled = useCallback(() => {
+    const nextCandles = managerRef.current.getAssembledCandles()
+    const nextIndicators = managerRef.current.getAssembledIndicators()
+    candlesRef.current = nextCandles
+    indicatorsRef.current = nextIndicators
+    setCandles(nextCandles)
+    setIndicators(nextIndicators)
   }, [])
 
   useEffect(() => {
     if (!symbolId) {
       managerRef.current.reset()
-      syncCandles([])
+      candlesRef.current = []
+      indicatorsRef.current = {}
+      setCandles([])
+      setIndicators({})
       setStatus('idle')
       setError(null)
       return
@@ -76,7 +89,7 @@ export function useChunkManager(
         const window = chartWindowFromDataRange(range, CHUNK_SIZE_BARS, timeframe)
 
         if (!window) {
-          syncCandles([])
+          syncAssembled()
           setStatus('ready')
           return
         }
@@ -87,10 +100,11 @@ export function useChunkManager(
           start: window.start,
           end: window.end,
           limit: CHUNK_SIZE_BARS,
+          indicators: indicatorSpecs,
         }
 
         const data = await queryClient.ensureQueryData({
-          queryKey: initialChartDataQueryKey(symbolId!, timeframe),
+          queryKey: initialChartDataQueryKey(symbolId!, timeframe, indicatorSpecs),
           queryFn: () => fetchChartData(request),
           staleTime: 60_000,
         })
@@ -98,12 +112,15 @@ export function useChunkManager(
         if (generation !== generationRef.current) return
 
         if (data.candles.length === 0) {
-          syncCandles([])
+          syncAssembled()
           setStatus('ready')
           return
         }
 
-        managerRef.current.addChunk(data.start, data.candles)
+        managerRef.current.addChunk(data.start, {
+          candles: data.candles,
+          indicators: data.indicators,
+        })
 
         if (range.latest != null) {
           dataRangeRef.current = {
@@ -114,7 +131,7 @@ export function useChunkManager(
           }
         }
 
-        syncCandles(managerRef.current.getAssembled())
+        syncAssembled()
         setStatus('ready')
       } catch (cause) {
         if (generation !== generationRef.current) return
@@ -124,7 +141,7 @@ export function useChunkManager(
     }
 
     void loadInitial()
-  }, [queryClient, symbolId, syncCandles, timeframe])
+  }, [indicatorSpecsKey, queryClient, symbolId, syncAssembled, timeframe])
 
   const prefetchPriorChunk = useCallback(async () => {
     if (!symbolId || prefetchingRef.current) {
@@ -161,14 +178,18 @@ export function useChunkManager(
         start: priorStart,
         end: priorEnd,
         limit: CHUNK_SIZE_BARS,
+        indicators: indicatorSpecs,
       })
 
-      managerRef.current.addChunk(priorStart, data.candles)
-      syncCandles(managerRef.current.getAssembled())
+      managerRef.current.addChunk(data.start, {
+        candles: data.candles,
+        indicators: data.indicators,
+      })
+      syncAssembled()
     } finally {
       prefetchingRef.current = false
     }
-  }, [symbolId, syncCandles, timeframe])
+  }, [indicatorSpecs, symbolId, syncAssembled, timeframe])
 
   const onVisibleRangeChange = useCallback(
     (range: LogicalRange | null) => {
@@ -198,16 +219,16 @@ export function useChunkManager(
         timeframe,
         LOOKBACK_CHUNKS * CHUNK_SIZE_BARS,
       )
-      // Re-setData on every scroll frame breaks pan/zoom — only sync when chunks were evicted.
       if (managerRef.current.evictBefore(evictBefore)) {
-        syncCandles(managerRef.current.getAssembled())
+        syncAssembled()
       }
     },
-    [prefetchPriorChunk, status, syncCandles, timeframe],
+    [prefetchPriorChunk, status, syncAssembled, timeframe],
   )
 
   return {
     candles,
+    indicators,
     status,
     error,
     onVisibleRangeChange,

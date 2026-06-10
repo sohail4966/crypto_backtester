@@ -7,7 +7,9 @@
 import { apiRequest } from '@/services/api'
 import type { CandleDataRange } from '@/types/candle'
 import type { ChartDataRequest, ChartDataResponse } from '@/types/chartData'
+import type { IndicatorCatalogEntry } from '@/types/indicator'
 import type { Symbol } from '@/types/symbol'
+import { serializeIndicatorSpecs } from '@/utils/indicatorId'
 
 function buildChartDataQuery(request: ChartDataRequest): string {
   const params = new URLSearchParams({
@@ -21,11 +23,27 @@ function buildChartDataQuery(request: ChartDataRequest): string {
     params.set('limit', String(request.limit))
   }
 
+  if (request.indicators && request.indicators.length > 0) {
+    params.set('indicators', serializeIndicatorSpecs(request.indicators))
+  }
+
   return `/chart-data?${params.toString()}`
 }
 
 export function fetchChartData(request: ChartDataRequest): Promise<ChartDataResponse> {
   return apiRequest<ChartDataResponse>(buildChartDataQuery(request))
+}
+
+export function fetchIndicatorCatalog(): Promise<IndicatorCatalogEntry[]> {
+  return apiRequest<Record<string, unknown>[]>('/indicators').then((rows) =>
+    rows.map((row) => ({
+      key: String(row.key),
+      inputs: (row.inputs as string[]) ?? [],
+      sharedParams: (row.shared_params as string[]) ?? [],
+      defaultParams: (row.default_params as Record<string, unknown>) ?? {},
+      pane: (row.pane as IndicatorCatalogEntry['pane']) ?? 'overlay',
+    })),
+  )
 }
 
 export function getCandleDataRange(

@@ -1,4 +1,5 @@
 import type { OHLCVBar } from '@/types/candle'
+import type { IndicatorSpec, IndicatorSeriesMap } from '@/types/indicator'
 import type { Symbol } from '@/types/symbol'
 
 export interface ChartDataRequest {
@@ -7,6 +8,7 @@ export interface ChartDataRequest {
   start: number
   end: number
   limit?: number
+  indicators?: IndicatorSpec[]
 }
 
 export interface ChartDataResponse {
@@ -15,7 +17,7 @@ export interface ChartDataResponse {
   start: number
   end: number
   candles: OHLCVBar[]
-  indicators: Record<string, unknown[]>
+  indicators: IndicatorSeriesMap
   signals: unknown[]
   trades: unknown[]
   nextStart?: number | null

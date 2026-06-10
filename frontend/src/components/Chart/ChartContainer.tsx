@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -11,10 +12,14 @@ import {
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
+  type MouseEventParams,
+  type UTCTimestamp,
 } from 'lightweight-charts'
 import { CandlestickSeries } from '@/components/Chart/CandlestickSeries'
-import { ChartContext } from '@/components/Chart/ChartContext'
+import { ChartContext, type SubChartHandle } from '@/components/Chart/ChartContext'
 import { ChartLegend } from '@/components/Chart/ChartLegend'
+import { OverlayIndicatorSeries } from '@/components/Indicators/OverlayIndicatorSeries'
+import { IndicatorSubPane } from '@/components/Indicators/IndicatorSubPane'
 import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
 import { FIT_RIGHT_OFFSET_BARS } from '@/constants/chart'
@@ -22,6 +27,10 @@ import type { ChartTimezoneId } from '@/constants/timezone'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
+import { useIndicatorStore } from '@/stores/indicatorStore'
+import type { OHLCVBar } from '@/types/candle'
+import type { ActiveIndicator, IndicatorSpec } from '@/types/indicator'
+import { isMacdKey } from '@/types/indicator'
 import type { Theme } from '@/types/theme'
 import { resolveChartColor } from '@/utils/color'
 import {
@@ -29,6 +38,9 @@ import {
   loadChartTimezonePreference,
   resolveChartTimeZone,
 } from '@/utils/chartTimezone'
+import { specsCacheKey } from '@/utils/indicatorId'
+import { indicatorDisplayLabel } from '@/utils/indicatorDisplay'
+import { candleCloseAtTime } from '@/utils/crosshairSync'
 
 const MIN_CHART_HEIGHT = 420
 
@@ -113,6 +125,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const themeRef = useRef<Theme>('dark')
   const timezoneRef = useRef<ChartTimezoneId>(loadChartTimezonePreference())
   const showGridRef = useRef(useChartStore.getState().showGrid)
+  const subChartsRef = useRef(new Map<string, SubChartHandle>())
+  const syncingCrosshairRef = useRef(false)
+  const candlesRef = useRef<OHLCVBar[]>([])
 
   const { theme } = useTheme()
   const symbol = useChartStore((state) => state.symbol)
@@ -120,15 +135,121 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const timezone = useChartStore((state) => state.timezone)
   const showGrid = useChartStore((state) => state.showGrid)
   const pulseZoomControls = useChartStore((state) => state.pulseZoomControls)
-  const symbolId = symbol?.id
-  const fitKey = `${symbolId ?? 'none'}-${timeframe}`
+  const activeIndicators = useIndicatorStore((state) => state.active)
 
-  const { candles, status, error, onVisibleRangeChange } = useChunkManager(
+  const indicatorSpecs = useMemo((): IndicatorSpec[] => {
+    const seen = new Set<string>()
+    const specs: IndicatorSpec[] = []
+    for (const item of activeIndicators) {
+      const id = `${item.key}:${JSON.stringify(item.params)}:${item.pane}`
+      if (seen.has(id)) {
+        continue
+      }
+      seen.add(id)
+      specs.push({ key: item.key, params: item.params, pane: item.pane })
+    }
+    return specs
+  }, [activeIndicators])
+
+  const overlayIndicators = useMemo(
+    () => activeIndicators.filter((item) => item.pane === 'overlay'),
+    [activeIndicators],
+  )
+
+  const subchartGroups = useMemo((): ActiveIndicator[][] => {
+    const groups = new Map<string, ActiveIndicator[]>()
+    for (const item of activeIndicators) {
+      if (item.pane !== 'subchart') {
+        continue
+      }
+      const groupKey = isMacdKey(item.key)
+        ? `MACD:${JSON.stringify(item.params)}`
+        : item.seriesId
+      const list = groups.get(groupKey) ?? []
+      list.push(item)
+      groups.set(groupKey, list)
+    }
+    return [...groups.values()]
+  }, [activeIndicators])
+
+  const symbolId = symbol?.id
+  const indicatorSpecsKey = specsCacheKey(indicatorSpecs)
+  const fitKey = `${symbolId ?? 'none'}-${timeframe}-${indicatorSpecsKey}`
+
+  const { candles, indicators, status, error, onVisibleRangeChange } = useChunkManager(
     symbolId,
     timeframe,
+    indicatorSpecs,
   )
 
   const [chartReady, setChartReady] = useState(false)
+  const [crosshairTime, setCrosshairTime] = useState<number | null>(null)
+
+  candlesRef.current = candles
+
+  const registerSubChart = useCallback((id: string, handle: SubChartHandle) => {
+    subChartsRef.current.set(id, handle)
+  }, [])
+
+  const unregisterSubChart = useCallback((id: string) => {
+    subChartsRef.current.delete(id)
+  }, [])
+
+  const applyCrosshairTime = useCallback((time: UTCTimestamp | null) => {
+    if (syncingCrosshairRef.current) {
+      return
+    }
+
+    syncingCrosshairRef.current = true
+    try {
+      setCrosshairTime(time)
+      const main = chartRef.current
+      if (!main) {
+        return
+      }
+
+      if (time == null) {
+        main.clearCrosshairPosition()
+        subChartsRef.current.forEach((handle) => handle.chart.clearCrosshairPosition())
+        return
+      }
+
+      const candleSeries = candleSeriesRef.current
+      if (candleSeries) {
+        const close = candleCloseAtTime(candlesRef.current, time)
+        if (close != null) {
+          main.setCrosshairPosition(close, time, candleSeries)
+        }
+      }
+
+      subChartsRef.current.forEach((handle) => {
+        const series = handle.getPrimarySeries()
+        const price = handle.getPriceAtTime(time)
+        if (series && price != null) {
+          handle.chart.setCrosshairPosition(price, time, series)
+        }
+      })
+    } finally {
+      syncingCrosshairRef.current = false
+    }
+  }, [])
+
+  const onSubChartCrosshairMove = useCallback(
+    (param: MouseEventParams) => {
+      if (syncingCrosshairRef.current) {
+        return
+      }
+      if (param.point === undefined || param.time === undefined) {
+        return
+      }
+      applyCrosshairTime(param.time as UTCTimestamp)
+    },
+    [applyCrosshairTime],
+  )
+
+  const clearCrosshair = useCallback(() => {
+    applyCrosshairTime(null)
+  }, [applyCrosshairTime])
 
   useEffect(() => {
     themeRef.current = theme
@@ -145,6 +266,26 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   useEffect(() => {
     onRangeChangeRef.current = onVisibleRangeChange
   }, [onVisibleRangeChange])
+
+  useEffect(() => {
+    const main = chartRef.current
+    if (!main || !chartReady) {
+      return
+    }
+
+    const onMainCrosshairMove = (param: MouseEventParams) => {
+      if (syncingCrosshairRef.current) {
+        return
+      }
+      if (param.point === undefined || param.time === undefined) {
+        return
+      }
+      applyCrosshairTime(param.time as UTCTimestamp)
+    }
+
+    main.subscribeCrosshairMove(onMainCrosshairMove)
+    return () => main.unsubscribeCrosshairMove(onMainCrosshairMove)
+  }, [applyCrosshairTime, chartReady])
 
   // Reveal bottom zoom bar briefly after mouse-wheel zoom on the chart.
   useEffect(() => {
@@ -226,8 +367,18 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       chart: chartReady ? chartRef.current : null,
       candleSeries: chartReady ? candleSeriesRef.current : null,
       volumeSeries: chartReady ? volumeSeriesRef.current : null,
+      crosshairTime,
+      registerSubChart,
+      unregisterSubChart,
+      onSubChartCrosshairMove,
     }),
-    [chartReady],
+    [
+      chartReady,
+      crosshairTime,
+      onSubChartCrosshairMove,
+      registerSubChart,
+      unregisterSubChart,
+    ],
   )
 
   let overlay: ReactNode = null
@@ -258,22 +409,53 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   }
 
   return (
-    <div className={className ?? 'relative min-h-[420px] w-full'}>
+    <ChartContext.Provider value={contextValue}>
       <div
-        ref={containerRef}
-        className="h-full w-full"
-        style={{ minHeight: MIN_CHART_HEIGHT }}
-        data-pane-id={paneId}
-      />
-      {overlay}
-      {chartReady && candles.length > 0 ? (
-        <ChartContext.Provider value={contextValue}>
-          <CandlestickSeries candles={candles} fitKey={fitKey} />
-          <VolumeSeries candles={candles} theme={theme} />
-          <ChartLegend candles={candles} theme={theme} />
-          <ChartZoomControls barCount={candles.length} />
-        </ChartContext.Provider>
-      ) : null}
-    </div>
+        className={className ?? 'relative flex min-h-[420px] w-full flex-col'}
+        onMouseLeave={clearCrosshair}
+      >
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={containerRef}
+            className="h-full w-full"
+            style={{ minHeight: MIN_CHART_HEIGHT }}
+            data-pane-id={paneId}
+          />
+          {overlay}
+          {chartReady && candles.length > 0 ? (
+            <>
+              <CandlestickSeries candles={candles} fitKey={fitKey} />
+              <VolumeSeries candles={candles} theme={theme} />
+              {overlayIndicators.map((item, index) => (
+                <OverlayIndicatorSeries
+                  key={item.instanceId}
+                  seriesId={item.seriesId}
+                  label={indicatorDisplayLabel(item.key, item.params)}
+                  points={indicators[item.seriesId] ?? []}
+                  colorIndex={index}
+                />
+              ))}
+              <ChartLegend
+                candles={candles}
+                theme={theme}
+                overlayIndicators={overlayIndicators}
+                indicators={indicators}
+              />
+              <ChartZoomControls barCount={candles.length} />
+            </>
+          ) : null}
+        </div>
+        {chartReady && subchartGroups.length > 0
+          ? subchartGroups.map((group) => (
+              <IndicatorSubPane
+                key={group.map((item) => item.seriesId).join('-')}
+                paneId={group.map((item) => item.seriesId).join('-')}
+                group={group}
+                indicators={indicators}
+              />
+            ))
+          : null}
+      </div>
+    </ChartContext.Provider>
   )
 }

@@ -1,13 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchChartData } from '@/services/chartDataAdapter'
 import type { ChartDataRequest } from '@/types/chartData'
+import type { IndicatorSpec } from '@/types/indicator'
+import { specsCacheKey } from '@/utils/indicatorId'
 
-/** Stable key for the first paint load — avoids refetch on route remount. */
-export function initialChartDataQueryKey(symbolId: string, timeframe: string) {
-  return ['chart-data', symbolId, timeframe, 'initial'] as const
+/** Stable key for the first paint load — includes indicator specs when active. */
+export function initialChartDataQueryKey(
+  symbolId: string,
+  timeframe: string,
+  indicatorSpecs: IndicatorSpec[] = [],
+) {
+  return [
+    'chart-data',
+    symbolId,
+    timeframe,
+    'initial',
+    specsCacheKey(indicatorSpecs),
+  ] as const
 }
 
-// Scroll-back chunks include the full window in the key (D-81).
 export function chartDataQueryKey(request: ChartDataRequest) {
   return [
     'chart-data',
@@ -16,6 +27,7 @@ export function chartDataQueryKey(request: ChartDataRequest) {
     request.start,
     request.end,
     request.limit ?? null,
+    specsCacheKey(request.indicators ?? []),
   ] as const
 }
 

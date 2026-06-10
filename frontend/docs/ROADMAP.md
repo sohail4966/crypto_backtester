@@ -99,7 +99,7 @@ refetches; scroll-back prefetches prior chunk without blanking the chart.
 
 ## Phase 2 — Indicators
 
-**Status:** Not started  
+**Status:** In progress (~90%)  
 **Design doc:** [FE_PHASE_2_HLD.md](FE_PHASE_2_HLD.md) · **Spec:** [SPEC-001 §5.2](SPEC-001.md)  
 **Prerequisite:** FE Phase 1 complete  
 **Backend:** `GET /chart-data?indicators=…`, `GET /indicators` catalog

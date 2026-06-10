@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import type { MouseEventParams, UTCTimestamp } from 'lightweight-charts'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import { useChartStore } from '@/stores/chartStore'
+import type { ActiveIndicator, IndicatorSeriesMap } from '@/types/indicator'
 import type { OHLCVBar } from '@/types/candle'
 import { formatChange, formatPrice, formatVolume } from '@/utils/format'
+import { overlayLegendRows, OVERLAY_INDICATOR_COLORS } from '@/utils/indicatorDisplay'
 import { resolveChartColor } from '@/utils/color'
 import type { Theme } from '@/types/theme'
 
 interface ChartLegendProps {
   candles: OHLCVBar[]
   theme: Theme
+  overlayIndicators?: ActiveIndicator[]
+  indicators?: IndicatorSeriesMap
 }
 
 function barFromCrosshair(
@@ -24,7 +28,12 @@ function barFromCrosshair(
   return candles.find((bar) => bar.time === time) ?? null
 }
 
-export function ChartLegend({ candles, theme }: ChartLegendProps) {
+export function ChartLegend({
+  candles,
+  theme,
+  overlayIndicators = [],
+  indicators = {},
+}: ChartLegendProps) {
   const { chart, candleSeries } = useChartContext()
   const symbol = useChartStore((state) => state.symbol)
   const timeframe = useChartStore((state) => state.timeframe)
@@ -71,6 +80,13 @@ export function ChartLegend({ candles, theme }: ChartLegendProps) {
     return formatChange(activeBar.open, activeBar.close)
   }, [activeBar])
 
+  const overlayRows = useMemo(() => {
+    if (!activeBar || overlayIndicators.length === 0) {
+      return []
+    }
+    return overlayLegendRows(overlayIndicators, indicators, activeBar.time)
+  }, [activeBar, indicators, overlayIndicators])
+
   if (!symbol || !activeBar || !change) {
     return null
   }
@@ -111,6 +127,20 @@ export function ChartLegend({ candles, theme }: ChartLegendProps) {
         <span className="mx-1 text-text-secondary">·</span>
         {formatVolume(activeBar.volume)}
       </div>
+      {overlayRows.map((row) => (
+        <div
+          key={row.label}
+          style={{
+            color: resolveChartColor(
+              OVERLAY_INDICATOR_COLORS[row.colorIndex % OVERLAY_INDICATOR_COLORS.length],
+              theme,
+            ),
+          }}
+        >
+          <span className="mr-2 text-text-secondary">{row.label}</span>
+          {row.value}
+        </div>
+      ))}
     </div>
   )
 }
