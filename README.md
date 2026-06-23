@@ -28,4 +28,4 @@ See [backend/README.md](backend/README.md) for full documentation.
 
 ## Deployment
 
-Deploy frontend on **Vercel** and backend + TimescaleDB on **Render**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Deploy frontend on **Vercel**, API on **Render** (manual), DB on **Tiger Cloud** (free): [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

@@ -1,154 +1,194 @@
 # Deployment Guide
 
-Deploy the **frontend** on [Vercel](https://vercel.com) and the **backend + TimescaleDB** on [Render](https://render.com).
+**Free stack:** Vercel frontend + Render free API + [Tiger Cloud](https://www.tigerdata.com/) free TimescaleDB.
 
 ```
-Browser → Vercel (static React) → Render API (FastAPI) → TimescaleDB (private service)
+Browser → Vercel (React) → Render API (FastAPI) → Tiger Cloud (TimescaleDB)
 ```
+
+| Piece | Platform | Cost |
+|-------|----------|------|
+| Frontend | Vercel Hobby | $0 |
+| API | Render free web service | $0 |
+| Database | Tiger Cloud free service | $0 |
 
 ## Prerequisites
 
-- GitHub repo pushed (`sohail4966/crypto_backtester`)
-- Vercel and Render accounts
-- This monorepo structure (`frontend/`, `backend/`)
+- GitHub repo pushed
+- Accounts on [Vercel](https://vercel.com), [Render](https://render.com), [Tiger Data](https://www.tigerdata.com/)
+- Tiger Cloud service created — copy the **connection string** from the dashboard
 
-## 1. Backend + database on Render
+---
 
-### Option A — Blueprint (recommended)
+## 1. Tiger Cloud database
 
-1. In Render: **New → Blueprint**.
-2. Connect the GitHub repo.
-3. Render reads [`render.yaml`](../render.yaml) and creates:
-   - `timescaledb` — private TimescaleDB container (persistent disk)
-   - `crypto-backtester-api` — FastAPI web service (Docker)
-4. When prompted for **CORS_ORIGINS**, enter your Vercel URL (you can update this after Vercel deploy), e.g.:
+1. Create a **Free** service at [console.cloud.timescale.com](https://console.cloud.timescale.com/).
+2. Copy the connection string:
    ```
-   https://your-app.vercel.app
+   postgres://USER:PASSWORD@HOST:PORT/tsdb?sslmode=require
    ```
-5. Wait for both services to deploy. Note the API public URL, e.g. `https://crypto-backtester-api.onrender.com`.
+3. **IP allow list:** Render free tier uses dynamic outbound IPs. In Tiger Cloud → your service → **Settings → Allowed IP addresses**:
+   - Allow `0.0.0.0/0` for a hobby demo, or
+   - Disable the allow list if available.
 
-### Option B — Manual setup
+   Without this, the Render API cannot reach the database.
 
-**TimescaleDB (private service)**
+4. Never commit the connection string to git.
 
-1. **New → Private Service → Deploy an existing image**
-2. Image: `timescale/timescaledb:latest-pg16`
-3. Environment:
-   - `POSTGRES_USER=backtester`
-   - `POSTGRES_DB=backtester`
-   - `POSTGRES_PASSWORD` — generate a strong password
-4. Add a **persistent disk** mounted at `/var/lib/postgresql/data` (10 GB).
+---
 
-**API (web service)**
+## 2. Render API — manual setup
 
-1. **New → Web Service** → connect repo.
-2. **Root directory:** `backend`
-3. **Runtime:** Docker (uses [`backend/Dockerfile`](../backend/Dockerfile))
-4. **Health check path:** `/api/v1/meta/health`
-5. Environment variables:
+### Create the web service
 
-   | Key | Value |
-   |-----|-------|
-   | `POSTGRES_USER` | `backtester` |
-   | `POSTGRES_DB` | `backtester` |
-   | `POSTGRES_PORT` | `5432` |
-   | `POSTGRES_HOST` | Internal hostname of the TimescaleDB service (Render **Connect → Internal**) |
-   | `POSTGRES_PASSWORD` | Same as TimescaleDB service |
-   | `CORS_ORIGINS` | Your Vercel URL, e.g. `https://your-app.vercel.app` |
+1. [Render Dashboard](https://dashboard.render.com) → **New +** → **Web Service**.
+2. Connect your GitHub repo (`crypto_backtester`).
+3. Fill in the form:
 
-Render sets `PORT` automatically; the API binds to it.
+   | Field | Value |
+   |-------|-------|
+   | **Name** | `crypto-backtester-api` (or any name) |
+   | **Region** | Same region as Tiger Cloud if possible (e.g. `Oregon`) |
+   | **Branch** | `main` (or your default branch) |
+   | **Root Directory** | `backend` |
+   | **Runtime** | **Docker** |
+   | **Instance Type** | **Free** |
 
-### Seed candle data
+4. Under **Advanced** (expand if collapsed):
 
-The chart needs OHLCV data. After the API is healthy, open a **Shell** on the API service:
+   | Field | Value |
+   |-------|-------|
+   | **Dockerfile Path** | `./Dockerfile` (relative to `backend/`) |
+   | **Health Check Path** | `/api/v1/meta/health` |
+
+   Leave **Docker Command** empty — the Dockerfile `CMD` starts uvicorn.
+
+### Environment variables
+
+Still on the create screen (or **Environment** tab after create):
+
+| Key | Value |
+|-----|-------|
+| `DATABASE_URL` | Your Tiger Cloud string. `postgresql://` or `postgres://` both work. Keep `?sslmode=require`. |
+| `CORS_ORIGINS` | Placeholder for now, e.g. `https://placeholder.vercel.app` — update after Vercel deploy |
+
+Render injects `PORT` automatically; do not set it manually.
+
+### Deploy
+
+1. Click **Create Web Service**.
+2. Wait for the Docker build and deploy to finish (first build ~3–5 min).
+3. Copy the public URL, e.g. `https://crypto-backtester-api.onrender.com`.
+
+On first start, the API runs DB migrations (`V001`–`V006`) against Tiger Cloud.
+
+### Seed candle data (from your laptop)
+
+Render **free** tier has no Shell, so backfill from your machine:
 
 ```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/tsdb?sslmode=require"
 python run_sync.py --backfill
 ```
 
-This fetches historical candles from Binance (network access required). It can take several minutes.
+Free Tiger storage is ~750 MB — keep `data.yaml` symbols/timeframes modest.
 
-Verify:
+### Verify API
 
 ```bash
 curl https://YOUR-API.onrender.com/api/v1/meta/health
 curl "https://YOUR-API.onrender.com/api/v1/chart-data?symbol=BTC/USDT&timeframe=1h&limit=10"
 ```
 
-## 2. Frontend on Vercel
+First request after idle may take ~30–60s (Render free cold start).
 
-1. In Vercel: **Add New → Project** → import the GitHub repo.
-2. **Root directory:** `frontend`
-3. Framework preset: **Vite** (auto-detected)
-4. Build settings (defaults are fine):
-   - Build command: `npm run build`
-   - Output directory: `dist`
-5. **Environment variables:**
+---
+
+## 3. Vercel frontend — manual setup
+
+1. [Vercel Dashboard](https://vercel.com) → **Add New → Project**.
+2. Import the same GitHub repo.
+3. Configure:
+
+   | Field | Value |
+   |-------|-------|
+   | **Root Directory** | `frontend` |
+   | **Framework Preset** | Vite (auto-detected) |
+   | **Build Command** | `npm run build` |
+   | **Output Directory** | `dist` |
+
+4. **Environment Variables:**
 
    | Key | Value |
    |-----|-------|
    | `VITE_API_BASE` | `https://YOUR-API.onrender.com/api/v1` |
 
-6. Deploy.
+5. Click **Deploy**.
 
-[`frontend/vercel.json`](../frontend/vercel.json) adds SPA rewrites so React Router routes work.
+### Update CORS on Render
 
-### Update CORS after Vercel deploy
+After Vercel gives you a URL (e.g. `https://crypto-backtester.vercel.app`):
 
-Copy your final Vercel URL and set it on Render:
+1. Render → your API service → **Environment**.
+2. Set `CORS_ORIGINS` to that exact URL (no trailing slash).
+3. Save — Render redeploys automatically.
 
-```
-CORS_ORIGINS=https://your-app.vercel.app
-```
+---
 
-Redeploy the API service if needed.
-
-## 3. Local development (unchanged)
+## 4. Local development (unchanged)
 
 ```bash
-# Terminal 1
+# Terminal 1 — local DB
 cd backend && docker compose up -d && python -m api
 
-# Terminal 2
+# Terminal 2 — frontend
 cd frontend && npm run dev
 ```
 
-Locally the Vite proxy serves `/api` → `localhost:8000`; no `VITE_API_BASE` needed.
+Or point local API at Tiger Cloud:
+
+```bash
+export DATABASE_URL="postgresql://..."
+python -m api
+```
+
+---
 
 ## Environment reference
 
-### Backend
+### Backend (Render)
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DATABASE_URL` | — | Full Postgres URL (overrides `POSTGRES_*` parts) |
-| `POSTGRES_HOST` | `localhost` | DB host (Render internal hostname) |
-| `POSTGRES_PORT` | `5433` | DB port (`5432` in Docker/Render) |
-| `POSTGRES_USER` | `backtester` | DB user |
-| `POSTGRES_PASSWORD` | `backtester` | DB password |
-| `POSTGRES_DB` | `backtester` | Database name |
-| `PORT` | `8000` | HTTP port (set by Render) |
-| `CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated allowed origins |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `DATABASE_URL` | Yes | Tiger Cloud connection string with `sslmode=require` |
+| `CORS_ORIGINS` | Yes | Vercel URL |
+| `PORT` | Auto | Set by Render |
 
-### Frontend
+### Frontend (Vercel)
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `VITE_API_BASE` | `/api/v1` | API base URL in production |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `VITE_API_BASE` | Yes | `https://YOUR-API.onrender.com/api/v1` |
 
-## Notes
-
-- **TimescaleDB required:** Migration `V003` creates a hypertable. Standard Render Postgres does not include TimescaleDB — use the private TimescaleDB service or [Timescale Cloud](https://www.timescale.com/).
-- **Free tier cold starts:** Render free/starter web services sleep after inactivity; first request may take ~30s.
-- **TA-Lib:** The Docker image installs `TA-Lib` from PyPI wheels on Linux.
-- **WebSocket replay:** When you add replay UI, point WebSockets directly at the Render API (`wss://YOUR-API.onrender.com/ws/replay/...`); Vercel cannot proxy WebSockets to Render.
+---
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| API health fails | Check TimescaleDB is running; verify `POSTGRES_HOST` / password |
-| CORS errors in browser | Set `CORS_ORIGINS` to exact Vercel origin (no trailing slash) |
-| Empty chart | Run `python run_sync.py --backfill` in API shell |
-| `create_hypertable` migration error | DB is plain Postgres — switch to TimescaleDB image |
-| 502 on first request | Render cold start — retry after ~30s |
+| Docker build fails on TA-Lib | Check build logs; the Dockerfile uses Linux wheels — retry deploy |
+| API health fails / DB error | Verify `DATABASE_URL`; Tiger IP allow list must allow Render |
+| `create_hypertable` error | Use Tiger Cloud, not Render managed Postgres |
+| CORS errors | `CORS_ORIGINS` must match Vercel URL exactly |
+| Empty chart | Run `run_sync.py --backfill` locally with `DATABASE_URL` |
+| 502 / slow first load | Render free cold start — wait ~60s and retry |
+| Storage full on Tiger free | Reduce symbols in `data.yaml` |
+
+## Security
+
+- Never commit `DATABASE_URL` or paste credentials in chat/issues.
+- Rotate the password in Tiger Cloud if it was ever exposed.
