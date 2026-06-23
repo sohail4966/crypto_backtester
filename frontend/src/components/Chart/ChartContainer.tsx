@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from 'react'
 import {
-  ColorType,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -22,101 +21,30 @@ import { OverlayIndicatorSeries } from '@/components/Indicators/OverlayIndicator
 import { IndicatorSubPane } from '@/components/Indicators/IndicatorSubPane'
 import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
-import { FIT_RIGHT_OFFSET_BARS, MIN_MAIN_PANE_HEIGHT } from '@/constants/chart'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
-import type { OHLCVBar } from '@/types/candle'
 import type { ActiveIndicator, IndicatorSpec } from '@/types/indicator'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { usePaneLayout } from '@/hooks/usePaneLayout'
 import type { ChartTimezoneId } from '@/constants/timezone'
 import { PaneResizeHandle } from '@/components/Chart/PaneResizeHandle'
 import type { Theme } from '@/types/theme'
-import { resolveChartColor } from '@/utils/color'
+import { chartOptions, measureChartArea, seriesColors } from '@/components/Chart/chartOptions'
 import {
-  createChartTimezoneFormatters,
   loadChartTimezonePreference,
-  resolveChartTimeZone,
 } from '@/utils/chartTimezone'
-import { specsCacheKey } from '@/utils/indicatorId'
 import { indicatorDisplayLabel } from '@/utils/indicatorDisplay'
-import { candleCloseAtTime, safeSetCrosshairPosition } from '@/utils/crosshairSync'
+import {
+  candleCloseFromLookup,
+  createCandleCloseLookup,
+  safeSetCrosshairPosition,
+} from '@/utils/crosshairSync'
 import { bundleGroupKey } from '@/utils/indicatorCatalog'
-
-const MIN_CHART_HEIGHT = MIN_MAIN_PANE_HEIGHT
 
 interface ChartContainerProps {
   paneId?: string
   className?: string
-}
-
-function chartOptions(theme: Theme, showGrid: boolean, timezone: ChartTimezoneId) {
-  const { timeFormatter, tickMarkFormatter } = createChartTimezoneFormatters(
-    resolveChartTimeZone(timezone),
-  )
-  const gridColor = resolveChartColor('var(--color-border)', theme)
-  return {
-    autoSize: false,
-    layout: {
-      background: { type: ColorType.Solid, color: resolveChartColor('var(--color-bg)', theme) },
-      textColor: resolveChartColor('var(--color-text-secondary)', theme),
-      attributionLogo: false,
-    },
-    grid: {
-      vertLines: { visible: showGrid, color: gridColor },
-      horzLines: { visible: showGrid, color: gridColor },
-    },
-    rightPriceScale: {
-      borderColor: resolveChartColor('var(--color-border)', theme),
-    },
-    localization: {
-      timeFormatter,
-    },
-    timeScale: {
-      borderColor: resolveChartColor('var(--color-border)', theme),
-      timeVisible: true,
-      secondsVisible: false,
-      rightOffset: FIT_RIGHT_OFFSET_BARS,
-      tickMarkFormatter,
-    },
-    crosshair: {
-      vertLine: { color: resolveChartColor('var(--color-accent)', theme) },
-      horzLine: { color: resolveChartColor('var(--color-accent)', theme) },
-    },
-    handleScroll: {
-      mouseWheel: true,
-      pressedMouseMove: true,
-      horzTouchDrag: true,
-      vertTouchDrag: true,
-    },
-    handleScale: {
-      mouseWheel: true,
-      pinch: true,
-      axisPressedMouseMove: { time: true, price: true },
-      axisDoubleClickReset: { time: true, price: true },
-    },
-  } as const
-}
-
-function seriesColors(theme: Theme) {
-  return {
-    upColor: resolveChartColor('var(--color-bull)', theme),
-    downColor: resolveChartColor('var(--color-bear)', theme),
-    borderUpColor: resolveChartColor('var(--color-bull)', theme),
-    borderDownColor: resolveChartColor('var(--color-bear)', theme),
-    wickUpColor: resolveChartColor('var(--color-bull)', theme),
-    wickDownColor: resolveChartColor('var(--color-bear)', theme),
-  }
-}
-
-function measureChartArea(container: HTMLDivElement, height?: number) {
-  const { width, height: rectHeight } = container.getBoundingClientRect()
-  const resolvedHeight = height ?? rectHeight
-  return {
-    width: Math.max(1, Math.floor(width)),
-    height: Math.max(MIN_CHART_HEIGHT, Math.floor(resolvedHeight)),
-  }
 }
 
 export function ChartContainer({ paneId = 'main', className }: ChartContainerProps) {
@@ -131,7 +59,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const showGridRef = useRef(useChartStore.getState().showGrid)
   const subChartsRef = useRef(new Map<string, SubChartHandle>())
   const syncingCrosshairRef = useRef(false)
-  const candlesRef = useRef<OHLCVBar[]>([])
+  const candleCloseLookupRef = useRef<ReadonlyMap<number, number>>(new Map())
 
   const { theme } = useTheme()
   const symbol = useChartStore((state) => state.symbol)
@@ -178,8 +106,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   }, [activeIndicators])
 
   const symbolId = symbol?.id
-  const indicatorSpecsKey = specsCacheKey(indicatorSpecs)
-  const fitKey = `${symbolId ?? 'none'}-${timeframe}-${indicatorSpecsKey}`
+  const fitKey = `${symbolId ?? 'none'}-${timeframe}`
 
   const { candles, indicators, status, error, onVisibleRangeChange } = useChunkManager(
     symbolId,
@@ -200,7 +127,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
     onResizeBetweenSubs,
   } = usePaneLayout(layoutHeight, subchartGroups)
 
-  candlesRef.current = candles
+  useEffect(() => {
+    candleCloseLookupRef.current = createCandleCloseLookup(candles)
+  }, [candles])
 
   useEffect(() => {
     const layout = layoutRef.current
@@ -245,7 +174,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
       const candleSeries = candleSeriesRef.current
       if (candleSeries) {
-        const close = candleCloseAtTime(candlesRef.current, time)
+        const close = candleCloseFromLookup(candleCloseLookupRef.current, time)
         if (close != null) {
           safeSetCrosshairPosition(main, close, time, candleSeries)
         }
@@ -354,9 +283,10 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       scaleMargins: { top: 0.8, bottom: 0 },
     })
 
-    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+    const onVisibleLogicalRangeChange = (range: LogicalRange | null) => {
       onRangeChangeRef.current(range)
-    })
+    }
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
 
     chartRef.current = chart
     candleSeriesRef.current = candleSeries
@@ -374,6 +304,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
     return () => {
       observer.disconnect()
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
       chart.remove()
       chartRef.current = null
       candleSeriesRef.current = null

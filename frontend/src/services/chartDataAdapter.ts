@@ -9,6 +9,7 @@ import type { CandleDataRange } from '@/types/candle'
 import type { ChartDataRequest, ChartDataResponse } from '@/types/chartData'
 import type { IndicatorCatalogEntry } from '@/types/indicator'
 import type { Symbol } from '@/types/symbol'
+import { normalizeCatalogEntry } from '@/utils/indicatorCatalog'
 import { serializeIndicatorSpecs } from '@/utils/indicatorId'
 
 function buildChartDataQuery(request: ChartDataRequest): string {
@@ -36,13 +37,7 @@ export function fetchChartData(request: ChartDataRequest): Promise<ChartDataResp
 
 export function fetchIndicatorCatalog(): Promise<IndicatorCatalogEntry[]> {
   return apiRequest<Record<string, unknown>[]>('/indicators').then((rows) =>
-    rows.map((row) => ({
-      key: String(row.key),
-      inputs: (row.inputs as string[]) ?? [],
-      sharedParams: (row.shared_params as string[]) ?? [],
-      defaultParams: (row.default_params as Record<string, unknown>) ?? {},
-      pane: (row.pane as IndicatorCatalogEntry['pane']) ?? 'overlay',
-    })),
+    rows.map(normalizeCatalogEntry),
   )
 }
 

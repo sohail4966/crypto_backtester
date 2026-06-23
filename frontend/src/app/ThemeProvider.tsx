@@ -1,5 +1,4 @@
 import {
-  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -7,13 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Theme } from '@/types/theme'
-
-interface ThemeContextValue {
-  theme: Theme
-  toggleTheme: () => void
-}
-
-export const ThemeContext = createContext<ThemeContextValue | null>(null)
+import { ThemeContext } from '@/app/ThemeContext'
 
 const STORAGE_KEY = 'cb-theme'
 

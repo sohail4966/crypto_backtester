@@ -1,8 +1,26 @@
 import type { IChartApi, ISeriesApi, SeriesType, UTCTimestamp } from 'lightweight-charts'
 import type { OHLCVBar } from '@/types/candle'
+import { createTimeLookup, lookupByTime } from '@/utils/timeSeriesLookup'
+
+export function createCandleCloseLookup(candles: readonly OHLCVBar[]): Map<number, number> {
+  const byTime = new Map<number, number>()
+  for (const candle of candles) {
+    if (Number.isFinite(candle.time) && Number.isFinite(candle.close)) {
+      byTime.set(candle.time, candle.close)
+    }
+  }
+  return byTime
+}
+
+export function candleCloseFromLookup(
+  lookup: ReadonlyMap<number, number>,
+  time: number,
+): number | null {
+  return lookupByTime(lookup, time)
+}
 
 export function candleCloseAtTime(candles: OHLCVBar[], time: number): number | null {
-  const bar = candles.find((row) => row.time === time)
+  const bar = lookupByTime(createTimeLookup(candles), time)
   return bar?.close ?? null
 }
 

@@ -6,20 +6,23 @@ import {
   type ISeriesApi,
   type LineData,
   type SeriesType,
-  type UTCTimestamp,
 } from 'lightweight-charts'
 import { IndicatorTab } from '@/components/Indicators/IndicatorTab'
+import { subPaneGridOptions } from '@/components/Chart/chartOptions'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import { useTheme } from '@/hooks/useTheme'
+import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
 import { type ActiveIndicator, type IndicatorPoint } from '@/types/indicator'
 import {
+  createIndicatorValueLookup,
   formatIndicatorValue,
   indicatorDisplayLabel,
-  indicatorValueAtTime,
+  indicatorValueFromLookup,
 } from '@/utils/indicatorDisplay'
 import { resolveChartColor } from '@/utils/color'
 import { indicatorChipLabel } from '@/utils/indicatorCatalog'
+import { isFiniteNumber, toUtcTimestamp } from '@/utils/chartSeriesData'
 
 interface IndicatorSubPaneProps {
   paneId: string
@@ -29,12 +32,13 @@ interface IndicatorSubPaneProps {
 }
 
 function toLineData(points: IndicatorPoint[]): LineData[] {
-  return points
-    .filter((point) => point.value != null && Number.isFinite(point.value))
-    .map((point) => ({
-      time: point.time as UTCTimestamp,
-      value: point.value as number,
-    }))
+  return points.flatMap((point) => {
+    const time = toUtcTimestamp(point.time)
+    if (time == null || !isFiniteNumber(point.value)) {
+      return []
+    }
+    return [{ time, value: point.value }]
+  })
 }
 
 function primaryIndicator(group: ActiveIndicator[]): ActiveIndicator | undefined {
@@ -62,15 +66,18 @@ export function IndicatorSubPane({
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>>>(new Map())
   const groupRef = useRef(group)
-  const indicatorsRef = useRef(indicators)
+  const indicatorLookupsRef = useRef<ReadonlyMap<string, ReadonlyMap<number, number>>>(new Map())
   const chartHeightRef = useRef(chartHeight)
   const onSubChartCrosshairMoveRef = useRef(onSubChartCrosshairMove)
   const { theme } = useTheme()
+  const showGrid = useChartStore((state) => state.showGrid)
   const themeRef = useRef(theme)
+  const showGridRef = useRef(showGrid)
 
   chartHeightRef.current = chartHeight
   onSubChartCrosshairMoveRef.current = onSubChartCrosshairMove
   themeRef.current = theme
+  showGridRef.current = showGrid
   const toggleVisible = useIndicatorStore((state) => state.toggleVisible)
   const openSettings = useIndicatorStore((state) => state.openSettings)
   const remove = useIndicatorStore((state) => state.remove)
@@ -78,9 +85,14 @@ export function IndicatorSubPane({
   const visible = group[0]?.visible !== false
 
   groupRef.current = group
-  indicatorsRef.current = indicators
-
   const primary = primaryIndicator(group)
+  const indicatorLookups = useMemo(() => {
+    const bySeries = new Map<string, ReadonlyMap<number, number>>()
+    for (const item of group) {
+      bySeries.set(item.seriesId, createIndicatorValueLookup(indicators[item.seriesId] ?? []))
+    }
+    return bySeries
+  }, [group, indicators])
 
   const latestTime = useMemo(() => {
     for (const item of group) {
@@ -99,7 +111,10 @@ export function IndicatorSubPane({
       return []
     }
     return group.flatMap((item) => {
-      const value = indicatorValueAtTime(indicators[item.seriesId] ?? [], activeTime)
+      const value = indicatorValueFromLookup(
+        indicatorLookups.get(item.seriesId) ?? new Map(),
+        activeTime,
+      )
       if (value == null) {
         return []
       }
@@ -111,7 +126,11 @@ export function IndicatorSubPane({
         },
       ]
     })
-  }, [activeTime, group, indicators])
+  }, [activeTime, group, indicatorLookups])
+
+  useEffect(() => {
+    indicatorLookupsRef.current = indicatorLookups
+  }, [indicatorLookups])
 
   useEffect(() => {
     const container = containerRef.current
@@ -133,10 +152,7 @@ export function IndicatorSubPane({
         textColor: resolveChartColor('var(--color-text-secondary)', currentTheme),
         attributionLogo: false,
       },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { color: resolveChartColor('var(--color-border)', currentTheme) },
-      },
+      grid: subPaneGridOptions(currentTheme, showGridRef.current),
       rightPriceScale: {
         borderColor: resolveChartColor('var(--color-border)', currentTheme),
       },
@@ -157,6 +173,7 @@ export function IndicatorSubPane({
     })
 
     chartRef.current = chart
+    const seriesMap = seriesRef.current
 
     const onCrosshairMove = (param: Parameters<typeof onSubChartCrosshairMove>[0]) => {
       onSubChartCrosshairMoveRef.current(param)
@@ -179,7 +196,7 @@ export function IndicatorSubPane({
     return () => {
       chart.unsubscribeCrosshairMove(onCrosshairMove)
       observer.disconnect()
-      seriesRef.current.clear()
+      seriesMap.clear()
       chart.remove()
       chartRef.current = null
     }
@@ -196,9 +213,7 @@ export function IndicatorSubPane({
         background: { type: ColorType.Solid, color: resolveChartColor('var(--color-bg)', theme) },
         textColor: resolveChartColor('var(--color-text-secondary)', theme),
       },
-      grid: {
-        horzLines: { color: resolveChartColor('var(--color-border)', theme) },
-      },
+      grid: subPaneGridOptions(theme, showGrid),
       rightPriceScale: {
         borderColor: resolveChartColor('var(--color-border)', theme),
       },
@@ -214,7 +229,7 @@ export function IndicatorSubPane({
         horzLine: { visible: false },
       },
     })
-  }, [theme])
+  }, [showGrid, theme])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -246,7 +261,10 @@ export function IndicatorSubPane({
         if (!item) {
           return null
         }
-        return indicatorValueAtTime(indicatorsRef.current[item.seriesId] ?? [], time)
+        return indicatorValueFromLookup(
+          indicatorLookupsRef.current.get(item.seriesId) ?? new Map(),
+          time,
+        )
       },
     })
 
@@ -275,6 +293,14 @@ export function IndicatorSubPane({
     const chart = chartRef.current
     if (!chart) {
       return
+    }
+
+    const activeSeriesIds = new Set(group.map((item) => item.seriesId))
+    for (const [seriesId, series] of seriesRef.current.entries()) {
+      if (!activeSeriesIds.has(seriesId)) {
+        chart.removeSeries(series)
+        seriesRef.current.delete(seriesId)
+      }
     }
 
     for (const item of group) {
@@ -308,13 +334,17 @@ export function IndicatorSubPane({
         const bull = resolveChartColor('var(--color-bull)', theme)
         const bear = resolveChartColor('var(--color-bear)', theme)
         series.setData(
-          points
-            .filter((point) => point.value != null && Number.isFinite(point.value))
-            .map((point) => ({
-              time: point.time as UTCTimestamp,
-              value: point.value as number,
-              color: (point.value as number) >= 0 ? bull : bear,
-            })),
+          points.flatMap((point) => {
+            const time = toUtcTimestamp(point.time)
+            if (time == null || !isFiniteNumber(point.value)) {
+              return []
+            }
+            return [{
+              time,
+              value: point.value,
+              color: point.value >= 0 ? bull : bear,
+            }]
+          }),
         )
       } else {
         series.setData(toLineData(points))

@@ -99,7 +99,7 @@ refetches; scroll-back prefetches prior chunk without blanking the chart.
 
 ## Phase 2 — Indicators
 
-**Status:** In progress (~90%)  
+**Status:** Complete for chart indicators; live backend smoke testing still recommended  
 **Design doc:** [FE_PHASE_2_HLD.md](FE_PHASE_2_HLD.md) · **Spec:** [SPEC-001 §5.2](SPEC-001.md)  
 **Prerequisite:** FE Phase 1 complete  
 **Backend:** `GET /chart-data?indicators=…`, `GET /indicators` catalog
@@ -111,10 +111,11 @@ in the browser.
 
 | Area | What gets built |
 |---|---|
-| State | `indicatorStore` — active configs, enable/disable |
-| UI | `IndicatorPanel`, `IndicatorConfig` |
-| Chart | `OverlayIndicator` (main pane), `IndicatorPane` (oscillator scale) |
+| State | `indicatorStore` — active configs, visibility, settings, bundled indicators |
+| UI | `IndicatorPanel`, `IndicatorSettingsDialog`, indicator tabs/chips |
+| Chart | `OverlayIndicatorSeries` (main pane), `IndicatorSubPane` (synced oscillator panes) |
 | Integration | Indicator specs serialised into `chart-data` query; map keys e.g. `RSI_14` |
+| Hardening | ESLint quality gate, lifecycle tests, stale-prefetch guard, no indicator-triggered viewport reset |
 
 **Done when:** Adding EMA(20) overlay and RSI(14) sub-chart updates chart without separate
 candle/indicator requests; toggling off hides series.

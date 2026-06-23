@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
-import type { UTCTimestamp } from 'lightweight-charts'
 import type { Theme } from '@/types/theme'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import { useChartStore } from '@/stores/chartStore'
 import type { OHLCVBar } from '@/types/candle'
+import { toUtcTimestamp } from '@/utils/chartSeriesData'
 import { resolveChartColor } from '@/utils/color'
 
 interface VolumeSeriesProps {
@@ -20,7 +20,18 @@ export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
   }, [showVolume, volumeSeries])
 
   useEffect(() => {
+    return () => {
+      volumeSeries?.setData([])
+    }
+  }, [volumeSeries])
+
+  useEffect(() => {
     if (!volumeSeries) {
+      return
+    }
+
+    if (candles.length === 0) {
+      volumeSeries.setData([])
       return
     }
 
@@ -29,11 +40,16 @@ export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
     const bear = resolveChartColor('var(--color-bear)', theme)
 
     volumeSeries.setData(
-      candles.map((bar) => ({
-        time: bar.time as UTCTimestamp,
-        value: bar.volume,
-        color: bar.close >= bar.open ? bull : bear,
-      })),
+      candles.flatMap((bar) => {
+        const time = toUtcTimestamp(bar.time)
+        return time == null
+          ? []
+          : [{
+              time,
+              value: bar.volume,
+              color: bar.close >= bar.open ? bull : bear,
+            }]
+      }),
     )
   }, [candles, theme, volumeSeries])
 

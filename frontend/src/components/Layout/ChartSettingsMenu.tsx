@@ -78,7 +78,7 @@ export function ChartSettingsMenu({ layout = 'topbar' }: ChartSettingsMenuProps)
               onChange={(event) => setShowGrid(event.target.checked)}
               className="accent-accent"
             />
-            <span>Show grid</span>
+            <span>Show grid on all panes</span>
           </label>
         </div>
       ) : null}

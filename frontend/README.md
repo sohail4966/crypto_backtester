@@ -18,7 +18,7 @@ Follow [ROADMAP](docs/ROADMAP.md) for phase-by-phase delivery.
 |-------|--------|--------|
 | 0 | Vite scaffold, app shell, API client | ✅ |
 | 1 | Core chart, windowed loading, symbol switching | ✅ |
-| 2 | Overlay + subchart indicators from `/chart-data` | ⬜ |
+| 2 | Overlay + subchart indicators from `/chart-data` | ✅ |
 | 3 | Watchlists, symbol entities, user bootstrap | ⬜ |
 | 4 | Hybrid REST replay (`POST /replay/runs`, chunks) | ⬜ |
 | 5 | MVP drawings (5 tools incl. Price Range) | ⬜ |
@@ -55,3 +55,9 @@ Open http://localhost:5173
 
 - [PHASE_4B_HLD.md](../backend/docs/PHASE_4B_HLD.md)
 - [openapi.yaml](../backend/docs/openapi.yaml)
+
+### Contract Notes
+
+- Current chart and indicator UI uses `GET /chart-data`, `GET /indicators`, and `GET /symbols/{id}/data-range` without frontend-side indicator computation.
+- No backend code change is required for the current frontend hardening pass.
+- Future backend contract cleanup should document non-empty `signals` / `trades` payloads for Phase 4c and make derived timeframe data-range metadata consistent so the frontend no longer needs a `1m` fallback.

@@ -9,13 +9,15 @@ import type { ActiveIndicator, IndicatorSeriesMap } from '@/types/indicator'
 import type { OHLCVBar } from '@/types/candle'
 import { formatChange, formatPrice, formatVolume } from '@/utils/format'
 import {
-  indicatorValueAtTime,
+  createIndicatorValueLookup,
+  indicatorValueFromLookup,
   formatIndicatorValue,
   OVERLAY_INDICATOR_COLORS,
 } from '@/utils/indicatorDisplay'
 import { indicatorTabEntries } from '@/utils/indicatorCatalog'
 import { resolveChartColor } from '@/utils/color'
 import type { Theme } from '@/types/theme'
+import { createTimeLookup, lookupByTime } from '@/utils/timeSeriesLookup'
 
 interface ChartLegendProps {
   candles: OHLCVBar[]
@@ -26,14 +28,14 @@ interface ChartLegendProps {
 
 function barFromCrosshair(
   param: MouseEventParams,
-  candles: OHLCVBar[],
+  candleLookup: ReadonlyMap<number, OHLCVBar>,
 ): OHLCVBar | null {
   if (!param.time) {
     return null
   }
 
   const time = param.time as UTCTimestamp
-  return candles.find((bar) => bar.time === time) ?? null
+  return lookupByTime(candleLookup, time)
 }
 
 export function ChartLegend({
@@ -53,6 +55,14 @@ export function ChartLegend({
   const [hoveredBar, setHoveredBar] = useState<OHLCVBar | null>(null)
 
   const activeBar = hoveredBar ?? candles[candles.length - 1] ?? null
+  const candleLookup = useMemo(() => createTimeLookup(candles), [candles])
+  const indicatorLookups = useMemo(() => {
+    const bySeries = new Map<string, Map<number, number>>()
+    for (const item of overlayIndicators) {
+      bySeries.set(item.seriesId, createIndicatorValueLookup(indicators[item.seriesId] ?? []))
+    }
+    return bySeries
+  }, [indicators, overlayIndicators])
 
   const overlayTabs = useMemo(
     () => indicatorTabEntries(overlayIndicators, 'overlay'),
@@ -77,19 +87,19 @@ export function ChartLegend({
         : undefined
 
       if (fromSeries) {
-        const match = barFromCrosshair(param, candles)
+        const match = barFromCrosshair(param, candleLookup)
         if (match) {
           setHoveredBar(match)
           return
         }
       }
 
-      setHoveredBar(barFromCrosshair(param, candles))
+      setHoveredBar(barFromCrosshair(param, candleLookup))
     }
 
     chart.subscribeCrosshairMove(onCrosshairMove)
     return () => chart.unsubscribeCrosshairMove(onCrosshairMove)
-  }, [candleSeries, candles, chart])
+  }, [candleLookup, candleSeries, chart])
 
   const change = useMemo(() => {
     if (!activeBar) {
@@ -155,7 +165,10 @@ export function ChartLegend({
           const item = overlayIndicators.find((row) => row.instanceId === tab.instanceId)
           const value =
             item && activeBar && tab.visible
-              ? indicatorValueAtTime(indicators[item.seriesId] ?? [], activeBar.time)
+              ? indicatorValueFromLookup(
+                  indicatorLookups.get(item.seriesId) ?? new Map(),
+                  activeBar.time,
+                )
               : null
 
           return (

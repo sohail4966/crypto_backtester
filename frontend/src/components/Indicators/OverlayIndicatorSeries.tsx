@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import type { ISeriesApi, LineData, UTCTimestamp } from 'lightweight-charts'
+import type { ISeriesApi, LineData } from 'lightweight-charts'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import { useTheme } from '@/hooks/useTheme'
 import type { IndicatorPoint } from '@/types/indicator'
+import { isFiniteNumber, toUtcTimestamp } from '@/utils/chartSeriesData'
 import { OVERLAY_INDICATOR_COLORS } from '@/utils/indicatorDisplay'
 import { resolveChartColor } from '@/utils/color'
 
@@ -35,9 +36,7 @@ export function OverlayIndicatorSeries({
     }
 
     const series = chart.addLineSeries({
-      color,
       lineWidth: 2,
-      title: label,
       priceLineVisible: false,
       lastValueVisible: true,
     })
@@ -60,11 +59,13 @@ export function OverlayIndicatorSeries({
     }
 
     const data: LineData[] = points
-      .filter((point) => point.value != null && Number.isFinite(point.value))
-      .map((point) => ({
-        time: point.time as UTCTimestamp,
-        value: point.value as number,
-      }))
+      .flatMap((point) => {
+        const time = toUtcTimestamp(point.time)
+        if (time == null || !isFiniteNumber(point.value)) {
+          return []
+        }
+        return [{ time, value: point.value }]
+      })
 
     series.setData(data)
   }, [points])

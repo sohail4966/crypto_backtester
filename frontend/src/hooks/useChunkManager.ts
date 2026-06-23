@@ -41,6 +41,7 @@ export function useChunkManager(
   const indicatorsRef = useRef<IndicatorSeriesMap>({})
   const lastVisibleFromRef = useRef<number | null>(null)
   const indicatorSpecsKey = specsCacheKey(indicatorSpecs)
+  const indicatorSpecsRef = useRef(indicatorSpecs)
 
   const [candles, setCandles] = useState<OHLCVBar[]>([])
   const [indicators, setIndicators] = useState<IndicatorSeriesMap>({})
@@ -55,6 +56,10 @@ export function useChunkManager(
     setCandles(nextCandles)
     setIndicators(nextIndicators)
   }, [])
+
+  useEffect(() => {
+    indicatorSpecsRef.current = indicatorSpecs
+  }, [indicatorSpecs, indicatorSpecsKey])
 
   useEffect(() => {
     if (!symbolId) {
@@ -100,11 +105,11 @@ export function useChunkManager(
           start: window.start,
           end: window.end,
           limit: CHUNK_SIZE_BARS,
-          indicators: indicatorSpecs,
+          indicators: indicatorSpecsRef.current,
         }
 
         const data = await queryClient.ensureQueryData({
-          queryKey: initialChartDataQueryKey(symbolId!, timeframe, indicatorSpecs),
+          queryKey: initialChartDataQueryKey(symbolId!, timeframe, indicatorSpecsRef.current),
           queryFn: () => fetchChartData(request),
           staleTime: 60_000,
         })
@@ -170,6 +175,7 @@ export function useChunkManager(
       return
     }
 
+    const generation = generationRef.current
     prefetchingRef.current = true
     try {
       const data = await fetchChartData({
@@ -178,18 +184,28 @@ export function useChunkManager(
         start: priorStart,
         end: priorEnd,
         limit: CHUNK_SIZE_BARS,
-        indicators: indicatorSpecs,
+        indicators: indicatorSpecsRef.current,
       })
+
+      if (generation !== generationRef.current) {
+        return
+      }
 
       managerRef.current.addChunk(data.start, {
         candles: data.candles,
         indicators: data.indicators,
       })
       syncAssembled()
+    } catch (cause) {
+      if (generation === generationRef.current) {
+        setError(cause instanceof Error ? cause : new Error(String(cause)))
+      }
     } finally {
-      prefetchingRef.current = false
+      if (generation === generationRef.current) {
+        prefetchingRef.current = false
+      }
     }
-  }, [indicatorSpecs, symbolId, syncAssembled, timeframe])
+  }, [symbolId, syncAssembled, timeframe])
 
   const onVisibleRangeChange = useCallback(
     (range: LogicalRange | null) => {

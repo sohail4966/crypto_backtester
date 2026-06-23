@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import type { UTCTimestamp } from 'lightweight-charts'
 import { useChartContext } from '@/components/Chart/ChartContext'
 import type { OHLCVBar } from '@/types/candle'
+import { toUtcTimestamp } from '@/utils/chartSeriesData'
 import { fitToVisibleBars } from '@/utils/chartViewport'
 
 interface CandlestickSeriesProps {
@@ -21,22 +21,36 @@ export function CandlestickSeries({ candles, fitKey }: CandlestickSeriesProps) {
   }, [fitKey])
 
   useEffect(() => {
-    if (!candleSeries || candles.length === 0) {
-      if (candles.length === 0) {
-        prevCountRef.current = 0
-      }
+    return () => {
+      candleSeries?.setData([])
+    }
+  }, [candleSeries])
+
+  useEffect(() => {
+    if (!candleSeries) {
+      return
+    }
+
+    if (candles.length === 0) {
+      candleSeries.setData([])
+      prevCountRef.current = 0
       return
     }
 
     // Always setData (not update): scroll-back prepends require full sorted replacement.
     candleSeries.setData(
-      candles.map((bar) => ({
-        time: bar.time as UTCTimestamp,
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-      })),
+      candles.flatMap((bar) => {
+        const time = toUtcTimestamp(bar.time)
+        return time == null
+          ? []
+          : [{
+              time,
+              open: bar.open,
+              high: bar.high,
+              low: bar.low,
+              close: bar.close,
+            }]
+      }),
     )
 
     const prevCount = prevCountRef.current

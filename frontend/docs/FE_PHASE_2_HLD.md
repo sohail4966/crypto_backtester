@@ -1,6 +1,6 @@
 # FE Phase 2 High Level Design — Indicators
 
-**Status:** In progress (~90%)  
+**Status:** Implemented; live backend smoke testing recommended  
 **Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md)  
 **Spec:** [SPEC-001 §4.1, §5.2](SPEC-001.md)  
 **Decisions:** D-81 (indicators bundled in chart-data)  
@@ -30,6 +30,8 @@ sub-panes — all data from `ChartDataResponse.indicators`, never computed clien
 | Picker UI | `components/Indicators/IndicatorPanel.tsx` | Done |
 | Topbar | `components/Layout/IndicatorsBar.tsx` — + Add, chips, remove | Done |
 | Wiring | `components/Chart/ChartContainer.tsx` — overlay + sub-panes | Done |
+| Settings | `components/Indicators/IndicatorSettingsDialog.tsx` — shared params/defaults | Done |
+| Hardening | Lifecycle cleanup, stale prefetch guard, viewport-stable indicator changes | Done |
 
 **Indicator query example:**
 
@@ -58,11 +60,13 @@ GET /chart-data?...&indicators=[{"key":"EMA","params":{"period":20},"pane":"over
 Phase 2 is **complete** when:
 
 - [x] Indicator catalog loads in `IndicatorPanel`
-- [ ] Adding EMA(20) renders overlay aligned to candles *(needs live smoke test)*
-- [ ] Adding RSI(14) opens sub-pane with correct scale *(needs live smoke test)*
+- [x] Adding EMA(20) renders overlay aligned to candles *(automated coverage; live smoke recommended)*
+- [x] Adding RSI(14) opens sub-pane with correct scale *(automated coverage; live smoke recommended)*
 - [x] Removing indicator hides series and stops requesting it
 - [x] Scroll-back keeps indicator alignment (chunk merge by timestamp)
 - [x] No separate `/indicators/compute` calls for the same view
+- [x] Updating indicator settings does not force a main chart viewport reset
+- [x] Sub-pane chart series are removed when group membership changes
 
 ---
 

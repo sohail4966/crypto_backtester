@@ -51,15 +51,14 @@ export function nextSubHeightAfterMainResize(
     return null
   }
 
-  let applied = deltaY
-  if (deltaY > 0) {
-    const maxShrink = currentSub - MIN_SUB_PANE_CHART_HEIGHT
-    applied = Math.min(deltaY, maxShrink)
-  } else {
-    const maxGrow = MAX_SUB_PANE_CHART_HEIGHT - currentSub
-    const maxGrowFromMain = currentMain - MIN_MAIN_PANE_HEIGHT
-    applied = Math.max(deltaY, -maxGrow, -maxGrowFromMain)
-  }
+  const applied =
+    deltaY > 0
+      ? Math.min(deltaY, currentSub - MIN_SUB_PANE_CHART_HEIGHT)
+      : Math.max(
+          deltaY,
+          -(MAX_SUB_PANE_CHART_HEIGHT - currentSub),
+          -(currentMain - MIN_MAIN_PANE_HEIGHT),
+        )
 
   if (applied === 0) {
     return null
@@ -78,16 +77,10 @@ export function nextSubPairHeightsAfterResize(
     return null
   }
 
-  let applied = deltaY
-  if (deltaY > 0) {
-    const maxTopGrow = MAX_SUB_PANE_CHART_HEIGHT - top
-    const maxBottomShrink = bottom - MIN_SUB_PANE_CHART_HEIGHT
-    applied = Math.min(deltaY, maxTopGrow, maxBottomShrink)
-  } else {
-    const maxTopShrink = top - MIN_SUB_PANE_CHART_HEIGHT
-    const maxBottomGrow = MAX_SUB_PANE_CHART_HEIGHT - bottom
-    applied = Math.max(deltaY, -maxTopShrink, -maxBottomGrow)
-  }
+  const applied =
+    deltaY > 0
+      ? Math.min(deltaY, MAX_SUB_PANE_CHART_HEIGHT - top, bottom - MIN_SUB_PANE_CHART_HEIGHT)
+      : Math.max(deltaY, -(top - MIN_SUB_PANE_CHART_HEIGHT), -(MAX_SUB_PANE_CHART_HEIGHT - bottom))
 
   if (applied === 0) {
     return null

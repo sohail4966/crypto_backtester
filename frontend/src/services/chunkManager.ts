@@ -30,9 +30,7 @@ export class ChunkManager {
       return
     }
     this.candleChunks.set(chunkStart, payload.candles)
-    if (Object.keys(payload.indicators).length > 0) {
-      this.indicatorChunks.set(chunkStart, payload.indicators)
-    }
+    this.indicatorChunks.set(chunkStart, payload.indicators)
   }
 
   getAssembledCandles(): OHLCVBar[] {

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useChartStore } from '@/stores/chartStore'
 
 vi.mock('@/components/Chart/ChartContainer', () => ({
   ChartContainer: () => <div data-testid="chart-container" />,
@@ -31,6 +32,7 @@ function mockFetchResponse(body: unknown) {
 
 describe('App', () => {
   beforeEach(() => {
+    useChartStore.setState({ symbol: null })
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -88,6 +90,7 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
     expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
     expect(screen.getByText('Indicators')).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('BTC/USDT')).toBeInTheDocument()
   })
 
   it('renders the replay route', async () => {

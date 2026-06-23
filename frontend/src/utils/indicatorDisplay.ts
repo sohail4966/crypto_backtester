@@ -1,5 +1,6 @@
 import { isMacdKey, type ActiveIndicator, type IndicatorPoint } from '@/types/indicator'
 import { formatPrice } from '@/utils/format'
+import { lookupByTime } from '@/utils/timeSeriesLookup'
 
 export const OVERLAY_INDICATOR_COLORS = [
   'var(--color-accent)',
@@ -30,11 +31,26 @@ export function indicatorValueAtTime(
   points: IndicatorPoint[],
   time: number,
 ): number | null {
-  const point = points.find((row) => row.time === time)
-  if (point?.value == null || !Number.isFinite(point.value)) {
-    return null
+  return indicatorValueFromLookup(createIndicatorValueLookup(points), time)
+}
+
+export function createIndicatorValueLookup(
+  points: readonly IndicatorPoint[],
+): Map<number, number> {
+  const byTime = new Map<number, number>()
+  for (const point of points) {
+    if (Number.isFinite(point.time) && point.value != null && Number.isFinite(point.value)) {
+      byTime.set(point.time, point.value)
+    }
   }
-  return point.value
+  return byTime
+}
+
+export function indicatorValueFromLookup(
+  lookup: ReadonlyMap<number, number>,
+  time: number,
+): number | null {
+  return lookupByTime(lookup, time)
 }
 
 export function formatIndicatorValue(key: string, value: number): string {
