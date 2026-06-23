@@ -10,18 +10,24 @@ import os
 
 import psycopg
 
-# Port 5433 avoids clashing with a local Postgres install on the default 5432.
-DEFAULT_DATABASE_URL = "postgresql://backtester:backtester@localhost:5433/backtester"
-
 
 def connection_string() -> str:
     """
     Return the PostgreSQL connection URL from the environment.
 
     Returns:
-        DATABASE_URL if set, otherwise the local Docker Compose default.
+        DATABASE_URL if set, otherwise POSTGRES_* parts or the local Docker default.
     """
-    return os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    explicit = os.environ.get("DATABASE_URL")
+    if explicit:
+        return explicit
+
+    user = os.environ.get("POSTGRES_USER", "backtester")
+    password = os.environ.get("POSTGRES_PASSWORD", "backtester")
+    host = os.environ.get("POSTGRES_HOST", "localhost")
+    port = os.environ.get("POSTGRES_PORT", "5433")
+    database = os.environ.get("POSTGRES_DB", "backtester")
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
 
 
 def connect() -> psycopg.Connection:

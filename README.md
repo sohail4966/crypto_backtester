@@ -25,3 +25,7 @@ python -m api          # http://localhost:8000
 ```
 
 See [backend/README.md](backend/README.md) for full documentation.
+
+## Deployment
+
+Deploy frontend on **Vercel** and backend + TimescaleDB on **Render**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

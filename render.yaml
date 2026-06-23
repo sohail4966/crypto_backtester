@@ -1,0 +1,54 @@
+# Render Blueprint — backend API + TimescaleDB private service.
+# Apply from the Render dashboard: New > Blueprint > connect this repo.
+#
+# After the first deploy:
+# 1. Set CORS_ORIGINS to your Vercel URL (dashboard > api > Environment).
+# 2. Open the api service shell and run: python run_sync.py --backfill
+
+services:
+  - type: pserv
+    name: timescaledb
+    runtime: image
+    plan: starter
+    image:
+      url: docker.io/timescale/timescaledb:latest-pg16
+    envVars:
+      - key: POSTGRES_USER
+        value: backtester
+      - key: POSTGRES_DB
+        value: backtester
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+    disk:
+      name: timescale-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 10
+
+  - type: web
+    name: crypto-backtester-api
+    runtime: docker
+    plan: starter
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/meta/health
+    envVars:
+      - key: POSTGRES_USER
+        value: backtester
+      - key: POSTGRES_DB
+        value: backtester
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_HOST
+        fromService:
+          type: pserv
+          name: timescaledb
+          property: host
+      - key: POSTGRES_PASSWORD
+        fromService:
+          type: pserv
+          name: timescaledb
+          envVarKey: POSTGRES_PASSWORD
+      - key: CORS_ORIGINS
+        sync: false
+      - key: API_HOST
+        value: 0.0.0.0

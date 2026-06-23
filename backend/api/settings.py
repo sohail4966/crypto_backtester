@@ -14,7 +14,8 @@ def api_host() -> str:
 
 def api_port() -> int:
     """Return the bind port for uvicorn."""
-    return int(os.environ.get("API_PORT", "8000"))
+    # Render and other PaaS hosts inject PORT; API_PORT remains for local overrides.
+    return int(os.environ.get("PORT") or os.environ.get("API_PORT", "8000"))
 
 
 def cors_origins() -> list[str]:
