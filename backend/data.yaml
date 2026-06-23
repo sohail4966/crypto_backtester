@@ -15,11 +15,11 @@ quote_currency: USDT
 # Approved Phase 1 USDT spot universe. history is per-symbol initial backfill depth.
 symbols:
   BTC/USDT:
-    history: 8y
+    history: 1y
   ETH/USDT:
-    history: 8y
+    history: 1y
   SOL/USDT:
-    history: 4y
+    history: 1y
 
 sync:
   mode: cron
