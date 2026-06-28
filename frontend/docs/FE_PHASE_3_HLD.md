@@ -1,17 +1,19 @@
-# FE Phase 3 High Level Design — Watchlist + Symbol Search
+# FE Phase 3 High Level Design — Replay
 
 **Status:** Not started  
-**Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md)  
-**Spec:** [SPEC-001 §4.3, §6.2, §7.1](SPEC-001.md)  
-**Decisions:** D-85 (backend-primary workspace; interim IndexedDB cache), D-86 (symbol entities)  
-**Roadmap:** [ROADMAP.md — Phase 3](ROADMAP.md#phase-3--watchlist--symbol-search)
+**Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md), [FE Phase 2](FE_PHASE_2_HLD.md) recommended  
+**Backend:** [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (Replay V2 WebSocket)  
+**Spec:** [SPEC-001 §4.5, §5.3–5.4](SPEC-001.md)  
+**Decisions:** D-88–D-94 (WS replay, client clock, accelerated speed, clamp pan)  
+**Roadmap:** [ROADMAP.md — Phase 3](ROADMAP.md#phase-3--replay)
 
 ---
 
 ## Phase 3 Goal
 
-Bootstrap a dev user, load/sync watchlists from the API, and let users switch chart symbols
-from the sidebar. Symbol search uses backend structured entities everywhere.
+`/replay` page progressively reveals bars using a **browser-side playback clock** and a
+**WebSocket tick queue**. The backend precomputes indicators in a rolling buffer and
+streams `tick_batch` messages; the frontend drains them at the selected speed.
 
 ---
 
@@ -19,31 +21,55 @@ from the sidebar. Symbol search uses backend structured entities everywhere.
 
 | Area | Files |
 |---|---|
-| Bootstrap | `services/userBootstrap.ts` — `ensureUserId()`, `localStorage` key |
-| API | `createUser`, `getWatchlists`, `createWatchlist`, `addSymbolToWatchlist` |
-| Store | `stores/watchlistStore.ts` + IndexedDB via `idb-keyval` (import as `idbSet`/`idbGet`) |
-| UI | `WatchlistPanel.tsx`, `WatchlistRow.tsx`; enhance `SymbolSearch.tsx` |
-| Integration | Row click → `chartStore.setSymbol(symbol)` |
+| Types | `types/replay.ts` — `ReplayTick`, WS event unions, session types |
+| API | `services/replay.ts` — `createReplaySession`, WebSocket client |
+| Store | `stores/replayStore.ts` — state machine, tick queue, `revealedBars` |
+| Hooks | `hooks/useReplayTick.ts` — `setInterval`, refill threshold |
+| Hooks | `hooks/useReplayWs.ts` — connect, dispatch WS events |
+| UI | `ReplayToolbar.tsx`, `SpeedControl.tsx`, `DateSelector.tsx`, `EquityCurve.tsx` (stub) |
+| Chart | `ChartContainer` replay mode — `series.update()` per tick |
+| Markers | `TradeMarkers.tsx` — empty until backtest trades API |
+| Page | `pages/ReplayPage.tsx` |
 
 **Backend endpoints:**
 
 ```
-POST /api/v1/users                    body: { name, email }
-GET  /api/v1/users/{userId}/watchlists
-POST /api/v1/users/{userId}/watchlists
-GET  /api/v1/symbols/search?q=
+POST   /api/v1/replay/sessions          → { sessionId, wsUrl }
+GET    /api/v1/replay/sessions/{id}     → state snapshot
+DELETE /api/v1/replay/sessions/{id}     → teardown
+WS     /ws/replay/{sessionId}           → snapshot, tick_batch, replay_state, …
 ```
+
+**Not used:** `POST /replay/runs`, `GET /replay/{id}/chunk` (removed in Phase 4c).
+
+---
+
+## Replay State Machine (SPEC-001 §4.5)
+
+```
+IDLE → (init) → IDLE
+IDLE → (play) → PLAYING
+PLAYING → (pause) → PAUSED
+PAUSED  → (play)  → PLAYING
+PLAYING → (stop)  → STOPPED
+PAUSED  → (stop)  → STOPPED
+STOPPED → (init)  → IDLE
+```
+
+**Refill:** When `tickQueue.length < REPLAY_TICK_REFILL_THRESHOLD`, send WS `{ action: "refill" }`.
 
 ---
 
 ## Architecture Notes
 
-- **User bootstrap:** On app load, read `userId` from `localStorage`; if missing, `POST /users`
-  with dev defaults (`name: "Dev User"`, `email: "dev@local"`).
-- **Watchlist cache:** Hydrate from IndexedDB first for fast paint; fetch API and merge
-  (backend wins on conflict when Phase 4d lands).
-- **Live prices:** Show `—` or last bar close until Phase 11 live WS; do not block on ticks.
-- **Symbol entities:** `WatchlistRow` displays `symbol.ticker`; API calls use `symbol.id`.
+- **WebSocket replay** — D-91; wire `/ws/replay/{sessionId}` (supersedes D-80 REST chunks).
+- **Client owns clock** — D-88; `intervalMs = max(50, 1000 / speed)`.
+- **Speed** — D-89; 1× = one bar per second (accelerated, not candle-period real-time).
+- **Initial load:** WS `snapshot` on connect (trail bars + indicators to cursor).
+- **Jump-to-date:** WS `{ action: "seek", to }` → expect `buffer_reset` + `snapshot`.
+- **Zoom/pan** — D-90; client-only on revealed bars; pan clamps; no WS on zoom.
+- **followReplay:** Default on — viewport tracks cursor; user can disable to inspect history.
+- **Keyboard:** `Space` play/pause, `→` step forward (wire in Phase 6 or here).
 
 ---
 
@@ -51,16 +77,20 @@ GET  /api/v1/symbols/search?q=
 
 Phase 3 is **complete** when:
 
-- [ ] App creates or reuses a user on first load
-- [ ] Default watchlist loads from API into sidebar
-- [ ] Clicking a watchlist row switches active chart symbol
-- [ ] Symbol search adds symbol to watchlist
-- [ ] Watchlist survives page reload (IndexedDB cache)
-- [ ] All symbol references are `Symbol` objects, not raw strings
+- [ ] `POST /replay/sessions` creates session; WS connects and receives `snapshot`
+- [ ] Play drains `tick_batch` queue; bars reveal via `series.update()`
+- [ ] Pause / stop / step-forward work correctly
+- [ ] Speed control changes tick rate (1×, 5×, 10× bars/sec)
+- [ ] Refill requests next batch before queue underrun
+- [ ] Jump-to-date sends seek; chart resets from `buffer_reset` / `snapshot`
+- [ ] Indicators update per tick (delta points from batch)
+- [ ] Pan/zoom work without WS; pan clamps at oldest revealed bar
+- [ ] `replay_completed` handled when backend reaches latest candle
 
 ---
 
 ## References
 
 - [SPEC-001.md](SPEC-001.md)
-- [PHASE_4_HLD.md](../../backend/docs/PHASE_4_HLD.md) — users + watchlists
+- [PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md)
+- [2026-06-28-replay-v2-design.md](../../docs/superpowers/specs/2026-06-28-replay-v2-design.md)

@@ -783,9 +783,11 @@ Users and watchlists are stored in DB; clients pass **`user_id`** explicitly.
 **Decision:** Replay state lives in an **in-process memory store** only. Client controls
 playback via WebSocket; indicators recomputed on candle **prefix** only.
 
-**Note (2026-06-09):** Phase 4 shipped this WS transport as interim API. Frontend MVP
-targets REST chunked replay per **D-80**; Phase 4b adds chunk endpoints. WS may remain
-for other clients until then.
+**Note (2026-06-09):** Phase 4 shipped this WS transport as interim API.
+
+**Superseded (2026-06-28):** Prefix recompute per step replaced by precomputed rolling
+buffer + tick slice — see **D-92**, [PHASE_4C_HLD.md](PHASE_4C_HLD.md). In-memory-only
+sessions amended by **D-93** (DB metadata + cursor checkpoint).
 
 **Resolves:** OQ-53
 
@@ -820,8 +822,10 @@ Watchlists FK to `user_id`.
 
 ## D-78 — Auth, live WS, replay DB deferred to Phase 11
 
-**Decision:** JWT auth, live candle WebSocket streaming, and **`app.replay_sessions`**
-persistence are **out of Phase 4** → Phase 11.
+**Decision:** JWT auth and live candle WebSocket streaming are **out of Phase 4** → Phase 11.
+
+**Partially superseded (2026-06-28):** `app.replay_sessions` metadata persistence moved
+to **Phase 4c** per **D-93** (cursor checkpoint only; buffer remains in-memory).
 
 ---
 
@@ -1093,9 +1097,11 @@ in frontend MVP (post-MVP streaming → SPEC-010).
 **Reasoning:** Combines backend consistency with frontend responsiveness; simpler
 backend than per-bar WS push; aligns with chunked chart-data model (D-81).
 
+**Superseded (2026-06-28):** Frontend replay transport moved to WebSocket tick batches
+(**D-91**). REST chunk endpoints removed in Phase 4c. See [PHASE_4C_HLD.md](PHASE_4C_HLD.md).
+
 **Phase 4 note:** D-71 shipped **in-memory sessions + replay WebSocket** as an interim
-API. Frontend MVP targets **`GET /replay/{runId}/chunk`** (Phase 4b). Phase 4 WS
-may remain for other clients until REST chunks land.
+API. Phase 4b added REST chunks (D-80). Phase 4c unifies on WS v2 with precomputed buffer.
 
 **Spec:** [SPEC-001 §4.5](../../frontend/docs/SPEC-001.md)
 
@@ -1210,6 +1216,117 @@ refactors. Extends D-76 catalog with richer metadata (**Phase 4b** schema/API).
 Users may disable categories for independent panes (multi-TF analysis vs monitoring).
 
 **Spec:** [SPEC-001 §4.4](../../frontend/docs/SPEC-001.md)
+
+---
+
+## Frontend / replay architecture (Replay V2 — locked 2026-06-28)
+
+The following decisions supersede or amend Phase 4 replay transport (D-71, D-80) and
+partially pull forward replay DB persistence from D-78. Implementation plan:
+[PHASE_4C_HLD.md](PHASE_4C_HLD.md).
+
+---
+
+## D-88 — Client-owned replay playback clock with server tick batches
+
+**Decision:** Replay playback timing lives on the **client** (`setInterval` /
+`requestAnimationFrame`). The server **pre-slices** ticks from a precomputed buffer and
+sends them in **`tick_batch`** WebSocket messages. The client drains a local queue at
+`intervalMs = max(50, 1000 / speed)`.
+
+**Reasoning:** Server-side `asyncio.sleep` autoplay couples display to network jitter and
+adds latency per bar. Pre-sliced batches decouple smooth display from round-trip time;
+refill runs in the background when the queue drops below threshold.
+
+**Rejected:** Server autoplay loop pushing one bar per sleep interval (Phase 4 interim WS).
+
+**Spec:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md), [SPEC-001 §4.5](../../frontend/docs/SPEC-001.md)
+
+---
+
+## D-89 — Accelerated replay speed model
+
+**Decision:** Replay speed uses an **accelerated** model: **`1×` = one bar per second**
+(base interval 1000 ms), independent of candle timeframe. `10×` = ten bars per second.
+Minimum interval **50 ms** (20 bars/sec cap).
+
+**Reasoning:** Backtest replay prioritizes fast forward through history. Real-time
+simulation (one bar per candle period) is a future optional `speedMode` if needed.
+
+**Rejected:** Real-time simulation as v1 default (1h bar = one hour wall clock at 1×).
+
+---
+
+## D-90 — Replay zoom/pan is client-only; clamp pan beyond revealed history
+
+**Decision:** Chart **zoom and pan during replay do not hit the server**. They operate on
+**revealed bars** already in the client store. Pan left **clamps** at the oldest revealed
+bar. Jump-to-date / seek triggers server buffer reload. **`followReplay`** (default on)
+scrolls the viewport with the cursor.
+
+**Reasoning:** Zoom is a viewport change, not a data request. Users replay forward; older
+bars beyond the trail are accessed via explicit jump, not accidental pan.
+
+**Rejected:** Lazy-fetch on pan beyond trail without moving cursor (v1).
+
+---
+
+## D-91 — WebSocket-first replay (supersedes D-80 for replay transport)
+
+**Decision:** Replay playback uses **`WS /ws/replay/{session_id}`** with v2 events
+(`snapshot`, `tick_batch`, `buffer_reset`, …). The frontend **does not** use REST chunk
+polling for replay. **`GET /chart-data`** remains for live chart window loading only.
+
+**Reasoning:** Near-zero-lag progressive reveal requires push/streaming ticks with
+precomputed overlays. REST chunks forced either full-window indicator recompute or
+prefetch of unrevealed future data inconsistent with replay semantics.
+
+**Supersedes:** D-80 REST replay chunks as the frontend replay transport.
+
+**Phase 4b note:** Chunk endpoints shipped in 4b are **removed** in Phase 4c.
+
+**Spec:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md)
+
+---
+
+## D-92 — Precomputed rolling replay buffer (amends D-71)
+
+**Decision:** Replay keeps a **rolling in-memory buffer**: indicator warmup + **500-bar
+trail** behind cursor + **1000-bar forward prefetch**. Overlays are **computed once** when
+the buffer loads or extends. Each playback tick is **O(1)** — slice one bar and one overlay
+point per series from precomputed arrays.
+
+**Amends:** D-71 prefix recompute per step — replaced by buffer precompute + tick slice.
+
+**Extension point:** `OverlayPipeline` interface; v1 wraps `IndicatorService`; signals and
+patterns plug in later without changing tick logic.
+
+---
+
+## D-93 — Replay session DB persistence (partial supersede of D-78)
+
+**Decision:** **`app.replay_sessions`** stores session **metadata + cursor checkpoint**
+(symbol, timeframes, start anchor, cursor_ts, indicators JSON, speed, state). In-memory
+holds the hot **`ReplayBuffer`** only. On reconnect or process restart, buffer is
+**rebuilt from DB candles** at saved cursor.
+
+**Partially supersedes:** D-78 deferral of `app.replay_sessions` — metadata persistence
+moves to **Phase 4c**; JWT auth and live candle WS remain Phase 11.
+
+---
+
+## D-94 — Open-ended replay sessions; REST chunk endpoints removed
+
+**Decision:** Replay sessions have a **`start` anchor only** — no fixed `end`. Playback
+continues until the **latest stored candle** for symbol+timeframe or the user stops the
+session (`replay_completed` event).
+
+REST replay chunk routes **`POST /replay/runs`**, **`GET /replay/{run_id}/chunk`**, and
+**`GET /replay/{run_id}/trades`** are **removed** (410 Gone during deprecation window,
+then deleted). Session lifecycle uses **`POST /GET/DELETE /replay/sessions`** + WebSocket.
+
+**Reasoning:** Open-ended replay matches live-forward user intent. REST chunks duplicated
+WS responsibilities and encouraged wrong indicator semantics (chunk-end prefix vs cursor).
 
 ---
 

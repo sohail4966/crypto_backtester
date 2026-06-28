@@ -189,11 +189,38 @@ replay data via REST without a client-side adapter or replay WebSocket.
 auth / live WS → **Phase 11**.
 
 **Done when:** All [Phase 4b done criteria](PHASE_4B_HLD.md#done-criteria) pass; OpenAPI
-and Postman updated; FE can consume `/chart-data` and replay chunks without adapter.
+and Postman updated; FE can consume `/chart-data` without adapter.
+
+**Follow-up:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md) — Replay V2 (WebSocket streaming,
+supersedes REST chunks for replay).
 
 **Follow-up (FE Phase 1 findings):** [PHASE_4B_FE_GAPS.md](PHASE_4B_FE_GAPS.md) —
 derived-timeframe `data-range` / `get_latest_candles` fixes so the chart client does not
 need 1m metadata fallback workarounds.
+
+---
+
+## Phase 4c — Replay V2 (WebSocket Streaming)
+
+**Status:** Not started — [PHASE_4C_HLD.md](PHASE_4C_HLD.md)  
+**Prerequisite:** Phase 4b complete  
+**Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page
+
+**Theme:** Replace prefix-recompute replay with precomputed rolling buffer + WebSocket
+tick batches for near-zero-lag playback.
+
+**Goal:** Open-ended replay from a start anchor over WebSocket; indicators precomputed;
+session metadata in Postgres; REST chunk endpoints removed.
+
+| Area | What gets built |
+|---|---|
+| Replay engine | `ReplayEngine`, `ReplayBuffer`, `OverlayPipeline` |
+| Persistence | `V007__replay_sessions.sql`, cursor checkpoint |
+| WebSocket | v2 protocol: `snapshot`, `tick_batch`, `buffer_reset` |
+| Cleanup | Remove `POST /replay/runs`, `GET /replay/{id}/chunk` |
+| Decisions | D-88 through D-94 |
+
+**Done when:** All [Phase 4c done criteria](PHASE_4C_HLD.md#done-criteria) pass.
 
 ---
 

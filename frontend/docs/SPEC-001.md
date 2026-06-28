@@ -4,7 +4,7 @@
 **Status:** Draft  
 **Author:** Sohail L Mulla  
 **Last Updated:** 2026-06-09  
-**Changelog:** v2.0 — Incorporated eight architectural decisions (locked → [D-80–D-87](../../backend/docs/DECISIONS.md#frontend-architecture-spec-001--locked-2026-06-09)): hybrid replay buffering, unified chart data endpoint, windowed/chunk-based data loading, MVP drawing scope, Price Range as first-class primitive, backend-primary workspace sync, structured Symbol entities, multi-chart sync configuration.
+**Changelog:** v2.1 — Replay V2 (D-88–D-94): WebSocket tick batches, client playback clock, accelerated speed, rolling buffer backend, REST chunk replay removed. See [PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md). v2.0 — D-80–D-87 (chart-data, symbols, workspace, sync).
 
 ---
 
@@ -37,7 +37,7 @@ Out of scope: backend API implementation, infrastructure/deployment, PineScript 
 
 **Windowed memory model.** The browser never holds a full historical dataset. Charts maintain only the visible range plus a configurable buffer. Chunks are fetched on demand and evicted when no longer needed.
 
-**Replay runs in the browser, data comes from the backend.** The replay engine controls playback state and timing locally. All replay data (bars, indicators, signals, trade events) is fetched from the backend in chunks and buffered in the browser.
+**Replay uses WebSocket streaming with a client-side playback clock.** The backend precomputes indicators in a rolling buffer and sends `tick_batch` messages. The frontend owns play/pause/speed timing and drains a local tick queue (see §4.5).
 
 **Stateless components.** All chart components derive their display purely from stores. No component holds authoritative state.
 
@@ -59,7 +59,7 @@ Out of scope: backend API implementation, infrastructure/deployment, PineScript 
 | Build | Vite | Fast HMR; first-class TypeScript |
 | Testing | Vitest + React Testing Library | Vitest co-locates with Vite config; RTL for component behaviour |
 
-**Note on WebSocket:** A WebSocket connection is used for live price ticks in the watchlist and for future streaming features. Replay does **not** use WebSocket in MVP — it uses chunked REST polling driven by the browser-side replay engine (see §4.5).
+**Note on WebSocket:** Replay uses **`WS /ws/replay/{sessionId}`** for progressive bar + indicator streaming (D-91). Live watchlist ticks and future live candle streaming use separate WebSocket paths (Phase 11).
 
 ### 2.1 Why lightweight-charts over alternatives
 
@@ -320,45 +320,45 @@ This supports both multi-timeframe analysis (crosshair + range synced, symbol + 
 
 ### 4.5 Replay Architecture
 
-Replay uses a hybrid model: the **backend is authoritative for all replay data**; the **browser owns playback state and timing**.
+Replay uses **WebSocket streaming** with a **client-owned playback clock** (D-88, D-91).
+The backend is authoritative for cursor position and overlay values (precomputed rolling
+buffer); the browser controls when each bar appears on screen.
 
 **Session lifecycle:**
 
-1. User opens replay for a backtest run. `replayStore.init(runId)` fires.
-2. Frontend fetches the first chunk via `GET /api/v1/replay/{run_id}/chunk?from=<start>&limit=<CHUNK_SIZE>`. Response is a `ChartDataResponse` covering that time range (candles + indicators + signals + trades for the replay window).
-3. Chunk is stored in `replayStore.buffer`.
-4. User presses play. `useReplayTick` starts a `setInterval` loop. On each tick it dequeues the next bar from the buffer, calls `chartStore.appendReplayBar(bar)`, which triggers `CandlestickSeries` to call `series.update(bar)`.
-5. When buffer depth falls below `REPLAY_PREFETCH_THRESHOLD`, `useReplayTick` triggers a background fetch of the next chunk and appends it to `replayStore.buffer`.
-6. Speed multiplier controls `setInterval` delay (1× = one bar per candle interval, 10× = ten bars per candle interval). Step-forward fires a single tick outside the loop.
-7. Jump-to-date: stop the loop, clear the buffer, fetch a new chunk anchored at the target timestamp, resume.
-
-**No WebSocket stream is used during replay MVP.** REST chunked polling is sufficient; eliminating a WS stream reduces backend complexity at this stage.
+1. User selects symbol, timeframe, and start time. `replayStore.init()` calls `POST /api/v1/replay/sessions` (no end date — open-ended until latest candle).
+2. Frontend opens `WS /ws/replay/{sessionId}`. Server sends `replay_state` then `snapshot` (trail bars + indicators up to cursor).
+3. User presses play. Client sends `{ action: "play", speed }`. Server responds with `tick_batch`. Client starts `setInterval` at `max(50, 1000 / speed)` ms.
+4. Each tick: dequeue one entry from `tickQueue`, call `series.update(bar)`, update indicator deltas.
+5. When `tickQueue.length < REPLAY_TICK_REFILL_THRESHOLD`, send `{ action: "refill" }` for the next batch.
+6. Speed: **accelerated model** (D-89) — `1×` = one bar per second; `10×` = ten bars per second.
+7. Jump-to-date: send `{ action: "seek", to }`; server may respond with `buffer_reset` + `snapshot`.
+8. Zoom/pan: client-only on revealed bars (D-90). Pan left clamps at oldest revealed bar.
 
 ```typescript
 // stores/replayStore.ts
 interface ReplayStore {
   status: 'idle' | 'playing' | 'paused' | 'stopped';
-  runId: string | null;
+  sessionId: string | null;
   speed: number;
-  bufferIndex: number;          // current position within buffer
-  buffer: ReplayChunk[];        // ordered array of fetched chunks
-  trades: Trade[];              // all trade events for the run (loaded once on init)
-  init: (runId: string) => Promise<void>;
+  cursor: number | null;
+  tickQueue: ReplayTick[];
+  revealedBars: OHLCVBar[];
+  followReplay: boolean;
+  init: (config: ReplaySessionConfig) => Promise<void>;
   play: () => void;
   pause: () => void;
   stop: () => void;
   stepForward: () => void;
   jumpTo: (timestamp: number) => void;
   setSpeed: (s: number) => void;
-  appendChunk: (chunk: ReplayChunk) => void;
+  onTickBatch: (batch: TickBatchEvent) => void;
+  onSnapshot: (snap: SnapshotEvent) => void;
 }
 
-interface ReplayChunk {
-  startTime: number;
-  endTime: number;
-  bars: OHLCVBar[];
-  indicators: IndicatorSeriesMap;
-  signals: Signal[];
+interface ReplayTick {
+  bar: OHLCVBar;
+  indicators: Record<string, IndicatorPoint>;
 }
 ```
 
@@ -534,11 +534,10 @@ Live tick (watchlist price update):
   → CandlestickSeries.update(bar)
 
 Replay tick:
-  useReplayTick setInterval
-  → replayStore.buffer[bufferIndex++]
-  → chartStore.appendReplayBar(bar)
-  → CandlestickSeries.update(bar)
-  → [buffer low] → GET /api/v1/replay/{runId}/chunk → replayStore.appendChunk()
+  useReplayTick setInterval (client clock)
+  → replayStore.tickQueue.shift()
+  → CandlestickSeries.update(bar) + indicator deltas
+  → [queue low] → WS { action: "refill" } → tick_batch
 
 User drawing:
   chart.subscribeClick() → drawingStore.addDrawing()
@@ -575,13 +574,19 @@ POST /api/v1/backtest
 GET  /api/v1/backtest/{runId}
      → BacktestResult
 
-# Replay
-GET  /api/v1/replay/{runId}/chunk
-     ?from=<unix_s>&limit=<int>
-     → ChartDataResponse   (candles + indicators + signals for the window)
+# Replay (WebSocket — Phase 4c)
+POST /api/v1/replay/sessions
+     body: { symbol, timeframe, start, indicators?, stepTimeframe?, speed? }
+     → { sessionId, wsUrl }
 
-GET  /api/v1/replay/{runId}/trades
-     → Trade[]             (all trades for the run, loaded once on session init)
+GET  /api/v1/replay/sessions/{sessionId}
+     → ReplayStateResponse
+
+DELETE /api/v1/replay/sessions/{sessionId}
+     → 204
+
+WS   /ws/replay/{sessionId}
+     → snapshot, tick_batch, replay_state, buffer_reset, replay_completed, error
 
 # Workspace sync
 GET  /api/v1/workspace
@@ -602,7 +607,13 @@ POST /api/v1/watchlists/sync
 
 ### 7.2 WebSocket Events
 
-WebSocket is used for live market data only (watchlist tickers). Replay does not use WebSocket in MVP.
+**Replay (`/ws/replay/{sessionId}`)** — see [PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md).
+
+Client → server: `{ "action": "play"|"pause"|"step"|"seek"|"set_speed"|"refill"|"set_indicators"|"get_state", ... }`
+
+Server → client: `{ "type": "snapshot"|"tick_batch"|"replay_state"|"buffer_reset"|"replay_completed"|"error", ... }`
+
+**Live market data (Phase 11 — watchlist tickers):**
 
 **Client → Server:**
 
@@ -673,13 +684,13 @@ Candlestick chart from unified endpoint, windowed loading, symbol switching.
 
 Overlay + oscillator indicators from unified response.
 
-### Phase 3 — Watchlist + Symbol Search (Week 4)
-
-Persistent watchlists, symbol entities, live ticks.
-
-### Phase 4 — Replay (Week 5–6)
+### Phase 3 — Replay (Week 5–6)
 
 Hybrid chunked-REST replay architecture.
+
+### Phase 4 — Watchlist + Symbol Search (Week 4)
+
+Persistent watchlists, symbol entities, live ticks.
 
 ### Phase 5 — Drawings (Week 7–8)
 
@@ -747,9 +758,9 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 | Indicator compute | `POST /api/v1/indicators/compute` | ✅ Available (legacy; prefer chart-data) |
 | Users | `POST/GET/PATCH/DELETE /api/v1/users` | ✅ Available |
 | Watchlists | `/api/v1/users/{user_id}/watchlists` | ✅ Available (nested under user) |
-| Replay chunks (FE MVP) | `POST /api/v1/replay/runs`, `GET /api/v1/replay/{runId}/chunk` | ✅ REST buffering per **D-80** |
-| Replay trades stub | `GET /api/v1/replay/{runId}/trades` | ✅ Returns `[]` until Phase 4c |
-| Replay (session + WS) | `POST /api/v1/replay/sessions` + `WS /ws/replay/{session_id}` | ✅ Optional; not used in FE MVP |
+| Replay (WS v2) | `POST /replay/sessions` + `WS /ws/replay/{id}` | ⏳ **Phase 4c** ([PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md)) |
+| Replay REST chunks (legacy) | `POST /replay/runs`, `GET /replay/{runId}/chunk` | ⚠️ Removed in 4c (was D-80) |
+| Replay (session + WS interim) | Phase 4 prefix-recompute WS | ⚠️ Replaced by 4c tick batches |
 | Meta | `GET /api/v1/meta/health`, `/meta/timeframes` | ✅ Available |
 | OpenAPI + Postman | [openapi.yaml](../../backend/docs/openapi.yaml), [postman/](../../backend/docs/postman/) | ✅ v0.4.1 |
 
@@ -757,8 +768,9 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 
 | SPEC contract | Gap | Suggested backend phase |
 |---|---|---|
-| `POST/GET /api/v1/backtest` | CLI only (`run_backtest.py`); no HTTP API | **Phase 4c** |
-| Signals + trades in chart response | `includeSignals` / `includeTrades` return empty arrays | **Phase 4c** backtest API |
+| `POST/GET /api/v1/backtest` | CLI only (`run_backtest.py`); no HTTP API | **Future phase** (backtest API) |
+| Signals + trades in chart response | `includeSignals` / `includeTrades` return empty arrays | Backtest API phase |
+| Replay V2 WebSocket | Rolling buffer + tick batches not yet implemented | **Phase 4c** |
 | `GET /api/v1/workspace`, `POST /workspace/sync` | Not implemented | **Phase 4d** (drawings/layouts) |
 | `GET/POST /api/v1/watchlists` (top-level) | Nested under `user_id`; no auth | FE uses `user_id` from local storage |
 | Live `WS` bar ticks (watchlist) | Explicitly out of Phase 4 | **Phase 11** per ROADMAP |
@@ -771,13 +783,14 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 2. Use **`GET /chart-data`** directly — no client adapter for candles + indicators.
 3. Map backend `SymbolResponse` v2 → frontend `Symbol` (`id`, `ticker`, `exchange`, `baseAsset`, `quoteAsset`, `tickSize`, `lotSize`, `type`).
 4. Store `user_id` in `localStorage` after `POST /users`; pass to watchlist routes.
-5. **Replay (FE Phase 4):** `POST /replay/runs` + `GET /replay/{runId}/chunk` per **D-80** — do not use replay WebSocket in frontend MVP.
+5. **Replay (FE Phase 3):** `POST /replay/sessions` + `WS /ws/replay/{sessionId}` per **D-88–D-94** — after Phase 4c lands.
 
 ### 13.4 Decision log cross-reference
 
 | Frontend decision | ID | Backend / gap |
 |---|---|---|
-| Hybrid replay, REST chunks, no replay WS MVP | **D-80** | ✅ `POST /replay/runs` + `GET /replay/{runId}/chunk` |
+| WebSocket replay, client clock, tick batches | **D-88–D-91** | ⏳ Phase 4c |
+| Accelerated speed (1× = 1 bar/sec) | **D-89** | FE Phase 3 |
 | Unified chart-data endpoint | **D-81** | ✅ `GET /chart-data` |
 | Windowed chunk manager | **D-82** | FE-only; uses D-79 pagination limits |
 | MVP drawing scope (5 tools) | **D-83** | Phase 4d workspace sync for persistence |
@@ -786,7 +799,7 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 | Structured Symbol entities | **D-86** | ✅ V006 + v2 `SymbolResponse` |
 | Multi-chart sync categories | **D-87** | FE-only |
 | Live watchlist bar ticks | — | D-78 deferred → Phase 11 API |
-| Replay WebSocket streaming (post-MVP) | SPEC-010 | Optional performance path after D-80 |
+| Replay WebSocket v2 | D-88–D-91 | Phase 4c + FE Phase 3 |
 
 ### 13.5 Related docs
 
