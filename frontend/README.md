@@ -19,14 +19,14 @@ Follow [ROADMAP](docs/ROADMAP.md) for phase-by-phase delivery.
 | 0 | Vite scaffold, app shell, API client | ✅ |
 | 1 | Core chart, windowed loading, symbol switching | ✅ |
 | 2 | Overlay + subchart indicators from `/chart-data` | ✅ |
-| 3 | Watchlists, symbol entities, user bootstrap | ⬜ |
-| 4 | Hybrid REST replay (`POST /replay/runs`, chunks) | ⬜ |
+| 3 | WebSocket replay (`POST /replay/sessions`, WS tick batches) | ⬜ **current** |
+| 4 | Watchlists, symbol entities, user bootstrap | ⬜ |
 | 5 | MVP drawings (5 tools incl. Price Range) | ⬜ |
 | 6 | Multi-chart layouts, sync, workspace, shortcuts | ⬜ |
 
-**Backend ready for FE Phase 1+:** [Phase 4b](../backend/docs/PHASE_4B_HLD.md) (`/chart-data`, symbol v2, replay chunks).
+**Backend ready for FE Phase 1–2:** [Phase 4b](../backend/docs/PHASE_4B_HLD.md) (`/chart-data`, symbol v2). **Replay:** [Phase 4c](../backend/docs/PHASE_4C_HLD.md) (WS streaming — in progress).
 
-**Deferred:** live WS watchlist ticks (Phase 11), backtest HTTP API (Phase 4c), workspace backend sync (Phase 4d).
+**Deferred:** live WS watchlist ticks (Phase 11), backtest HTTP API, workspace backend sync (Phase 4d).
 
 ## Quick start
 

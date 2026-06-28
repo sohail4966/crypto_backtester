@@ -122,10 +122,34 @@ candle/indicator requests; toggling off hides series.
 
 ---
 
-## Phase 3 — Watchlist + Symbol Search
+## Phase 3 — Replay
+
+**Status:** Not started — **current focus**  
+**Design doc:** [FE_PHASE_3_HLD.md](FE_PHASE_3_HLD.md) · **Spec:** [SPEC-001 §4.5](SPEC-001.md)  
+**Prerequisite:** FE Phase 1–2 complete, [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (backend)  
+**Backend:** `POST /replay/sessions`, `WS /ws/replay/{sessionId}`  
+**Decisions:** **D-88–D-94** — WebSocket tick batches; client-owned playback clock
+
+**Theme:** Browser owns playback clock; backend precomputes indicators in a rolling buffer.
+
+**Goal:** `/replay` progressively reveals bars; play/pause/step/speed/jump work.
+
+| Area | What gets built |
+|---|---|
+| State | `replayStore` — state machine, tick queue, `revealedBars` |
+| Engine | `useReplayWs` + `useReplayTick` — WS refill + `setInterval` |
+| UI | `ReplayToolbar`, `SpeedControl`, `DateSelector`, `EquityCurve` (stub) |
+| Chart | `ChartContainer` replay mode — `series.update()` per tick |
+
+**Done when:** Replay streams bars via WS with tick-batch refill; Space toggles play/pause;
+step-forward advances one bar; jump-to-date sends seek and resets from snapshot.
+
+---
+
+## Phase 4 — Watchlist + Symbol Search
 
 **Status:** Not started  
-**Design doc:** [FE_PHASE_3_HLD.md](FE_PHASE_3_HLD.md) · **Spec:** [SPEC-001 §5, §8.1](SPEC-001.md)  
+**Design doc:** [FE_PHASE_4_HLD.md](FE_PHASE_4_HLD.md) · **Spec:** [SPEC-001 §5, §8.1](SPEC-001.md)  
 **Prerequisite:** FE Phase 1 complete  
 **Backend:** `POST /users`, `GET/POST …/watchlists`, `GET /symbols/search`
 
@@ -142,30 +166,6 @@ candle/indicator requests; toggling off hides series.
 
 **Done when:** App creates/reuses a dev user; watchlist syncs from API; row click updates
 `chartStore.symbol`; add-to-watchlist works.
-
----
-
-## Phase 4 — Replay
-
-**Status:** Not started  
-**Design doc:** [FE_PHASE_4_HLD.md](FE_PHASE_4_HLD.md) · **Spec:** [SPEC-001 §4.5](SPEC-001.md)  
-**Prerequisite:** FE Phase 1–2 complete, [Phase 4b](../../backend/docs/PHASE_4B_HLD.md) ✅  
-**Backend:** `POST /replay/runs`, `GET /replay/{runId}/chunk`, `GET /replay/{runId}/trades`  
-**Decision:** **D-80** — REST chunks only; no replay WebSocket in MVP
-
-**Theme:** Browser owns playback clock; backend owns replay data.
-
-**Goal:** `/replay` progressively reveals bars; play/pause/step/speed/jump work.
-
-| Area | What gets built |
-|---|---|
-| State | `replayStore` — state machine, chunk buffer, `revealedBars` |
-| Engine | `useReplayTick` — `setInterval` + prefetch at buffer threshold |
-| UI | `ReplayToolbar`, `SpeedControl`, `DateSelector`, `EquityCurve` (stub until 4c) |
-| Chart | `ChartContainer` replay mode — `series.update()` per tick |
-
-**Done when:** Replay runs through 500+ bars with chunk prefetch; Space toggles play/pause;
-step-forward advances one bar; jump-to-date re-anchors buffer.
 
 ---
 
@@ -239,14 +239,14 @@ reload from IndexedDB.
 ```
 Phase 0 (scaffold)
     └── Phase 1 (core chart) ──┬── Phase 2 (indicators)
-                               ├── Phase 3 (watchlist)     [parallel after Phase 1]
+                               ├── Phase 4 (watchlist)     [parallel after Phase 1]
                                └── Phase 5 (drawings)      [parallel after Phase 1]
-    Phase 2 + Phase 1 ──► Phase 4 (replay)
+    Phase 2 + Phase 1 ──► Phase 3 (replay)                 [current focus]
     Phases 1–5 ──► Phase 6 (multi-chart + workspace)
 ```
 
-Phases 2, 3, and 5 can run in parallel once Phase 1 lands. Phase 4 needs indicators in
-chart-data requests. Phase 6 integrates everything.
+Phases 2, 4, and 5 can run in parallel once Phase 1 lands. Phase 3 (replay) needs
+indicators in chart-data requests. Phase 6 integrates everything.
 
 ---
 
@@ -257,8 +257,8 @@ chart-data requests. Phase 6 integrates everything.
 | 0 | `GET /meta/health` |
 | 1 | Phase 4b: `/chart-data`, `/symbols/search`, `/symbols/{id}/data-range` |
 | 2 | + `/indicators` catalog |
-| 3 | + `/users`, `/users/{id}/watchlists` |
-| 4 | + `/replay/runs`, `/replay/{id}/chunk` |
+| 3 | + `/replay/sessions`, `WS /ws/replay/{id}` ([Phase 4c](../../backend/docs/PHASE_4C_HLD.md)) |
+| 4 | + `/users`, `/users/{id}/watchlists` |
 | 5 | — (IndexedDB only) |
 | 6 | — (4d optional for server workspace) |
 
