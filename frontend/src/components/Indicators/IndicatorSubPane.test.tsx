@@ -47,6 +47,7 @@ vi.mock('@/stores/chartStore', () => ({
 function indicator(seriesId: string, key = seriesId): ActiveIndicator {
   return {
     instanceId: seriesId,
+    groupInstanceId: `${seriesId}-group`,
     key,
     params: { period: 14 },
     pane: 'subchart',

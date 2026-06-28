@@ -26,4 +26,16 @@ describe('indicatorCatalog', () => {
     }
     expect(paramFieldDefs(entry).map((field) => field.name)).toEqual(['fast', 'slow', 'signal'])
   })
+
+  it('builds float param fields for std dev', () => {
+    const entry: IndicatorCatalogEntry = {
+      key: 'BB_UPPER',
+      inputs: ['close'],
+      sharedParams: ['period', 'std'],
+      defaultParams: { period: 20, std: 2 },
+      pane: 'overlay',
+    }
+    const stdField = paramFieldDefs(entry).find((field) => field.name === 'std')
+    expect(stdField?.type).toBe('float')
+  })
 })

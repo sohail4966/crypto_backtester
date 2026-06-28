@@ -34,14 +34,16 @@ import { chartOptions, measureChartArea, seriesColors } from '@/components/Chart
 import {
   loadChartTimezonePreference,
 } from '@/utils/chartTimezone'
-import { indicatorDisplayLabel } from '@/utils/indicatorDisplay'
+import {
+  colorIndexForInstance,
+  indicatorDisplayLabel,
+  resolveIndicatorColor,
+} from '@/utils/indicatorDisplay'
 import {
   candleCloseFromLookup,
   createCandleCloseLookup,
   safeSetCrosshairPosition,
 } from '@/utils/crosshairSync'
-import { bundleGroupKey } from '@/utils/indicatorCatalog'
-
 interface ChartContainerProps {
   paneId?: string
   className?: string
@@ -97,10 +99,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
       if (item.pane !== 'subchart') {
         continue
       }
-      const groupKey = bundleGroupKey(item.key, item.params)
-      const list = groups.get(groupKey) ?? []
+      const list = groups.get(item.groupInstanceId) ?? []
       list.push(item)
-      groups.set(groupKey, list)
+      groups.set(item.groupInstanceId, list)
     }
     return [...groups.values()]
   }, [activeIndicators])
@@ -120,8 +121,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
 
   const {
     mainPaneHeight,
-    visibleGroups,
-    visibleKeys,
+    groupKeys,
     getSubChartHeight,
     onResizeAboveSub,
     onResizeBetweenSubs,
@@ -400,13 +400,18 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
               <VolumeSeries candles={candles} theme={theme} />
               {activeIndicators
                 .filter((item) => item.pane === 'overlay')
-                .map((item, index) => (
+                .map((item) => (
                   <OverlayIndicatorSeries
                     key={item.instanceId}
                     seriesId={item.seriesId}
                     label={indicatorDisplayLabel(item.key, item.params)}
                     points={indicators[item.seriesId] ?? []}
-                    colorIndex={index}
+                    color={resolveIndicatorColor(
+                      item,
+                      colorIndexForInstance(activeIndicators, item.instanceId),
+                      theme,
+                    )}
+                    lineWidth={item.lineWidth ?? 2}
                     visible={item.visible !== false}
                   />
                 ))}
@@ -416,13 +421,12 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
                 overlayIndicators={overlayIndicators}
                 indicators={indicators}
               />
-              <ChartZoomControls barCount={candles.length} />
             </>
           ) : null}
         </div>
         {chartReady
-          ? visibleGroups.map((group, index) => {
-              const groupKey = visibleKeys[index]
+          ? subchartGroups.map((group, index) => {
+              const groupKey = groupKeys[index]
               const paneIdKey = group.map((item) => item.seriesId).join('-')
               return (
                 <div key={paneIdKey} className="shrink-0">
@@ -431,7 +435,7 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
                       if (index === 0) {
                         onResizeAboveSub(groupKey, deltaY)
                       } else {
-                        onResizeBetweenSubs(visibleKeys[index - 1], groupKey, deltaY)
+                        onResizeBetweenSubs(groupKeys[index - 1], groupKey, deltaY)
                       }
                     }}
                   />
@@ -445,6 +449,9 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
               )
             })
           : null}
+        {chartReady && candles.length > 0 ? (
+          <ChartZoomControls barCount={candles.length} />
+        ) : null}
       </div>
     </ChartContext.Provider>
   )

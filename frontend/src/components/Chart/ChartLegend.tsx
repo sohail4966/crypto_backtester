@@ -12,7 +12,8 @@ import {
   createIndicatorValueLookup,
   indicatorValueFromLookup,
   formatIndicatorValue,
-  OVERLAY_INDICATOR_COLORS,
+  resolveIndicatorColor,
+  colorIndexForInstance,
 } from '@/utils/indicatorDisplay'
 import { indicatorTabEntries } from '@/utils/indicatorCatalog'
 import { resolveChartColor } from '@/utils/color'
@@ -144,7 +145,7 @@ export function ChartLegend({
         </span>
       </div>
 
-      <div className="pointer-events-auto flex flex-wrap items-center gap-1">
+      <div className="pointer-events-auto flex flex-col items-start gap-1">
         <div
           className={`inline-flex items-center gap-1 rounded border border-border bg-surface/90 px-2 py-1 backdrop-blur-sm ${
             showVolume ? '' : 'opacity-60'
@@ -161,7 +162,7 @@ export function ChartLegend({
           />
         </div>
 
-        {overlayTabs.map((tab, index) => {
+        {overlayTabs.map((tab) => {
           const item = overlayIndicators.find((row) => row.instanceId === tab.instanceId)
           const value =
             item && activeBar && tab.visible
@@ -170,22 +171,20 @@ export function ChartLegend({
                   activeBar.time,
                 )
               : null
+          const tabColor = item
+            ? resolveIndicatorColor(item, colorIndexForInstance(overlayIndicators, tab.instanceId), theme)
+            : undefined
 
           return (
             <IndicatorTab
               key={tab.instanceId}
               label={tab.label}
               value={value != null ? formatIndicatorValue(item!.key, value) : undefined}
-              color={resolveChartColor(
-                OVERLAY_INDICATOR_COLORS[index % OVERLAY_INDICATOR_COLORS.length],
-                theme,
-              )}
+              color={tabColor}
               visible={tab.visible}
               hasSettings={tab.hasSettings}
               onToggleVisible={() => toggleVisible(tab.instanceId)}
-              onOpenSettings={
-                tab.hasSettings ? () => openSettings(tab.instanceId) : undefined
-              }
+              onOpenSettings={() => openSettings(tab.instanceId)}
               onRemove={() => remove(tab.instanceId)}
               compact
             />

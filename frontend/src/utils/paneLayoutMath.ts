@@ -27,17 +27,19 @@ export function sumSubChartHeights(
 
 export function computeMainPaneHeight(
   layoutHeight: number,
-  visibleKeys: string[],
+  paneKeys: string[],
   subPaneHeights: Record<string, number>,
+  chartHeightKeys: string[] = paneKeys,
 ): number {
   if (layoutHeight <= 0) {
     return MIN_MAIN_PANE_HEIGHT
   }
-  if (visibleKeys.length === 0) {
+  if (paneKeys.length === 0) {
     return layoutHeight
   }
   const subsBlock =
-    subPaneFixedOverhead(visibleKeys.length) + sumSubChartHeights(visibleKeys, subPaneHeights)
+    subPaneFixedOverhead(paneKeys.length) +
+    sumSubChartHeights(chartHeightKeys, subPaneHeights)
   return Math.max(MIN_MAIN_PANE_HEIGHT, layoutHeight - subsBlock)
 }
 

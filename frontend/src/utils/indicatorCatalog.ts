@@ -210,6 +210,10 @@ export function paramFieldDefs(entry: IndicatorCatalogEntry): ParamFieldDef[] {
   })
 }
 
+export function entryHasConfigurableParams(entry: IndicatorCatalogEntry): boolean {
+  return paramFieldDefs(entry).length > 0
+}
+
 export function indicatorChipLabel(key: string, params: Record<string, unknown>): string {
   if (isMacdKey(key)) {
     const fast = params.fast
@@ -250,16 +254,20 @@ export function indicatorTabEntries(
     if (pane != null && item.pane !== pane) {
       continue
     }
-    const groupKey = bundleGroupKey(item.key, item.params)
-    if (seen.has(groupKey)) {
+    if (seen.has(item.groupInstanceId)) {
       continue
     }
-    seen.add(groupKey)
+    seen.add(item.groupInstanceId)
+    const members = active.filter(
+      (member) =>
+        member.groupInstanceId === item.groupInstanceId &&
+        (pane == null || member.pane === pane),
+    )
     list.push({
       instanceId: item.instanceId,
       label: indicatorChipLabel(item.key, item.params),
-      visible: item.visible !== false,
-      hasSettings: Object.keys(item.params).length > 0,
+      visible: members.some((member) => member.visible !== false),
+      hasSettings: true,
     })
   }
 

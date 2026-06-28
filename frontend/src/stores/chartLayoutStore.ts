@@ -13,6 +13,7 @@ interface ChartLayoutState {
   subPaneHeights: Record<string, number>
   initSubPane: (groupKey: string) => void
   removeSubPane: (groupKey: string) => void
+  renameSubPane: (fromKey: string, toKey: string) => void
   setSubPaneHeight: (groupKey: string, height: number) => void
   setSubPanePairHeights: (topKey: string, bottomKey: string, top: number, bottom: number) => void
   getSubPaneChartHeight: (groupKey: string) => number
@@ -75,4 +76,20 @@ export const useChartLayoutStore = create<ChartLayoutState>((set, get) => ({
 
   getSubPaneChartHeight: (groupKey) =>
     get().subPaneHeights[groupKey] ?? DEFAULT_SUB_PANE_CHART_HEIGHT,
+
+  renameSubPane: (fromKey, toKey) => {
+    if (fromKey === toKey) {
+      return
+    }
+    set((state) => {
+      const height = state.subPaneHeights[fromKey]
+      if (height == null) {
+        return state
+      }
+      const next = { ...state.subPaneHeights }
+      delete next[fromKey]
+      next[toKey] = height
+      return { subPaneHeights: next }
+    })
+  },
 }))

@@ -24,12 +24,18 @@ export type IndicatorSeriesMap = Record<string, IndicatorPoint[]>
 export interface ActiveIndicator {
   /** Stable client id for UI list keys. */
   instanceId: string
+  /** Shared by all series from one add action (e.g. MACD bundle). */
+  groupInstanceId: string
   key: string
   params: Record<string, unknown>
   pane: IndicatorPane
   /** Backend map key, e.g. EMA_20 or RSI_14. */
   seriesId: string
   visible: boolean
+  /** Hex or theme token (e.g. var(--color-accent)); client-only, not sent to API. */
+  color?: string
+  /** Line width for overlay/subchart lines (1–4). Client-only. */
+  lineWidth?: number
 }
 
 /** MACD is three registry keys with shared params — one UI action adds all three. */

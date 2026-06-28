@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { DEFAULT_SUB_PANE_CHART_HEIGHT } from '@/constants/chart'
 import { useChartLayoutStore } from '@/stores/chartLayoutStore'
-import { bundleGroupKey } from '@/utils/indicatorCatalog'
+import type { ActiveIndicator } from '@/types/indicator'
 import {
   computeMainPaneHeight,
   nextSubHeightAfterMainResize,
   nextSubPairHeightsAfterResize,
 } from '@/utils/paneLayoutMath'
-import type { ActiveIndicator } from '@/types/indicator'
 
 export function subchartGroupKeys(groups: ActiveIndicator[][]): string[] {
   return groups
-    .map((group) => {
-      const item = group[0]
-      return item ? bundleGroupKey(item.key, item.params) : ''
-    })
+    .map((group) => group[0]?.groupInstanceId ?? '')
     .filter(Boolean)
 }
 
@@ -30,6 +26,14 @@ export function usePaneLayout(
 
   const groupKeys = useMemo(() => subchartGroupKeys(subchartGroups), [subchartGroups])
 
+  const chartVisibleKeys = useMemo(
+    () =>
+      subchartGroupKeys(
+        subchartGroups.filter((group) => group.some((item) => item.visible !== false)),
+      ),
+    [subchartGroups],
+  )
+
   useEffect(() => {
     const keys = new Set(groupKeys)
     for (const key of groupKeys) {
@@ -42,29 +46,22 @@ export function usePaneLayout(
     }
   }, [groupKeys, initSubPane, removeSubPane])
 
-  const visibleGroups = useMemo(
-    () => subchartGroups.filter((group) => group[0]?.visible !== false),
-    [subchartGroups],
-  )
-
-  const visibleKeys = useMemo(() => subchartGroupKeys(visibleGroups), [visibleGroups])
-
   const mainPaneHeight = useMemo(
-    () => computeMainPaneHeight(layoutHeight, visibleKeys, subPaneHeights),
-    [layoutHeight, subPaneHeights, visibleKeys],
+    () => computeMainPaneHeight(layoutHeight, groupKeys, subPaneHeights, chartVisibleKeys),
+    [chartVisibleKeys, groupKeys, layoutHeight, subPaneHeights],
   )
 
   const onResizeAboveSub = useCallback(
     (groupKey: string, deltaY: number) => {
       const heights = useChartLayoutStore.getState().subPaneHeights
       const currentSub = heights[groupKey] ?? DEFAULT_SUB_PANE_CHART_HEIGHT
-      const currentMain = computeMainPaneHeight(layoutHeight, visibleKeys, heights)
+      const currentMain = computeMainPaneHeight(layoutHeight, groupKeys, heights, chartVisibleKeys)
       const nextSub = nextSubHeightAfterMainResize(currentSub, deltaY, currentMain)
       if (nextSub != null) {
         setSubPaneHeight(groupKey, nextSub)
       }
     },
-    [layoutHeight, setSubPaneHeight, visibleKeys],
+    [chartVisibleKeys, groupKeys, layoutHeight, setSubPaneHeight],
   )
 
   const onResizeBetweenSubs = useCallback(
@@ -82,8 +79,7 @@ export function usePaneLayout(
 
   return {
     mainPaneHeight,
-    visibleGroups,
-    visibleKeys,
+    groupKeys,
     getSubChartHeight: (groupKey: string) =>
       subPaneHeights[groupKey] ?? DEFAULT_SUB_PANE_CHART_HEIGHT,
     onResizeAboveSub,

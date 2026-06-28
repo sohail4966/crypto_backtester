@@ -30,4 +30,9 @@ describe('paneLayoutMath', () => {
     const main = computeMainPaneHeight(600, ['rsi'], { rsi: 112 })
     expect(main).toBe(600 - 112 - 36 - 10)
   })
+
+  it('keeps tab overhead for hidden sub-panes but excludes their chart height', () => {
+    const main = computeMainPaneHeight(600, ['rsi', 'macd'], { rsi: 112, macd: 112 }, ['rsi'])
+    expect(main).toBe(600 - 112 - 2 * (36 + 10))
+  })
 })

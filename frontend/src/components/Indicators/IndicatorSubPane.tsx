@@ -19,6 +19,8 @@ import {
   formatIndicatorValue,
   indicatorDisplayLabel,
   indicatorValueFromLookup,
+  resolveIndicatorColor,
+  colorIndexForInstance,
 } from '@/utils/indicatorDisplay'
 import { resolveChartColor } from '@/utils/color'
 import { indicatorChipLabel } from '@/utils/indicatorCatalog'
@@ -42,10 +44,12 @@ function toLineData(points: IndicatorPoint[]): LineData[] {
 }
 
 function primaryIndicator(group: ActiveIndicator[]): ActiveIndicator | undefined {
+  const pool = group.filter((item) => item.visible !== false)
+  const candidates = pool.length > 0 ? pool : group
   return (
-    group.find((item) => item.key === 'MACD_LINE') ??
-    group.find((item) => item.key !== 'MACD_HIST') ??
-    group[0]
+    candidates.find((item) => item.key === 'MACD_LINE') ??
+    candidates.find((item) => item.key !== 'MACD_HIST') ??
+    candidates[0]
   )
 }
 
@@ -82,7 +86,7 @@ export function IndicatorSubPane({
   const openSettings = useIndicatorStore((state) => state.openSettings)
   const remove = useIndicatorStore((state) => state.remove)
 
-  const visible = group[0]?.visible !== false
+  const groupVisible = group.some((item) => item.visible !== false)
 
   groupRef.current = group
   const primary = primaryIndicator(group)
@@ -111,6 +115,9 @@ export function IndicatorSubPane({
       return []
     }
     return group.flatMap((item) => {
+      if (item.visible === false) {
+        return []
+      }
       const value = indicatorValueFromLookup(
         indicatorLookups.get(item.seriesId) ?? new Map(),
         activeTime,
@@ -306,6 +313,11 @@ export function IndicatorSubPane({
     for (const item of group) {
       const points = indicators[item.seriesId] ?? []
       const isHist = item.key === 'MACD_HIST'
+      const seriesColor = resolveIndicatorColor(
+        item,
+        colorIndexForInstance(group, item.instanceId),
+        theme,
+      )
 
       let series = seriesRef.current.get(item.seriesId)
       if (!series) {
@@ -317,11 +329,8 @@ export function IndicatorSubPane({
           })
         } else {
           series = chart.addLineSeries({
-            color: resolveChartColor(
-              item.key === 'MACD_SIGNAL' ? '#f59e0b' : 'var(--color-accent)',
-              theme,
-            ),
-            lineWidth: 2,
+            color: seriesColor,
+            lineWidth: item.lineWidth ?? 2,
             title: item.key,
             priceLineVisible: false,
             lastValueVisible: true,
@@ -331,7 +340,6 @@ export function IndicatorSubPane({
       }
 
       if (isHist) {
-        const bull = resolveChartColor('var(--color-bull)', theme)
         const bear = resolveChartColor('var(--color-bear)', theme)
         series.setData(
           points.flatMap((point) => {
@@ -342,48 +350,53 @@ export function IndicatorSubPane({
             return [{
               time,
               value: point.value,
-              color: point.value >= 0 ? bull : bear,
+              color: point.value >= 0 ? seriesColor : bear,
             }]
           }),
         )
       } else {
         series.setData(toLineData(points))
+        series.applyOptions({ color: seriesColor, lineWidth: item.lineWidth ?? 2 })
       }
 
-      series.applyOptions({ visible })
+      series.applyOptions({ visible: item.visible !== false })
     }
-  }, [group, indicators, theme, visible])
+  }, [group, indicators, theme])
 
   const tabLabel = indicatorChipLabel(group[0]?.key ?? 'Indicator', group[0]?.params ?? {})
   const tabValue =
-    visible && valueRows.length > 0
+    groupVisible && valueRows.length > 0
       ? valueRows.map((row) => row.value).join(' · ')
       : undefined
-  const hasSettings = Object.keys(group[0]?.params ?? {}).length > 0
+  const hasSettings = true
   const instanceId = group[0]?.instanceId
+  const tabColor = primary
+    ? resolveIndicatorColor(primary, colorIndexForInstance(group, primary.instanceId), theme)
+    : undefined
 
   return (
-    <div className={`shrink-0 bg-bg ${visible ? '' : 'opacity-60'}`}>
+    <div className={`shrink-0 bg-bg ${groupVisible ? '' : 'opacity-60'}`}>
       <div className="pointer-events-auto px-3 py-1">
         <IndicatorTab
           label={tabLabel}
           value={tabValue}
-          visible={visible}
+          color={tabColor}
+          visible={groupVisible}
           hasSettings={hasSettings}
           onToggleVisible={() => {
             if (instanceId) {
               toggleVisible(instanceId)
             }
           }}
-          onOpenSettings={hasSettings && instanceId ? () => openSettings(instanceId) : undefined}
+          onOpenSettings={instanceId ? () => openSettings(instanceId) : undefined}
           onRemove={instanceId ? () => remove(instanceId) : undefined}
           compact
         />
       </div>
       <div
         ref={containerRef}
-        className={visible ? '' : 'overflow-hidden'}
-        style={{ height: visible ? chartHeight : 0 }}
+        className={groupVisible ? '' : 'overflow-hidden'}
+        style={{ height: groupVisible ? chartHeight : 0 }}
       />
     </div>
   )

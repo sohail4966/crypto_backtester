@@ -131,6 +131,7 @@ describe('ChartContainer', () => {
         active: [
           {
             instanceId: 'ema-20',
+            groupInstanceId: 'ema-20-group',
             key: 'EMA',
             params: { period: 20 },
             pane: 'overlay',

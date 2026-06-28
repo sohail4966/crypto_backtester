@@ -116,7 +116,7 @@ export function ChartZoomControls({ barCount }: ChartZoomControlsProps) {
 
   return (
     <div
-      className="pointer-events-auto absolute bottom-[5.5rem] left-1/2 z-30 flex h-16 w-56 -translate-x-1/2 items-end justify-center pb-1"
+      className="pointer-events-auto absolute bottom-4 left-1/2 z-30 flex h-14 w-56 -translate-x-1/2 items-end justify-center"
       onMouseEnter={onEnterZone}
       onMouseLeave={onLeaveZone}
     >

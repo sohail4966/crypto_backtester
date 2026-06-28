@@ -5,7 +5,8 @@ import {
   type IndicatorPane,
   type IndicatorSpec,
 } from '@/types/indicator'
-import { bundleGroupKey, bundleKeysFor } from '@/utils/indicatorCatalog'
+import { bundleKeysFor } from '@/utils/indicatorCatalog'
+import { defaultBundleSeriesColor } from '@/utils/indicatorDisplay'
 import { indicatorSeriesId, macdSpecs } from '@/utils/indicatorId'
 import { useChartLayoutStore } from '@/stores/chartLayoutStore'
 import { MAX_SUB_PANES } from '@/constants/chart'
@@ -13,14 +14,30 @@ import { MAX_SUB_PANES } from '@/constants/chart'
 export type UpdateParamsResult = { ok: true } | { ok: false; error: string }
 export type AddIndicatorResult = { ok: true } | { ok: false; error: string }
 
-function countSubchartGroups(active: ActiveIndicator[]): number {
-  const keys = new Set<string>()
+export interface IndicatorAppearance {
+  color?: string
+  lineWidth?: number
+  visible?: boolean
+}
+
+export interface IndicatorSettingsPatch {
+  params?: Record<string, unknown>
+  /** @deprecated Use seriesStyles for multi-line bundles. */
+  color?: string
+  /** @deprecated Use seriesStyles for multi-line bundles. */
+  lineWidth?: number
+  /** Per registry key (e.g. BB_UPPER) within the instance group. */
+  seriesStyles?: Record<string, IndicatorAppearance>
+}
+
+function countSubchartInstances(active: ActiveIndicator[]): number {
+  const ids = new Set<string>()
   for (const item of active) {
     if (item.pane === 'subchart') {
-      keys.add(bundleGroupKey(item.key, item.params))
+      ids.add(item.groupInstanceId)
     }
   }
-  return keys.size
+  return ids.size
 }
 
 function newInstanceId(): string {
@@ -31,70 +48,85 @@ function buildActiveIndicator(
   key: string,
   params: Record<string, unknown>,
   pane: IndicatorPane,
-  visible = true,
+  groupInstanceId: string,
+  appearance: IndicatorAppearance = {},
 ): ActiveIndicator {
   return {
     instanceId: newInstanceId(),
+    groupInstanceId,
     key: key.toUpperCase(),
     params,
     pane,
     seriesId: indicatorSeriesId(key, params),
-    visible,
+    visible: appearance.visible ?? true,
+    color: appearance.color,
+    lineWidth: appearance.lineWidth,
   }
 }
 
-function expandCatalogEntry(entry: IndicatorCatalogEntry): ActiveIndicator[] {
-  const params = { ...entry.defaultParams }
+function expandCatalogEntry(
+  entry: IndicatorCatalogEntry,
+  patch: IndicatorSettingsPatch = {},
+): ActiveIndicator[] {
+  const params = { ...entry.defaultParams, ...patch.params }
   const pane = entry.pane
   const keys = bundleKeysFor(entry.key)
+  const groupInstanceId = newInstanceId()
 
-  return keys.map((key) => buildActiveIndicator(key, params, pane))
+  return keys.map((key, lineIndex) =>
+    buildActiveIndicator(key, params, pane, groupInstanceId, {
+      color:
+        patch.seriesStyles?.[key]?.color ??
+        patch.color ??
+        defaultBundleSeriesColor(key, lineIndex),
+      lineWidth: patch.seriesStyles?.[key]?.lineWidth ?? patch.lineWidth ?? 2,
+      visible: patch.seriesStyles?.[key]?.visible,
+    }),
+  )
 }
 
 interface IndicatorState {
   active: ActiveIndicator[]
   settingsInstanceId: string | null
-  addFromCatalog: (entry: IndicatorCatalogEntry) => AddIndicatorResult
+  addFromCatalog: (
+    entry: IndicatorCatalogEntry,
+    patch?: IndicatorSettingsPatch,
+  ) => AddIndicatorResult
   remove: (instanceId: string) => void
   toggleVisible: (instanceId: string) => void
   openSettings: (instanceId: string) => void
   closeSettings: () => void
   isGroupVisible: (instanceId: string) => boolean
   updateParams: (instanceId: string, params: Record<string, unknown>) => UpdateParamsResult
+  updateIndicatorSettings: (
+    instanceId: string,
+    patch: IndicatorSettingsPatch,
+  ) => UpdateIndicatorResult
   clear: () => void
   getSpecs: () => IndicatorSpec[]
   getOverlaySeriesIds: () => string[]
   getSubchartGroups: () => ActiveIndicator[][]
 }
 
+type UpdateIndicatorResult = UpdateParamsResult
+
 export const useIndicatorStore = create<IndicatorState>((set, get) => ({
   active: [],
   settingsInstanceId: null,
 
-  addFromCatalog: (entry) => {
-    const groupKey = bundleGroupKey(entry.key, entry.defaultParams)
-    const alreadyActive = get().active.some(
-      (item) => bundleGroupKey(item.key, item.params) === groupKey,
-    )
-
-    if (entry.pane === 'subchart' && !alreadyActive) {
-      if (countSubchartGroups(get().active) >= MAX_SUB_PANES) {
-        return {
-          ok: false,
-          error: `Maximum ${MAX_SUB_PANES} sub-chart panes allowed. Remove one to add another.`,
-        }
+  addFromCatalog: (entry, patch) => {
+    if (entry.pane === 'subchart' && countSubchartInstances(get().active) >= MAX_SUB_PANES) {
+      return {
+        ok: false,
+        error: `Maximum ${MAX_SUB_PANES} sub-chart panes allowed. Remove one to add another.`,
       }
     }
 
-    const next = expandCatalogEntry(entry)
-    const existingIds = new Set(get().active.map((item) => item.seriesId))
-    const toAdd = next.filter((item) => !existingIds.has(item.seriesId))
-    if (toAdd.length === 0) {
-      return { ok: true }
-    }
+    const toAdd = expandCatalogEntry(entry, patch ?? {})
+    const groupInstanceId = toAdd[0]?.groupInstanceId
     set((state) => ({ active: [...state.active, ...toAdd] }))
-    if (entry.pane === 'subchart') {
-      useChartLayoutStore.getState().initSubPane(groupKey)
+    if (entry.pane === 'subchart' && groupInstanceId) {
+      useChartLayoutStore.getState().initSubPane(groupInstanceId)
     }
     return { ok: true }
   },
@@ -106,12 +138,10 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
         return state
       }
 
-      const groupKey = bundleGroupKey(target.key, target.params)
-      useChartLayoutStore.getState().removeSubPane(groupKey)
+      const { groupInstanceId } = target
+      useChartLayoutStore.getState().removeSubPane(groupInstanceId)
       return {
-        active: state.active.filter(
-          (item) => bundleGroupKey(item.key, item.params) !== groupKey,
-        ),
+        active: state.active.filter((item) => item.groupInstanceId !== groupInstanceId),
       }
     })
   },
@@ -122,13 +152,13 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
       if (!target) {
         return state
       }
-      const groupKey = bundleGroupKey(target.key, target.params)
-      const nextVisible = target.visible === false ? true : false
+      const { groupInstanceId } = target
+      const members = state.active.filter((item) => item.groupInstanceId === groupInstanceId)
+      const anyVisible = members.some((item) => item.visible !== false)
+      const nextVisible = !anyVisible
       return {
         active: state.active.map((item) =>
-          bundleGroupKey(item.key, item.params) === groupKey
-            ? { ...item, visible: nextVisible }
-            : item,
+          item.groupInstanceId === groupInstanceId ? { ...item, visible: nextVisible } : item,
         ),
       }
     })
@@ -136,45 +166,55 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
 
   isGroupVisible: (instanceId) => {
     const target = get().active.find((item) => item.instanceId === instanceId)
-    return target?.visible !== false
+    if (!target) {
+      return true
+    }
+    return get()
+      .active.filter((item) => item.groupInstanceId === target.groupInstanceId)
+      .some((item) => item.visible !== false)
   },
 
   openSettings: (instanceId) => set({ settingsInstanceId: instanceId }),
+
   closeSettings: () => set({ settingsInstanceId: null }),
 
-  updateParams: (instanceId, params) => {
+  updateParams: (instanceId, params) =>
+    get().updateIndicatorSettings(instanceId, { params }),
+
+  updateIndicatorSettings: (instanceId, patch) => {
     const state = get()
     const target = state.active.find((item) => item.instanceId === instanceId)
     if (!target) {
       return { ok: false, error: 'Indicator not found' }
     }
 
-    const groupKey = bundleGroupKey(target.key, target.params)
-    const toUpdate = state.active.filter(
-      (item) => bundleGroupKey(item.key, item.params) === groupKey,
-    )
-
-    const nextSeriesIds = toUpdate.map((item) => indicatorSeriesId(item.key, params))
-    const otherSeriesIds = new Set(
-      state.active
-        .filter((item) => bundleGroupKey(item.key, item.params) !== groupKey)
-        .map((item) => item.seriesId),
-    )
-
-    if (nextSeriesIds.some((id) => otherSeriesIds.has(id))) {
-      return { ok: false, error: 'An indicator with these settings is already on the chart' }
-    }
+    const { groupInstanceId } = target
+    const nextParams = patch.params ?? target.params
 
     set({
       active: state.active.map((item) => {
-        if (bundleGroupKey(item.key, item.params) !== groupKey) {
+        if (item.groupInstanceId !== groupInstanceId) {
           return item
         }
+        const seriesStyle = patch.seriesStyles?.[item.key]
         return {
           ...item,
-          params: { ...params },
-          seriesId: indicatorSeriesId(item.key, params),
-          visible: item.visible,
+          params: { ...nextParams },
+          seriesId: indicatorSeriesId(item.key, nextParams),
+          color:
+            seriesStyle?.color !== undefined
+              ? seriesStyle.color
+              : patch.color !== undefined
+                ? patch.color
+                : item.color,
+          lineWidth:
+            seriesStyle?.lineWidth !== undefined
+              ? seriesStyle.lineWidth
+              : patch.lineWidth !== undefined
+                ? patch.lineWidth
+                : item.lineWidth,
+          visible:
+            seriesStyle?.visible !== undefined ? seriesStyle.visible : item.visible,
         }
       }),
     })
@@ -182,7 +222,7 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
     return { ok: true }
   },
 
-  clear: () => set({ active: [] }),
+  clear: () => set({ active: [], settingsInstanceId: null }),
 
   getSpecs: () => {
     const seen = new Set<string>()
@@ -210,10 +250,9 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
     const subcharts = get().active.filter((item) => item.pane === 'subchart')
     const groups = new Map<string, ActiveIndicator[]>()
     for (const item of subcharts) {
-      const groupKey = bundleGroupKey(item.key, item.params)
-      const list = groups.get(groupKey) ?? []
+      const list = groups.get(item.groupInstanceId) ?? []
       list.push(item)
-      groups.set(groupKey, list)
+      groups.set(item.groupInstanceId, list)
     }
     return [...groups.values()]
   },

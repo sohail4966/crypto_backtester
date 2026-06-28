@@ -11,12 +11,7 @@ export function ChartPage() {
   return (
     <div className="-m-6 flex h-full min-h-0 flex-1 flex-col">
       <ChartContainer className="relative h-full min-h-0 flex-1" />
-      {settingsInstanceId ? (
-        <IndicatorSettingsDialog
-          instanceId={settingsInstanceId}
-          onClose={closeSettings}
-        />
-      ) : null}
+      {settingsInstanceId ? <IndicatorSettingsDialog onClose={closeSettings} /> : null}
     </div>
   )
 }

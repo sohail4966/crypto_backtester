@@ -4,7 +4,6 @@ import { useIndicatorStore } from '@/stores/indicatorStore'
 import { MAX_SUB_PANES } from '@/constants/chart'
 import type { IndicatorCatalogEntry } from '@/types/indicator'
 import {
-  bundleGroupKey,
   catalogPickerLabel,
   normalizeCatalogEntry,
   pickerCatalogEntries,
@@ -15,14 +14,14 @@ interface IndicatorPanelProps {
   onClose: () => void
 }
 
-function countSubchartGroups(active: { pane: string; key: string; params: Record<string, unknown> }[]): number {
-  const keys = new Set<string>()
+function countSubchartInstances(active: { pane: string; groupInstanceId: string }[]): number {
+  const ids = new Set<string>()
   for (const item of active) {
     if (item.pane === 'subchart') {
-      keys.add(bundleGroupKey(item.key, item.params))
+      ids.add(item.groupInstanceId)
     }
   }
-  return keys.size
+  return ids.size
 }
 
 export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
@@ -33,12 +32,7 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
   const [filter, setFilter] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const activeGroupKeys = useMemo(
-    () => new Set(active.map((item) => bundleGroupKey(item.key, item.params))),
-    [active],
-  )
-
-  const subchartCount = useMemo(() => countSubchartGroups(active), [active])
+  const subchartCount = useMemo(() => countSubchartInstances(active), [active])
   const atSubPaneLimit = subchartCount >= MAX_SUB_PANES
 
   const entries = useMemo(() => {
@@ -78,14 +72,7 @@ export function IndicatorPanel({ open, onClose }: IndicatorPanelProps) {
   }
 
   function isDisabled(entry: IndicatorCatalogEntry): boolean {
-    const groupKey = bundleGroupKey(entry.key, entry.defaultParams)
-    if (activeGroupKeys.has(groupKey)) {
-      return true
-    }
-    if (entry.pane === 'subchart' && atSubPaneLimit) {
-      return true
-    }
-    return false
+    return entry.pane === 'subchart' && atSubPaneLimit
   }
 
   return (
