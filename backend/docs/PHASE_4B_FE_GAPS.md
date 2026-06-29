@@ -192,7 +192,8 @@ curl 'http://localhost:8000/api/v1/chart-data?symbolId=BTC%2FUSDT&timeframe=1h&s
 ```
 Phase 4b (shipped) ──► Phase 4b.1 (this doc) ──► remove FE workarounds
         │
-        ├── Phase 4c — backtest HTTP, signals/trades in chart-data
+        ├── Phase 4c — Replay V2 (WebSocket streaming)
+        ├── Phase 4d — backtest HTTP, signals/trades in chart-data
         ├── Phase 4d — workspace sync
         └── Phase 5 — market structure (parallel)
 ```

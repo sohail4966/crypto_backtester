@@ -4,7 +4,7 @@ info:
   version: 0.4.1
   description: |
     Phase 4/4b chart client API — unified chart-data, historical candles, indicator
-    compute, structured symbols, users, watchlists, and replay (REST chunks + WS).
+    compute, structured symbols, users, watchlists, and replay (WebSocket v2 + DB sessions).
 
     **Base path (REST):** `/api/v1`
 
@@ -41,7 +41,7 @@ tags:
   - name: chart-data
     description: Unified chart window (candles + indicators)
   - name: replay
-    description: In-memory bar replay (REST chunks + WebSocket control plane)
+    description: Open-ended bar replay (DB sessions + WebSocket v2 tick batches)
 
 paths:
   /api/v1/meta/health:
@@ -537,106 +537,6 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
-  /api/v1/replay/runs:
-    post:
-      tags: [replay]
-      summary: Create replay run (REST chunks)
-      operationId: createReplayRun
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ReplayRunCreate"
-      responses:
-        "201":
-          description: Run id and bar count
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReplayRunResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-
-  /api/v1/replay/{run_id}/chunk:
-    get:
-      tags: [replay]
-      summary: Fetch replay chart chunk
-      operationId: getReplayChunk
-      parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: from
-          in: query
-          required: true
-          schema:
-            type: integer
-            format: int64
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 500
-            maximum: 5000
-      responses:
-        "200":
-          description: ChartDataResponse slice
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ChartDataResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-
-  /api/v1/replay/{run_id}/trades:
-    get:
-      tags: [replay]
-      summary: Replay trades (stub until Phase 4c)
-      operationId: getReplayTrades
-      parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Empty trades list in Phase 4b
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReplayTradesResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/v1/replay/{run_id}:
-    delete:
-      tags: [replay]
-      summary: Delete replay run
-      operationId: deleteReplayRun
-      parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "204":
-          description: Run torn down
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /api/v1/replay/sessions:
     post:
       tags: [replay]
@@ -693,14 +593,14 @@ x-websocket:
   replay:
     path: /ws/replay/{session_id}
     description: |
-      Bar-by-bar replay stream. Create a session via `POST /api/v1/replay/sessions`,
+      WebSocket v2 bar replay. Create an open-ended session via `POST /api/v1/replay/sessions`,
       then connect to the returned `ws_url`.
 
-      On connect the server sends `replay_state`. Client sends JSON text commands;
-      server responds with events (`candle`, `indicators`, `replay_state`,
-      `replay_completed`, `error`).
+      On connect the server sends `replay_state` then `snapshot`. Client owns the playback
+      clock (`intervalMs = max(50, 1000 / speed)`). Server pre-slices `tick_batch` messages;
+      client sends `refill` when queue depth drops below threshold.
 
-      Autoplay interval: `max(50ms, 1/speed)`. Sessions expire after 30 minutes idle.
+      Sessions persist metadata in Postgres; in-memory buffer rebuilds on reconnect.
     parameters:
       - name: session_id
         in: path
@@ -716,15 +616,18 @@ x-websocket:
         - $ref: "#/components/schemas/ReplayWsStep"
         - $ref: "#/components/schemas/ReplayWsSeek"
         - $ref: "#/components/schemas/ReplayWsSetSpeed"
-        - $ref: "#/components/schemas/ReplayWsSetStepTimeframe"
         - $ref: "#/components/schemas/ReplayWsSetIndicators"
         - $ref: "#/components/schemas/ReplayWsGetState"
+        - $ref: "#/components/schemas/ReplayWsRefill"
     serverMessages:
       description: JSON text frames sent by the server
       oneOf:
         - $ref: "#/components/schemas/ReplayWsReplayStateEvent"
-        - $ref: "#/components/schemas/ReplayWsCandleEvent"
-        - $ref: "#/components/schemas/ReplayWsIndicatorsEvent"
+        - $ref: "#/components/schemas/ReplayWsSnapshotEvent"
+        - $ref: "#/components/schemas/ReplayWsTickBatchEvent"
+        - $ref: "#/components/schemas/ReplayWsBufferLoadingEvent"
+        - $ref: "#/components/schemas/ReplayWsBufferReadyEvent"
+        - $ref: "#/components/schemas/ReplayWsBufferResetEvent"
         - $ref: "#/components/schemas/ReplayWsCompletedEvent"
         - $ref: "#/components/schemas/ReplayWsErrorEvent"
 
@@ -940,60 +843,6 @@ components:
           type: integer
           format: int64
           nullable: true
-
-    ReplayRunCreate:
-      type: object
-      required: [symbolId, timeframe, start, end]
-      properties:
-        symbolId:
-          type: string
-        timeframe:
-          type: string
-        start:
-          type: integer
-          format: int64
-        end:
-          type: integer
-          format: int64
-        indicators:
-          type: array
-          items:
-            $ref: "#/components/schemas/IndicatorSpec"
-        stepTimeframe:
-          type: string
-          nullable: true
-
-    ReplayRunResponse:
-      type: object
-      required: [runId, symbolId, timeframe, start, end, totalBars]
-      properties:
-        runId:
-          type: string
-          format: uuid
-        symbolId:
-          type: string
-        timeframe:
-          type: string
-        start:
-          type: integer
-          format: int64
-        end:
-          type: integer
-          format: int64
-        totalBars:
-          type: integer
-
-    ReplayTradesResponse:
-      type: object
-      required: [runId, trades]
-      properties:
-        runId:
-          type: string
-          format: uuid
-        trades:
-          type: array
-          items:
-            type: object
 
     Bar:
       type: object
@@ -1276,7 +1125,7 @@ components:
 
     ReplaySessionCreate:
       type: object
-      required: [symbol, timeframe, start, end]
+      required: [symbol, timeframe, start]
       properties:
         symbol:
           type: string
@@ -1287,9 +1136,7 @@ components:
         start:
           type: integer
           format: int64
-        end:
-          type: integer
-          format: int64
+          description: Open-ended replay start anchor (unix seconds)
         indicators:
           type: array
           items:
@@ -1303,7 +1150,7 @@ components:
           type: number
           exclusiveMinimum: 0
           default: 1.0
-          description: Bars per second during autoplay
+          description: Client playback speed (1x = 1 bar/sec)
         autoplay:
           type: boolean
           default: false
@@ -1332,11 +1179,10 @@ components:
         - timeframe
         - step_timeframe
         - start
-        - end
         - state
         - speed
         - bar_index
-        - total_bars
+        - queueRemaining
         - indicators
       properties:
         session_id:
@@ -1351,9 +1197,12 @@ components:
         start:
           type: integer
           format: int64
-        end:
+          description: Replay start anchor (startAnchor)
+        latest_available:
           type: integer
           format: int64
+          nullable: true
+          description: Latest stored candle for symbol+timeframe (live-updated)
         cursor:
           type: integer
           format: int64
@@ -1366,9 +1215,10 @@ components:
           type: number
         bar_index:
           type: integer
-          description: Zero-based index into replay window
-        total_bars:
+          description: Revealed bars in current trail window (barIndex)
+        queueRemaining:
           type: integer
+          description: Bars remaining in server prefetch queue (not user progress)
         indicators:
           type: array
           items:
@@ -1430,15 +1280,13 @@ components:
           type: number
           exclusiveMinimum: 0
 
-    ReplayWsSetStepTimeframe:
+    ReplayWsRefill:
       type: object
-      required: [action, step_timeframe]
+      required: [action]
       properties:
         action:
           type: string
-          const: set_step_timeframe
-        step_timeframe:
-          type: string
+          const: refill
 
     ReplayWsSetIndicators:
       type: object
@@ -1471,27 +1319,92 @@ components:
               const: replay_state
         - $ref: "#/components/schemas/ReplayStateResponse"
 
-    ReplayWsCandleEvent:
+    ReplayWsSnapshotEvent:
       type: object
-      required: [type, bar]
+      required: [type, bars, indicators, startAnchor]
       properties:
         type:
           type: string
-          const: candle
-        bar:
-          $ref: "#/components/schemas/Bar"
-
-    ReplayWsIndicatorsEvent:
-      type: object
-      required: [type, series]
-      properties:
-        type:
-          type: string
-          const: indicators
-        series:
+          const: snapshot
+        bars:
           type: array
           items:
-            $ref: "#/components/schemas/IndicatorSeries"
+            $ref: "#/components/schemas/Bar"
+        indicators:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/IndicatorPoint"
+        cursor:
+          type: integer
+          format: int64
+          nullable: true
+        startAnchor:
+          type: integer
+          format: int64
+        latestAvailable:
+          type: integer
+          format: int64
+          nullable: true
+
+    ReplayWsTickBatchEvent:
+      type: object
+      required: [type, ticks, queueRemaining]
+      properties:
+        type:
+          type: string
+          const: tick_batch
+        ticks:
+          type: array
+          items:
+            type: object
+            required: [bar, indicators]
+            properties:
+              bar:
+                $ref: "#/components/schemas/Bar"
+              indicators:
+                type: object
+                additionalProperties:
+                  type: object
+        cursor:
+          type: integer
+          format: int64
+          nullable: true
+        queueRemaining:
+          type: integer
+
+    ReplayWsBufferLoadingEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: buffer_loading
+
+    ReplayWsBufferReadyEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: buffer_ready
+        bufferEnd:
+          type: integer
+          format: int64
+          nullable: true
+        latestAvailable:
+          type: integer
+          format: int64
+          nullable: true
+
+    ReplayWsBufferResetEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: buffer_reset
 
     ReplayWsCompletedEvent:
       type: object

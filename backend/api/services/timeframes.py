@@ -40,6 +40,22 @@ def shift_unix_by_bars(ts: int, timeframe: str, bars: int) -> int:
     return ts - bars * TIMEFRAME_SECONDS[timeframe]
 
 
+def advance_unix_by_bars(ts: int, timeframe: str, bars: int) -> int:
+    """
+    Move a unix timestamp later by a number of bars.
+
+    Args:
+        ts: Unix seconds UTC.
+        timeframe: Candle resolution.
+        bars: Number of bars to add.
+
+    Returns:
+        Later unix timestamp.
+    """
+    validate_timeframe(timeframe)
+    return ts + bars * TIMEFRAME_SECONDS[timeframe]
+
+
 def validate_timeframe(timeframe: str) -> None:
     """
     Raise ValueError when timeframe is not supported.

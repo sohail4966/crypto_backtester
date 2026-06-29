@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a3f8c2e1-9b4d-4f6a-8c1e-2d5b7e904f31",
     "name": "Crypto Backtester API (Phase 4 / 4b)",
-    "description": "Phase 4 REST + Phase 4b chart-data / replay chunks + replay WebSocket.\n\n**Setup**\n1. `cd backend && docker compose up -d && python run_sync.py --backfill`\n2. `cd backend && python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Chart Data (or Candles + Indicators)\n2. Users → Watchlists\n3. Replay Chunks (FE MVP) **or** Replay REST session → WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`, `run_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.\n\n**WebSocket:** Optional — frontend MVP uses REST replay chunks (folder 06b).",
+    "description": "Phase 4c REST + replay WebSocket v2.\n\n**Setup**\n1. `cd backend && docker compose up -d && python run_sync.py --backfill`\n2. `cd backend && python -m api` (default http://localhost:8000)\n3. Import this collection (variables are pre-filled)\n\n**Suggested order**\n1. Meta → Symbols → Chart Data (or Candles + Indicators)\n2. Users → Watchlists\n3. Replay REST session → WebSocket\n\n**Variables auto-set by tests:** `user_id`, `watchlist_id`, `session_id`\n\n**Timestamps:** Unix seconds UTC. Defaults: 2024-01-01 → 2025-01-01.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,8 +14,7 @@
     { "key": "to_ts", "value": "1735689600" },
     { "key": "user_id", "value": "" },
     { "key": "watchlist_id", "value": "" },
-    { "key": "session_id", "value": "" },
-    { "key": "run_id", "value": "" }
+    { "key": "session_id", "value": "" }
   ],
   "item": [
     {
@@ -411,71 +410,6 @@
       ]
     },
     {
-      "name": "06b Replay Chunks (FE MVP)",
-      "description": "Phase 4b REST replay buffering — no WebSocket required. **Create run** sets `run_id`; then fetch chunks with `from` = window start timestamp.",
-      "item": [
-        {
-          "name": "Create replay run",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 201) {",
-                  "    const data = pm.response.json();",
-                  "    pm.collectionVariables.set('run_id', data.runId);",
-                  "    console.log('run_id set to', data.runId);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"symbolId\": \"{{symbol}}\",\n  \"timeframe\": \"{{timeframe}}\",\n  \"start\": {{from_ts}},\n  \"end\": {{to_ts}},\n  \"indicators\": [\n    {\"key\": \"RSI\", \"params\": {\"period\": 14}}\n  ]\n}"
-            },
-            "url": "{{baseUrl}}/api/v1/replay/runs"
-          }
-        },
-        {
-          "name": "Get replay chunk",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/replay/{{run_id}}/chunk?from={{from_ts}}&limit=500",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "replay", "{{run_id}}", "chunk"],
-              "query": [
-                { "key": "from", "value": "{{from_ts}}" },
-                { "key": "limit", "value": "500" }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get replay trades (stub)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/replay/{{run_id}}/trades"
-          }
-        },
-        {
-          "name": "Delete replay run",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/replay/{{run_id}}"
-          }
-        }
-      ]
-    },
-    {
       "name": "07 Replay (REST)",
       "item": [
         {
@@ -526,7 +460,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"BTC/USDT\",\n  \"timeframe\": \"1h\",\n  \"start\": {{from_ts}},\n  \"end\": {{to_ts}},\n  \"step_timeframe\": \"15m\",\n  \"speed\": 2.0,\n  \"autoplay\": false,\n  \"indicators\": [\n    {\"key\": \"SMA\", \"params\": {\"period\": 20}}\n  ]\n}"
+              "raw": "{\n  \"symbol\": \"BTC/USDT\",\n  \"timeframe\": \"1h\",\n  \"start\": {{from_ts}},\n  \"step_timeframe\": \"15m\",\n  \"speed\": 2.0,\n  \"autoplay\": false,\n  \"indicators\": [\n    {\"key\": \"SMA\", \"params\": {\"period\": 20}}\n  ]\n}"
             },
             "url": "{{baseUrl}}/api/v1/replay/sessions"
           }
@@ -551,7 +485,7 @@
     },
     {
       "name": "08 Replay (WebSocket)",
-      "description": "Connect after **Create replay session** sets `session_id`.\n\n**URL:** `ws://localhost:8000/ws/replay/{{session_id}}`\n\nSend these JSON messages (one per line) from the Postman WebSocket message panel:\n\n**Step 1 bar:**\n```json\n{\"action\": \"step\", \"count\": 1}\n```\n\n**Step 5 bars:**\n```json\n{\"action\": \"step\", \"count\": 5}\n```\n\n**Play at 2 bars/sec:**\n```json\n{\"action\": \"play\", \"speed\": 2.0}\n```\n\n**Pause:**\n```json\n{\"action\": \"pause\"}\n```\n\n**Seek:**\n```json\n{\"action\": \"seek\", \"to\": 1706745600}\n```\n\n**Change speed:**\n```json\n{\"action\": \"set_speed\", \"speed\": 5.0}\n```\n\n**Change step TF:**\n```json\n{\"action\": \"set_step_timeframe\", \"step_timeframe\": \"15m\"}\n```\n\n**Replace indicators:**\n```json\n{\"action\": \"set_indicators\", \"indicators\": [{\"key\": \"RSI\", \"params\": {\"period\": 14}}]}\n```\n\n**Snapshot state:**\n```json\n{\"action\": \"get_state\"}\n```\n\n**Server events:** `replay_state`, `candle`, `indicators`, `replay_completed`, `error`",
+      "description": "WebSocket v2 — connect after **Create replay session** sets `session_id`.\n\n**URL:** `ws://localhost:8000/ws/replay/{{session_id}}`\n\nOn connect: `replay_state` then `snapshot`. Client owns playback clock (`intervalMs = max(50, 1000/speed)`).\n\n**Refill tick queue:**\n```json\n{\"action\": \"refill\"}\n```\n\n**Step 1 bar:**\n```json\n{\"action\": \"step\", \"count\": 1}\n```\n\n**Play (sends tick_batch):**\n```json\n{\"action\": \"play\", \"speed\": 2.0}\n```\n\n**Pause:**\n```json\n{\"action\": \"pause\"}\n```\n\n**Seek:**\n```json\n{\"action\": \"seek\", \"to\": 1706745600}\n```\n\n**Change speed:**\n```json\n{\"action\": \"set_speed\", \"speed\": 5.0}\n```\n\n**Replace indicators (buffer_reset + snapshot):**\n```json\n{\"action\": \"set_indicators\", \"indicators\": [{\"key\": \"RSI\", \"params\": {\"period\": 14}}]}\n```\n\n**Get state:**\n```json\n{\"action\": \"get_state\"}\n```\n\n**Server events:** `replay_state`, `snapshot`, `tick_batch`, `buffer_loading`, `buffer_ready`, `buffer_reset`, `replay_completed`, `error`\n\nStep timeframe is fixed at session create (no mid-session TF change).",
       "item": [
         {
           "name": "Connect replay WebSocket",

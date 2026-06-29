@@ -83,6 +83,6 @@ def client() -> Generator[TestClient, None, None]:
 def clear_replay_sessions() -> Generator[None, None, None]:
     """Reset in-memory replay store between tests."""
     service = get_replay_service()
-    service._sessions.clear()
+    service._store.clear_cache()
     yield
-    service._sessions.clear()
+    service._store.clear_cache()

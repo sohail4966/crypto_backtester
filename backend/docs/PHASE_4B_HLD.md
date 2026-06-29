@@ -4,7 +4,7 @@
 **Prerequisite:** Phase 4 complete ([PHASE_4_HLD.md](PHASE_4_HLD.md))  
 **Enables:** [SPEC-001](../../frontend/docs/SPEC-001.md) FE Phases 1–4 (chart, indicators, replay)  
 **Decisions:** D-80, D-81, D-82 (FE), D-86, D-87 (FE) in [DECISIONS.md](DECISIONS.md)  
-**Next after this:** Phase 5 (market structure) **or** Phase 4c (backtest + trades API) in parallel with FE
+**Next after this:** [Phase 4c](PHASE_4C_HLD.md) (Replay V2) **or** Phase 5 (market structure) in parallel with FE; **Phase 4d** (backtest + trades API)
 
 ---
 
@@ -161,7 +161,7 @@ GET  /replay/{run_id}/chunk  →  slice of preloaded bars + prefix indicators
 GET  /replay/{run_id}/trades →  [] until Phase 4c
 ```
 
-Phase 4c will add `app.backtest_runs` and allow `run_id` to reference a persisted backtest;
+Phase 4d will add `app.backtest_runs` and allow `run_id` to reference a persisted backtest;
 4b document that **historical replay runs** use the in-memory path above.
 
 ---
@@ -369,7 +369,7 @@ reflect the chunk's actual bar range, not the full run range.
 
 **4b response:** `{ "runId": "...", "trades": [] }`
 
-Phase 4c populates from backtest trade log when `run_id` references a backtest run.
+Phase 4d populates from backtest trade log when `run_id` references a backtest run.
 
 #### `DELETE /replay/{run_id}`
 
@@ -494,7 +494,8 @@ Phase 4b is **complete** when:
 ```
 Phase 4  ──► Phase 4b (this doc) ──► FE Phase 1–4 can ship without client adapter
                 │
-                ├── Phase 4c — backtest API, trades/signals in chart-data
+                ├── Phase 4c — Replay V2 (WebSocket streaming)
+                ├── Phase 4d — backtest API, trades/signals in chart-data
                 ├── Phase 4d — workspace sync (drawings, layouts)
                 │
 Phase 5 (market structure) — parallel; no 4b dependency

@@ -1322,11 +1322,37 @@ continues until the **latest stored candle** for symbol+timeframe or the user st
 session (`replay_completed` event).
 
 REST replay chunk routes **`POST /replay/runs`**, **`GET /replay/{run_id}/chunk`**, and
-**`GET /replay/{run_id}/trades`** are **removed** (410 Gone during deprecation window,
-then deleted). Session lifecycle uses **`POST /GET/DELETE /replay/sessions`** + WebSocket.
+**`GET /replay/{run_id}/trades`** are **deleted**. Session lifecycle uses **`POST /GET/DELETE /replay/sessions`** + WebSocket.
 
 **Reasoning:** Open-ended replay matches live-forward user intent. REST chunks duplicated
 WS responsibilities and encouraged wrong indicator semantics (chunk-end prefix vs cursor).
+
+---
+
+## D-95 — Replay progress, trim floor, and v1 scope clarifications
+
+**Decision (progress UI):** User-facing replay progress uses **`cursor` vs
+`latestAvailable`** relative to **`startAnchor`**. `latestAvailable` **updates live**
+when the DB ingests new candles during an open-ended session (denominator grows — not
+frozen at session start). **`queueRemaining`** is prefetch depth for dev/debug only.
+**Do not use `total_bars`** for progress (removed from v2 state).
+
+**Decision (trim):** On trail trim, enforce a **warmup floor**:
+
+```text
+trim_from = max(cursor_idx - trail + 1, cursor_idx - warmup_bars + 1)
+```
+
+Never trim such that fewer than `warmup_bars` rows remain before `cursor_idx`, so forward
+extend + overlay recompute stay correct for long-lookback indicators.
+
+**Decision (v1 scope):** **`set_step_timeframe`** is **not** in Replay V2 v1. Step
+timeframe is chosen at session create only.
+
+**Phase numbering:** **Phase 4c = Replay V2** (this work). **Phase 4d = backtest HTTP**
+(previously labelled 4c in Phase 4b docs).
+
+**Spec:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md), [FE_PHASE_3_HLD.md](../frontend/docs/FE_PHASE_3_HLD.md)
 
 ---
 

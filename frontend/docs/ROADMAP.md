@@ -18,13 +18,14 @@ dependencies — mirroring [backend/docs/ROADMAP.md](../../backend/docs/ROADMAP.
 | Backend phase | What it unlocks for the frontend |
 |---|---|
 | [Phase 4](../../backend/docs/PHASE_4_HLD.md) | Symbols, candles, indicators, users, watchlists, replay WS |
-| [Phase 4b](../../backend/docs/PHASE_4B_HLD.md) ✅ | **`GET /chart-data`**, symbol v2, REST replay chunks (**D-80**, **D-81**, **D-86**) |
-| Phase 4c (planned) | Backtest HTTP API, non-empty `signals` / `trades` in chart-data |
+| [Phase 4b](../../backend/docs/PHASE_4B_HLD.md) ✅ | **`GET /chart-data`**, symbol v2 (**D-81**, **D-86**) |
+| [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (planned) | **Replay V2** — WS streaming, rolling buffer (**D-88–D-95**) |
+| Phase 4d (planned) | Backtest HTTP API, non-empty `signals` / `trades` in chart-data |
 | Phase 4d (planned) | Workspace sync (`GET/POST /workspace`) for drawings + layouts (**D-85**) |
 | Phase 11 (planned) | JWT auth, live candle WebSocket for watchlist ticks (**D-78**) |
 
 **OpenAPI:** [backend/docs/openapi.yaml](../../backend/docs/openapi.yaml) (v0.4.1)  
-**Decisions:** [backend/docs/DECISIONS.md](../../backend/docs/DECISIONS.md) — D-80–D-87
+**Decisions:** [backend/docs/DECISIONS.md](../../backend/docs/DECISIONS.md) — D-80–D-95
 
 ---
 
@@ -225,7 +226,7 @@ reload from IndexedDB.
 | Feature | Spec | Backend dependency |
 |---|---|---|
 | Fibonacci + advanced drawings | SPEC-002 | Phase 4d workspace |
-| Backtest results UI | SPEC-003 (TBD) | Phase 4c backtest API |
+| Backtest results UI | SPEC-003 (TBD) | Phase 4d backtest API |
 | Alert UI | SPEC-006 | Phase 8 screener |
 | Auth + login | SPEC-008 | Phase 11 JWT |
 | Mobile layout | SPEC-009 | — |

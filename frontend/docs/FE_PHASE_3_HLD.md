@@ -4,7 +4,7 @@
 **Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md), [FE Phase 2](FE_PHASE_2_HLD.md) recommended  
 **Backend:** [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (Replay V2 WebSocket)  
 **Spec:** [SPEC-001 §4.5, §5.3–5.4](SPEC-001.md)  
-**Decisions:** D-88–D-94 (WS replay, client clock, accelerated speed, clamp pan)  
+**Decisions:** D-88–D-95 (WS replay, client clock, accelerated speed, clamp pan, progress UI)  
 **Roadmap:** [ROADMAP.md — Phase 3](ROADMAP.md#phase-3--replay)
 
 ---
@@ -58,6 +58,10 @@ STOPPED → (init)  → IDLE
 
 **Refill:** When `tickQueue.length < REPLAY_TICK_REFILL_THRESHOLD`, send WS `{ action: "refill" }`.
 
+**Important:** WS `play` sends **one** `tick_batch` only — there is no server autoplay loop (D-88).
+Continuous playback requires the client `setInterval` loop to drain the queue and call `refill`
+when low. Calling `play` once without a client tick loop stops after the first batch (~100 bars).
+
 ---
 
 ## Architecture Notes
@@ -69,6 +73,9 @@ STOPPED → (init)  → IDLE
 - **Jump-to-date:** WS `{ action: "seek", to }` → expect `buffer_reset` + `snapshot`.
 - **Zoom/pan** — D-90; client-only on revealed bars; pan clamps; no WS on zoom.
 - **followReplay:** Default on — viewport tracks cursor; user can disable to inspect history.
+- **Progress bar (D-95):** `(cursor - startAnchor) / (latestAvailable - startAnchor)`;
+  `latestAvailable` updates live when new candles land in DB.
+- **Do not use `queueRemaining` for user-facing progress** — prefetch depth only.
 - **Keyboard:** `Space` play/pause, `→` step forward (wire in Phase 6 or here).
 
 ---

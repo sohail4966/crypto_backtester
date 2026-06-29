@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api.services.timeframes import SUPPORTED_TIMEFRAMES, TIMEFRAME_SECONDS
+from api.services.timeframes import SUPPORTED_TIMEFRAMES, TIMEFRAME_SECONDS, advance_unix_by_bars, shift_unix_by_bars
 
 
 def test_supported_timeframes_include_new_intervals() -> None:
@@ -14,3 +14,11 @@ def test_supported_timeframes_include_new_intervals() -> None:
 def test_timeframe_seconds_cover_all_supported() -> None:
     """Every supported timeframe has a bar duration for warmup shifting."""
     assert set(TIMEFRAME_SECONDS) == set(SUPPORTED_TIMEFRAMES)
+
+
+def test_advance_and_shift_unix_by_bars_are_inverses() -> None:
+    """Forward and backward bar shifts undo each other."""
+    ts = 1_704_067_200
+    forward = advance_unix_by_bars(ts, "1d", 5)
+    assert forward == ts + 5 * 86400
+    assert shift_unix_by_bars(forward, "1d", 5) == ts

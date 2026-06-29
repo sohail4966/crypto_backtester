@@ -50,5 +50,45 @@ def replay_session_idle_minutes() -> int:
 
 
 def replay_min_step_interval_ms() -> int:
-    """Minimum milliseconds between autoplay bars."""
+    """Minimum milliseconds between autoplay bars (legacy; client owns clock in v2)."""
     return int(os.environ.get("REPLAY_MIN_STEP_INTERVAL_MS", "50"))
+
+
+def replay_trail_bars() -> int:
+    """Max visible bars kept behind the replay cursor (default 500)."""
+    return int(os.environ.get("REPLAY_TRAIL_BARS", "500"))
+
+
+def replay_prefetch_bars() -> int:
+    """Bars preloaded and precomputed ahead of the cursor (default 1000)."""
+    return int(os.environ.get("REPLAY_PREFETCH_BARS", "1000"))
+
+
+def replay_extend_threshold() -> int:
+    """Trigger forward DB fetch when cursor is within this many bars of prefetch edge."""
+    return int(os.environ.get("REPLAY_EXTEND_THRESHOLD", "200"))
+
+
+def replay_tick_batch_size() -> int:
+    """Max ticks per ``tick_batch`` WS message and per ``refill`` request."""
+    return int(os.environ.get("REPLAY_TICK_BATCH_SIZE", "100"))
+
+
+def replay_tick_refill_threshold() -> int:
+    """Client-side hint: send ``refill`` when local queue depth drops below this."""
+    return int(os.environ.get("REPLAY_TICK_REFILL_THRESHOLD", "20"))
+
+
+def replay_base_interval_ms() -> int:
+    """Client playback base interval at 1× speed (1 bar per second)."""
+    return int(os.environ.get("REPLAY_BASE_INTERVAL_MS", "1000"))
+
+
+def replay_min_interval_ms() -> int:
+    """Client playback floor interval (20 bars/sec cap at 50 ms)."""
+    return int(os.environ.get("REPLAY_MIN_INTERVAL_MS", "50"))
+
+
+def replay_checkpoint_interval_sec() -> int:
+    """Seconds between automatic cursor checkpoints to ``app.replay_sessions``."""
+    return int(os.environ.get("REPLAY_CHECKPOINT_INTERVAL_SEC", "30"))

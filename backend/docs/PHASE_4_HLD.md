@@ -353,7 +353,7 @@ Optional `user_id` in body for logging only — not required.
 ### Server events
 
 ```json
-{"type": "replay_state", "cursor": 1704067200, "state": "playing", "speed": 1.0, "bar_index": 42, "total_bars": 5000}
+{"type": "replay_state", "cursor": 1704067200, "state": "playing", "speed": 1.0, "barIndex": 42, "queueRemaining": 87}
 ```
 
 ```json

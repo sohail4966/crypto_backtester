@@ -97,7 +97,14 @@ Keep:
 ## Scope (v1)
 
 **In:** Candles + indicators over WebSocket, rolling buffer, DB sessions, tick batches.  
-**Out:** Signals, chart patterns, trades (Phase 4c backtest / Phase 5 patterns plug into `OverlayPipeline` later).
+**Out:** Signals, chart patterns, trades (Phase 4d backtest / Phase 5 patterns plug into `OverlayPipeline` later).
+
+## Progress UI (D-95)
+
+- **Primary:** `cursor` vs live **`latestAvailable`** (denominator updates as new candles arrive).
+- **Not for progress:** `queueRemaining` (prefetch only).
+- **Trim:** server enforces warmup floor on trail trim.
+- **v1:** no `set_step_timeframe`; pan clamp only on client.
 
 ## References
 

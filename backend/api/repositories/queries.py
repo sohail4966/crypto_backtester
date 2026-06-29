@@ -109,3 +109,48 @@ INSERT_WATCHLIST_SYMBOL = """
 INSERT INTO app.watchlist_symbols (watchlist_id, symbol, sort_order)
 VALUES (%s, %s, %s)
 """
+
+INSERT_REPLAY_SESSION = """
+INSERT INTO app.replay_sessions (
+    session_id, symbol, timeframe, step_timeframe,
+    start_anchor, cursor_ts, indicators, speed, state
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+RETURNING session_id, symbol, timeframe, step_timeframe,
+          start_anchor, cursor_ts, indicators, speed, state,
+          created_at, updated_at
+"""
+
+SELECT_REPLAY_SESSION = """
+SELECT session_id, symbol, timeframe, step_timeframe,
+       start_anchor, cursor_ts, indicators, speed, state,
+       created_at, updated_at
+FROM app.replay_sessions
+WHERE session_id = %s
+"""
+
+UPDATE_REPLAY_SESSION_CURSOR = """
+UPDATE app.replay_sessions
+SET cursor_ts = %s,
+    speed = %s,
+    state = %s,
+    updated_at = NOW()
+WHERE session_id = %s
+RETURNING session_id, symbol, timeframe, step_timeframe,
+          start_anchor, cursor_ts, indicators, speed, state,
+          created_at, updated_at
+"""
+
+UPDATE_REPLAY_SESSION_INDICATORS = """
+UPDATE app.replay_sessions
+SET indicators = %s::jsonb,
+    updated_at = NOW()
+WHERE session_id = %s
+RETURNING session_id, symbol, timeframe, step_timeframe,
+          start_anchor, cursor_ts, indicators, speed, state,
+          created_at, updated_at
+"""
+
+DELETE_REPLAY_SESSION = """
+DELETE FROM app.replay_sessions WHERE session_id = %s
+"""

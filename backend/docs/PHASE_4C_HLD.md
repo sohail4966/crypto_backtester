@@ -3,7 +3,7 @@
 **Status:** Not started  
 **Prerequisite:** Phase 4b complete ([PHASE_4B_HLD.md](PHASE_4B_HLD.md))  
 **Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page  
-**Decisions:** D-88 through D-94 in [DECISIONS.md](DECISIONS.md)  
+**Decisions:** D-88 through D-95 in [DECISIONS.md](DECISIONS.md)  
 **Design spec:** [2026-06-28-replay-v2-design.md](../../docs/superpowers/specs/2026-06-28-replay-v2-design.md)
 
 ---
@@ -198,8 +198,49 @@ No `end` date. Replay runs until latest DB candle or user stops.
 2. Server slices `tick_batch` of up to `REPLAY_TICK_BATCH_SIZE` ticks from buffer.
 3. Client drains queue at `max(50, 1000 / speed)` ms per bar.
 4. Client sends `{ "action": "refill" }` when queue `< REPLAY_TICK_REFILL_THRESHOLD`.
-5. On each tick advance: trim trail if `> REPLAY_TRAIL_BARS` behind cursor.
+5. On each tick advance: trim trail (respecting warmup floor — see **Trim rule** below).
 6. Checkpoint cursor to DB on pause, disconnect, or interval.
+
+### Trim rule (D-95)
+
+Trail limits user-visible history; warmup is required for correct indicator recompute on extend.
+
+```text
+trail_cutoff  = cursor_idx - REPLAY_TRAIL_BARS + 1
+warmup_cutoff = cursor_idx - warmup_bars + 1
+trim_from     = max(trail_cutoff, warmup_cutoff)
+```
+
+Never drop rows such that fewer than `warmup_bars` exist before `cursor_idx`. When
+`warmup_bars > REPLAY_TRAIL_BARS`, the frame may retain extra rows — acceptable for
+indicator correctness.
+
+### Progress UI (D-95)
+
+**Primary progress:** `cursor` vs **`latestAvailable`** (live — updates when DB ingests
+new candles mid-session). Denominator is not frozen at session start.
+
+```json
+{
+  "type": "replay_state",
+  "cursor": 1704153600,
+  "startAnchor": 1704067200,
+  "latestAvailable": 1706745600,
+  "queueRemaining": 87,
+  "barIndex": 42,
+  "state": "playing"
+}
+```
+
+| Field | Purpose |
+|-------|---------|
+| `cursor` / `latestAvailable` / `startAnchor` | **FE progress bar** — `(cursor - start) / (latest - start)` |
+| `queueRemaining` | Prefetch depth; dev/debug only — not user-facing progress |
+| `barIndex` | Bars revealed in current buffer window |
+
+**Removed:** `total_bars` (was ambiguous; do not use for progress).
+
+**FE progress when `latestAvailable` moves forward:** denominator increases (decision A).
 
 ### Forward extend
 
@@ -243,6 +284,9 @@ If latest candle reached during extend → next tick emits `replay_completed`.
 | `refill` | — |
 | `set_indicators` | `{ indicators: IndicatorSpec[] }` |
 | `get_state` | — |
+
+**Not in v1:** `set_step_timeframe` (change step TF mid-session). User picks
+`timeframe` / `stepTimeframe` once at session create. May return in a later release.
 
 ### Server → client
 
@@ -305,7 +349,7 @@ Tick emission reads precomputed arrays — never calls compute per tick.
 | GET | `/api/v1/replay/{run_id}/trades` | Phase 4 backtest API (future) |
 | DELETE | `/api/v1/replay/{run_id}` | `DELETE /api/v1/replay/sessions/{id}` |
 
-Return **410 Gone** with `{ "code": "REPLAY_REST_DEPRECATED", "message": "..." }` for one release, then remove.
+Return **404** for unknown paths (routes deleted in Phase 4c).
 
 ### Kept / updated
 
@@ -342,7 +386,7 @@ Return **410 Gone** with `{ "code": "REPLAY_REST_DEPRECATED", "message": "..." }
 | `test_replay_engine.py` | Step O(1), seek cases, open-ended end |
 | `test_replay_ws_v2.py` | tick_batch, snapshot, refill, reconnect |
 | `test_replay_sessions_db.py` | CRUD, checkpoint, idle eviction + reload |
-| `test_replay_rest_deprecated.py` | Chunk/run routes return 410 |
+| `test_replay_rest_deprecated.py` | Removed with chunk/run routes |
 
 **Performance assertion:** Step N times — wall time must not grow linearly with N (O(1) per tick).
 
@@ -375,7 +419,7 @@ Return **410 Gone** with `{ "code": "REPLAY_REST_DEPRECATED", "message": "..." }
 
 ### Step 5 — REST cleanup
 
-1. Remove chunk/run routes; add 410 deprecation shim if needed.
+1. Remove chunk/run routes.
 2. Update OpenAPI, Postman, DECISIONS.md.
 3. Delete `test_replay_chunks.py` or replace.
 
@@ -395,8 +439,8 @@ Phase 4c is **complete** when:
 - [ ] Tick latency O(1) — no prefix recompute per step
 - [ ] Rolling trail trim + forward extend work at configured thresholds
 - [ ] Open-ended replay stops at latest DB candle with `replay_completed`
-- [ ] REST chunk/run routes removed or return 410
-- [ ] D-88–D-94 recorded in DECISIONS.md
+- [x] REST chunk/run routes removed
+- [ ] D-88–D-95 recorded in DECISIONS.md
 - [ ] OpenAPI + tests updated; full suite green
 
 ---
@@ -407,7 +451,7 @@ Phase 4c is **complete** when:
 Phase 4b (REST chunks) ──► Phase 4c (this doc) ──► FE Phase 3
                                 │
                                 ├── OverlayPipeline ← signals (4 backtest), patterns (5)
-                                ├── Backtest HTTP + trades — separate future phase
+                                ├── Backtest HTTP + trades — **Phase 4d**
                                 └── Phase 11 — auth, live WS (unchanged deferral)
 ```
 

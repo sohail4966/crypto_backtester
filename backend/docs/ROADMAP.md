@@ -218,9 +218,22 @@ session metadata in Postgres; REST chunk endpoints removed.
 | Persistence | `V007__replay_sessions.sql`, cursor checkpoint |
 | WebSocket | v2 protocol: `snapshot`, `tick_batch`, `buffer_reset` |
 | Cleanup | Remove `POST /replay/runs`, `GET /replay/{id}/chunk` |
-| Decisions | D-88 through D-94 |
+| Decisions | D-88 through D-95 |
 
 **Done when:** All [Phase 4c done criteria](PHASE_4C_HLD.md#done-criteria) pass.
+
+---
+
+## Phase 4d — Backtest HTTP API
+
+**Status:** Not started  
+**Prerequisite:** Phase 4c recommended; core backtest engine exists (CLI)  
+**Enables:** Non-empty `signals` / `trades` in chart-data; backtest results UI
+
+**Theme:** Expose `POST /backtest`, persisted runs, trade log in unified chart payloads.
+
+**Note:** Was labelled “Phase 4c” in [PHASE_4B_HLD.md](PHASE_4B_HLD.md) before Replay V2
+took the 4c slot (**D-95**).
 
 ---
 
