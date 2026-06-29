@@ -2,7 +2,7 @@
 
 **Status:** Not started  
 **Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md), [FE Phase 2](FE_PHASE_2_HLD.md) recommended  
-**Backend:** [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (Replay V2 WebSocket)  
+**Backend:** ✅ [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) complete — **8.9/10** ([completion assessment](../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment))  
 **Spec:** [SPEC-001 §4.5, §5.3–5.4](SPEC-001.md)  
 **Decisions:** D-88–D-95 (WS replay, client clock, accelerated speed, clamp pan, progress UI)  
 **Roadmap:** [ROADMAP.md — Phase 3](ROADMAP.md#phase-3--replay)

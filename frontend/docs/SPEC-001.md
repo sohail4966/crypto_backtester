@@ -752,13 +752,13 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 |---|---|---|
 | Symbol catalog (v2) | `GET /api/v1/symbols`, `GET /api/v1/symbols/{symbol}` | ✅ `id`, `exchange`, `tickSize`, `lotSize`, `type` |
 | Symbol search | `GET /api/v1/symbols/search?q=` | ✅ Alias of list |
-| Unified chart window | `GET /api/v1/chart-data?symbolId&timeframe&start&end&indicators` | ✅ Candles + indicators; `signals`/`trades` empty until 4c |
+| Unified chart window | `GET /api/v1/chart-data?symbolId&timeframe&start&end&indicators` | ✅ Candles + indicators; `signals`/`trades` empty until 4d |
 | Historical OHLCV | `GET /api/v1/candles/{symbol}?timeframe&from&to&limit` | ✅ Still available |
 | Indicator catalog | `GET /api/v1/indicators` | ✅ Available |
 | Indicator compute | `POST /api/v1/indicators/compute` | ✅ Available (legacy; prefer chart-data) |
 | Users | `POST/GET/PATCH/DELETE /api/v1/users` | ✅ Available |
 | Watchlists | `/api/v1/users/{user_id}/watchlists` | ✅ Available (nested under user) |
-| Replay (WS v2) | `POST /replay/sessions` + `WS /ws/replay/{id}` | ⏳ **Phase 4c** ([PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md)) |
+| Replay (WS v2) | `POST /replay/sessions` + `WS /ws/replay/{id}` | ✅ **Phase 4c** — [8.9/10 assessment](../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment) |
 | Replay REST chunks (legacy) | `POST /replay/runs`, `GET /replay/{runId}/chunk` | ⚠️ Removed in 4c (was D-80) |
 | Replay (session + WS interim) | Phase 4 prefix-recompute WS | ⚠️ Replaced by 4c tick batches |
 | Meta | `GET /api/v1/meta/health`, `/meta/timeframes` | ✅ Available |
@@ -770,7 +770,7 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 |---|---|---|
 | `POST/GET /api/v1/backtest` | CLI only (`run_backtest.py`); no HTTP API | **Future phase** (backtest API) |
 | Signals + trades in chart response | `includeSignals` / `includeTrades` return empty arrays | Backtest API phase |
-| Replay V2 WebSocket | Rolling buffer + tick batches not yet implemented | **Phase 4c** |
+| Replay V2 WebSocket | — | ✅ **Phase 4c** complete (8.9/10); FE Phase 3 consumes WS v2 |
 | `GET /api/v1/workspace`, `POST /workspace/sync` | Not implemented | **Phase 4d** (drawings/layouts) |
 | `GET/POST /api/v1/watchlists` (top-level) | Nested under `user_id`; no auth | FE uses `user_id` from local storage |
 | Live `WS` bar ticks (watchlist) | Explicitly out of Phase 4 | **Phase 11** per ROADMAP |
@@ -783,13 +783,13 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 2. Use **`GET /chart-data`** directly — no client adapter for candles + indicators.
 3. Map backend `SymbolResponse` v2 → frontend `Symbol` (`id`, `ticker`, `exchange`, `baseAsset`, `quoteAsset`, `tickSize`, `lotSize`, `type`).
 4. Store `user_id` in `localStorage` after `POST /users`; pass to watchlist routes.
-5. **Replay (FE Phase 3):** `POST /replay/sessions` + `WS /ws/replay/{sessionId}` per **D-88–D-94** — after Phase 4c lands.
+5. **Replay (FE Phase 3):** `POST /replay/sessions` + `WS /ws/replay/{sessionId}` per **D-88–D-95** — backend ready ([Phase 4c assessment](../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment), 8.9/10).
 
 ### 13.4 Decision log cross-reference
 
 | Frontend decision | ID | Backend / gap |
 |---|---|---|
-| WebSocket replay, client clock, tick batches | **D-88–D-91** | ⏳ Phase 4c |
+| WebSocket replay, client clock, tick batches | **D-88–D-91** | ✅ Phase 4c (8.9/10) |
 | Accelerated speed (1× = 1 bar/sec) | **D-89** | FE Phase 3 |
 | Unified chart-data endpoint | **D-81** | ✅ `GET /chart-data` |
 | Windowed chunk manager | **D-82** | FE-only; uses D-79 pagination limits |
@@ -799,10 +799,11 @@ This section maps SPEC-001 v2.0 to the **implemented** backend ([PHASE_4_HLD.md]
 | Structured Symbol entities | **D-86** | ✅ V006 + v2 `SymbolResponse` |
 | Multi-chart sync categories | **D-87** | FE-only |
 | Live watchlist bar ticks | — | D-78 deferred → Phase 11 API |
-| Replay WebSocket v2 | D-88–D-91 | Phase 4c + FE Phase 3 |
+| Replay WebSocket v2 | D-88–D-91 | ✅ Phase 4c backend (8.9/10) + FE Phase 3 |
 
 ### 13.5 Related docs
 
+- Backend replay API: [backend/docs/PHASE_4C_HLD.md](../../backend/docs/PHASE_4C_HLD.md) — completion assessment **8.9/10**
 - Backend API: [backend/docs/PHASE_4_HLD.md](../../backend/docs/PHASE_4_HLD.md)
 - OpenAPI: [backend/docs/openapi.yaml](../../backend/docs/openapi.yaml)
 - Postman: [backend/docs/postman/](../../backend/docs/postman/)

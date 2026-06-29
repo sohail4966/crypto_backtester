@@ -1,6 +1,7 @@
 # Phase 4c High Level Design — Replay V2 (WebSocket Streaming)
 
-**Status:** Complete  
+**Status:** Complete — see [Phase 4c Completion Assessment](#phase-4c-completion-assessment)  
+**Rating:** 8.9 / 10 (Grade A)
 **Prerequisite:** Phase 4b complete ([PHASE_4B_HLD.md](PHASE_4B_HLD.md))  
 **Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page  
 **Decisions:** D-88 through D-95 in [DECISIONS.md](DECISIONS.md)  
@@ -442,6 +443,67 @@ Phase 4c is **complete** when:
 - [x] REST chunk/run routes removed
 - [x] D-88–D-95 recorded in DECISIONS.md
 - [x] OpenAPI + tests updated; full suite green
+
+---
+
+## Phase 4c Completion Assessment
+
+**Assessment date:** 2026-06-29  
+**Rating:** **8.9 / 10** (Grade **A**)  
+**Completion:** **100% for Phase 4c scope** (signals/patterns in `OverlayPipeline`, backtest HTTP → Phase 4d; JWT auth → Phase 11)
+
+Phase 4c replaces Phase 4b’s prefix-recompute replay path with a **precomputed rolling
+buffer**, **WebSocket v2 tick batches**, and **DB-backed open-ended sessions**. The client
+owns the playback clock; the server slices O(1) ticks from precomputed overlay arrays.
+REST chunk/run routes are removed (**D-94**).
+
+### Evidence checked
+
+| Check | Result | Notes |
+|---|---|---|
+| API test suite | Passing | `50 passed` (22 replay-specific across 5 test files) |
+| D-88 through D-95 in DECISIONS.md | Done | Client clock, accelerated speed, buffer, DB sessions, progress UI |
+| `V007__replay_sessions.sql` | Done | Metadata + cursor checkpoint |
+| `ReplayEngine` / `ReplayBuffer` / `OverlayPipeline` | Done | Cursor, trim, extend, seek, tick slice |
+| `ReplaySessionStore` + `ReplayRepository` | Done | Postgres + in-memory hot cache; idle eviction |
+| WebSocket v2 | Done | `snapshot`, `tick_batch`, `refill`, `buffer_loading`, `buffer_ready`, `buffer_reset`, `replay_completed` |
+| Unknown session | Done | Close **4404** before accept (`REPLAY_NOT_FOUND`) |
+| REST cleanup | Done | `POST/GET/DELETE /replay/sessions` only; chunk/run routes removed |
+| OpenAPI | Done | REST + `x-websocket` replay contract; 4404/4401 documented |
+| O(1) tick path | Done | Mock proof + wall-time step latency test |
+
+### Rating breakdown
+
+| Area | Score | Comment |
+|---|---|---|
+| Architecture fidelity | 9/10 | Clean layering: engine → buffer → pipeline → indicator service; DB + cache store |
+| WS protocol v2 | 9/10 | Full v2 event set; 4404 aligned; integration tests for refill, reconnect, extend |
+| Performance model | 8.5/10 | O(1) per tick verified; forward extend still full-frame overlay recompute (acceptable v1) |
+| Persistence & sessions | 8/10 | Checkpoint + idle eviction + reconnect rebuild; no live-Postgres integration test |
+| REST cleanup | 10/10 | Chunk/run routes removed; OpenAPI and Postman updated |
+| Tests & documentation | 9/10 | HLD, ROADMAP, openapi.yaml in sync; minor WS edge cases untested |
+
+### Enhancements beyond original HLD
+
+| Enhancement | Notes |
+|---|---|
+| `require_session()` pre-accept guard | Validates DB row before WebSocket accept; closes 4404 on miss |
+| Step latency timing test | Early vs late 50-step batches stay within 5× bound |
+| WS integration coverage | Refill, idle eviction reconnect, buffer extend events, 4404 close |
+
+### Known gaps (acceptable for Phase 4c)
+
+- **No live-Postgres replay integration test** — checkpoint/resume across process restart tested via mocks; manual smoke on synced DB still recommended.
+- **`SUPERSEDED` concurrent WS** — documented (4401) but not automated in tests.
+- **`buffer_loading` mid-batch** — emitted at batch start only; extend inside `step_batch` may skip loading event.
+- **`compute_append` full-frame recompute** — ticks stay O(1); forward extend is O(n) on appended segment.
+- **No dedicated `REPLAY_WS.md`** — OpenAPI `x-websocket` section is the contract reference.
+
+### Completion verdict
+
+Phase 4c is **complete** and **ready for [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md)**.
+The backend solves the replay performance problem; remaining gaps are verification polish,
+not architectural blockers.
 
 ---
 

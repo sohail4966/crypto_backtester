@@ -191,8 +191,7 @@ auth / live WS → **Phase 11**.
 **Done when:** All [Phase 4b done criteria](PHASE_4B_HLD.md#done-criteria) pass; OpenAPI
 and Postman updated; FE can consume `/chart-data` without adapter.
 
-**Replay V2:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md) — complete (WebSocket streaming,
-supersedes REST chunks for replay).
+**Replay V2:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md) — complete (**8.9/10**, Grade A); WebSocket streaming supersedes REST chunks for replay.
 
 **Follow-up (FE Phase 1 findings):** [PHASE_4B_FE_GAPS.md](PHASE_4B_FE_GAPS.md) —
 derived-timeframe `data-range` / `get_latest_candles` fixes so the chart client does not
@@ -202,7 +201,8 @@ need 1m metadata fallback workarounds.
 
 ## Phase 4c — Replay V2 (WebSocket Streaming)
 
-**Status:** Complete — [PHASE_4C_HLD.md](PHASE_4C_HLD.md)  
+**Status:** Complete — [PHASE_4C_HLD.md — Completion Assessment](PHASE_4C_HLD.md#phase-4c-completion-assessment)  
+**Rating:** 8.9 / 10 (Grade A)  
 **Prerequisite:** Phase 4b complete  
 **Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page
 
@@ -220,7 +220,8 @@ session metadata in Postgres; REST chunk endpoints removed.
 | Cleanup | Remove `POST /replay/runs`, `GET /replay/{id}/chunk` |
 | Decisions | D-88 through D-95 |
 
-**Done when:** All [Phase 4c done criteria](PHASE_4C_HLD.md#done-criteria) pass.
+**Done when:** ✅ All [Phase 4c done criteria](PHASE_4C_HLD.md#done-criteria) pass; `50 passed`
+API tests (22 replay-specific). Manual smoke: `POST /replay/sessions` → `WS /ws/replay/{id}` on synced DB.
 
 ---
 

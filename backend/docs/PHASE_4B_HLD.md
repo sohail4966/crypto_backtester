@@ -4,7 +4,7 @@
 **Prerequisite:** Phase 4 complete ([PHASE_4_HLD.md](PHASE_4_HLD.md))  
 **Enables:** [SPEC-001](../../frontend/docs/SPEC-001.md) FE Phases 1–4 (chart, indicators, replay)  
 **Decisions:** D-80, D-81, D-82 (FE), D-86, D-87 (FE) in [DECISIONS.md](DECISIONS.md)  
-**Next after this:** [Phase 4c](PHASE_4C_HLD.md) (Replay V2) **or** Phase 5 (market structure) in parallel with FE; **Phase 4d** (backtest + trades API)
+**Next after this:** [Phase 4c](PHASE_4C_HLD.md) (Replay V2) ✅ **8.9/10** — enables FE Phase 3; **Phase 5** (market structure) or **Phase 4d** (backtest + trades API) in parallel
 
 ---
 

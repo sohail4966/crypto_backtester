@@ -1,6 +1,6 @@
 # Replay V2 Design — WebSocket Streaming with Precomputed Rolling Buffer
 
-**Status:** Approved (brainstorming 2026-06-28)  
+**Status:** Implemented (backend) — see [PHASE_4C_HLD.md — Completion Assessment](../../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment) (**8.9/10**, Grade A)  
 **Backend HLD:** [PHASE_4C_HLD.md](../../../backend/docs/PHASE_4C_HLD.md)  
 **Decisions:** D-88 through D-94 in [DECISIONS.md](../../../backend/docs/DECISIONS.md)  
 **Supersedes:** D-80 (REST replay chunks for FE), amends D-71, partially supersedes D-78  

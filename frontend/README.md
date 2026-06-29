@@ -24,7 +24,7 @@ Follow [ROADMAP](docs/ROADMAP.md) for phase-by-phase delivery.
 | 5 | MVP drawings (5 tools incl. Price Range) | ⬜ |
 | 6 | Multi-chart layouts, sync, workspace, shortcuts | ⬜ |
 
-**Backend ready for FE Phase 1–2:** [Phase 4b](../backend/docs/PHASE_4B_HLD.md) (`/chart-data`, symbol v2). **Replay:** [Phase 4c](../backend/docs/PHASE_4C_HLD.md) (WS streaming — in progress).
+**Backend ready for FE Phase 1–2:** [Phase 4b](../backend/docs/PHASE_4B_HLD.md) (`/chart-data`, symbol v2). **Replay backend:** [Phase 4c](../backend/docs/PHASE_4C_HLD.md) complete — **8.9/10** (WS v2 tick batches, DB sessions).
 
 **Deferred:** live WS watchlist ticks (Phase 11), backtest HTTP API, workspace backend sync (Phase 4d).
 

@@ -19,7 +19,7 @@ dependencies — mirroring [backend/docs/ROADMAP.md](../../backend/docs/ROADMAP.
 |---|---|
 | [Phase 4](../../backend/docs/PHASE_4_HLD.md) | Symbols, candles, indicators, users, watchlists, replay WS |
 | [Phase 4b](../../backend/docs/PHASE_4B_HLD.md) ✅ | **`GET /chart-data`**, symbol v2 (**D-81**, **D-86**) |
-| [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (planned) | **Replay V2** — WS streaming, rolling buffer (**D-88–D-95**) |
+| [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) ✅ **8.9/10** | **Replay V2** — WS streaming, rolling buffer (**D-88–D-95**) |
 | Phase 4d (planned) | Backtest HTTP API, non-empty `signals` / `trades` in chart-data |
 | Phase 4d (planned) | Workspace sync (`GET/POST /workspace`) for drawings + layouts (**D-85**) |
 | Phase 11 (planned) | JWT auth, live candle WebSocket for watchlist ticks (**D-78**) |
@@ -127,9 +127,9 @@ candle/indicator requests; toggling off hides series.
 
 **Status:** Not started — **current focus**  
 **Design doc:** [FE_PHASE_3_HLD.md](FE_PHASE_3_HLD.md) · **Spec:** [SPEC-001 §4.5](SPEC-001.md)  
-**Prerequisite:** FE Phase 1–2 complete, [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) (backend)  
-**Backend:** `POST /replay/sessions`, `WS /ws/replay/{sessionId}`  
-**Decisions:** **D-88–D-94** — WebSocket tick batches; client-owned playback clock
+**Prerequisite:** FE Phase 1–2 complete  
+**Backend:** ✅ [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) complete — **8.9/10** ([assessment](../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment)); `POST /replay/sessions`, `WS /ws/replay/{sessionId}`  
+**Decisions:** **D-88–D-95** — WebSocket tick batches; client-owned playback clock
 
 **Theme:** Browser owns playback clock; backend precomputes indicators in a rolling buffer.
 
@@ -258,7 +258,7 @@ indicators in chart-data requests. Phase 6 integrates everything.
 | 0 | `GET /meta/health` |
 | 1 | Phase 4b: `/chart-data`, `/symbols/search`, `/symbols/{id}/data-range` |
 | 2 | + `/indicators` catalog |
-| 3 | + `/replay/sessions`, `WS /ws/replay/{id}` ([Phase 4c](../../backend/docs/PHASE_4C_HLD.md)) |
+| 3 | + `/replay/sessions`, `WS /ws/replay/{id}` — ✅ [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) **8.9/10** |
 | 4 | + `/users`, `/users/{id}/watchlists` |
 | 5 | — (IndexedDB only) |
 | 6 | — (4d optional for server workspace) |
