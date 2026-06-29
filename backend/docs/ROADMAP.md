@@ -180,18 +180,18 @@ replay data via REST without a client-side adapter or replay WebSocket.
 
 | Area | What gets built |
 |---|---|
-| Chart data | `GET /chart-data` — candles + indicators (+ empty signals/trades until 4c) |
+| Chart data | `GET /chart-data` — candles + indicators (+ empty signals/trades until 4d) |
 | Symbols | `V006` migration — exchange, tick/lot size, asset type; v2 response; `/symbols/search` alias |
 | Replay | `POST /replay/runs`, `GET /replay/{run_id}/chunk`, `GET /replay/{run_id}/trades` (stub) |
 | Compatibility | Phase 4 REST + replay WS unchanged |
 
-**Deferred:** Workspace sync → **Phase 4d**; backtest HTTP + real trades → **Phase 4c**;
+**Deferred:** Workspace sync → **Phase 4d**; backtest HTTP + real trades → **Phase 4d**;
 auth / live WS → **Phase 11**.
 
 **Done when:** All [Phase 4b done criteria](PHASE_4B_HLD.md#done-criteria) pass; OpenAPI
 and Postman updated; FE can consume `/chart-data` without adapter.
 
-**Follow-up:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md) — Replay V2 (WebSocket streaming,
+**Replay V2:** [PHASE_4C_HLD.md](PHASE_4C_HLD.md) — complete (WebSocket streaming,
 supersedes REST chunks for replay).
 
 **Follow-up (FE Phase 1 findings):** [PHASE_4B_FE_GAPS.md](PHASE_4B_FE_GAPS.md) —
@@ -202,7 +202,7 @@ need 1m metadata fallback workarounds.
 
 ## Phase 4c — Replay V2 (WebSocket Streaming)
 
-**Status:** Not started — [PHASE_4C_HLD.md](PHASE_4C_HLD.md)  
+**Status:** Complete — [PHASE_4C_HLD.md](PHASE_4C_HLD.md)  
 **Prerequisite:** Phase 4b complete  
 **Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page
 

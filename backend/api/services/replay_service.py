@@ -11,6 +11,7 @@ from uuid import UUID
 
 import psycopg
 
+from api.exceptions import NotFoundError
 from api.schemas.indicators import IndicatorSpec
 from api.schemas.replay import ReplaySessionCreate, ReplayStateResponse
 from api.services.replay_engine import ReplayEngine
@@ -43,6 +44,19 @@ class ReplayService:
             Engine with buffer loaded; connect WS at returned ``ws_url``.
         """
         return self._store.create(conn, body)
+
+    def require_session(self, conn: psycopg.Connection, session_id: UUID) -> None:
+        """
+        Ensure a replay session row exists in the database.
+
+        Args:
+            conn: Database connection.
+            session_id: Session UUID.
+
+        Raises:
+            NotFoundError: When the session does not exist.
+        """
+        self._store.get_row(conn, session_id)
 
     def get_engine(self, conn: psycopg.Connection, session_id: UUID) -> ReplayEngine:
         """

@@ -601,6 +601,9 @@ x-websocket:
       client sends `refill` when queue depth drops below threshold.
 
       Sessions persist metadata in Postgres; in-memory buffer rebuilds on reconnect.
+
+      Unknown `session_id` closes the socket with application code **4404** (`REPLAY_NOT_FOUND`)
+      before any replay events. A superseded concurrent connection closes with **4401**.
     parameters:
       - name: session_id
         in: path

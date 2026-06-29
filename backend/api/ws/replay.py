@@ -23,13 +23,16 @@ from uuid import UUID
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
-from api.exceptions import ApiError, ValidationError
+from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.schemas.indicators import IndicatorSpec
 from api.services.replay_engine import ReplayEngine
 from api.services.replay_service import ReplayService, get_replay_service
 from data.db import connect
 
 router = APIRouter()
+
+# Application-defined close code when ``session_id`` is unknown (see PHASE_4C_HLD).
+WS_REPLAY_NOT_FOUND = 4404
 
 # Last connection per session wins; prior socket receives SUPERSEDED + close.
 _active_connections: dict[UUID, WebSocket] = {}
@@ -151,6 +154,13 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
         session_id: Replay session UUID from ``POST /replay/sessions``.
     """
     service = get_replay_service()
+    try:
+        with connect() as conn:
+            service.require_session(conn, session_id)
+    except NotFoundError:
+        await websocket.close(code=WS_REPLAY_NOT_FOUND, reason="REPLAY_NOT_FOUND")
+        return
+
     prior = _active_connections.get(session_id)
     if prior is not None:
         try:
@@ -260,6 +270,11 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
 
     except WebSocketDisconnect:
         pass
+    except NotFoundError:
+        try:
+            await websocket.close(code=WS_REPLAY_NOT_FOUND, reason="REPLAY_NOT_FOUND")
+        except Exception:
+            pass
     except ApiError as exc:
         await _send_json(websocket, _error_event(exc.code, exc.message))
     finally:

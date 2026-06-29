@@ -188,3 +188,31 @@ def test_engine_completes_at_latest(mock_load: MagicMock, mock_range: MagicMock)
         engine.step_batch(conn, count=1)
 
     assert engine.state == "completed"
+
+
+@patch("api.services.replay_engine.CandleService.get_data_range")
+@patch("api.services.replay_engine.CandleService.load_dataframe")
+def test_engine_step_latency_does_not_grow_linearly(mock_load: MagicMock, mock_range: MagicMock) -> None:
+    """Wall time for a fixed batch size stays bounded as cursor advances through the buffer."""
+    import time
+
+    frame = _sample_frame(300)
+    mock_load.return_value = frame
+    latest = int(frame["ts"].iloc[-1].timestamp())
+    mock_range.return_value = (int(frame["ts"].iloc[0].timestamp()), latest, len(frame))
+
+    engine = ReplayEngine.from_row(_engine_row())
+    conn = MagicMock()
+    engine.load_buffer(conn)
+
+    def step_batch_seconds(count: int) -> float:
+        start = time.perf_counter()
+        engine.step_batch(conn, count=count)
+        return time.perf_counter() - start
+
+    early = step_batch_seconds(50)
+    engine.step_batch(conn, count=150)
+    late = step_batch_seconds(50)
+
+    # O(1) per tick: late batch should not scale linearly with cursor depth.
+    assert late < early * 5 + 0.05

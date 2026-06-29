@@ -1,6 +1,6 @@
 # Phase 4c High Level Design — Replay V2 (WebSocket Streaming)
 
-**Status:** Not started  
+**Status:** Complete  
 **Prerequisite:** Phase 4b complete ([PHASE_4B_HLD.md](PHASE_4B_HLD.md))  
 **Enables:** [FE Phase 3](../frontend/docs/FE_PHASE_3_HLD.md) replay page  
 **Decisions:** D-88 through D-95 in [DECISIONS.md](DECISIONS.md)  
@@ -100,7 +100,7 @@ data/migrations/sql/
 tests/api/
   test_replay_engine.py        # NEW
   test_replay_buffer.py        # NEW
-  test_replay_ws_v2.py         # NEW
+  test_replay_ws.py         # NEW (WS v2 integration)
   test_replay_sessions_db.py   # NEW
   test_replay_chunks.py        # DELETE or replace with 410 tests
 docs/
@@ -384,7 +384,7 @@ Return **404** for unknown paths (routes deleted in Phase 4c).
 |-----------|--------|
 | `test_replay_buffer.py` | Load, trim, extend, overlay precompute |
 | `test_replay_engine.py` | Step O(1), seek cases, open-ended end |
-| `test_replay_ws_v2.py` | tick_batch, snapshot, refill, reconnect |
+| `test_replay_ws.py` | tick_batch, snapshot, refill, reconnect, buffer extend, 4404 |
 | `test_replay_sessions_db.py` | CRUD, checkpoint, idle eviction + reload |
 | `test_replay_rest_deprecated.py` | Removed with chunk/run routes |
 
@@ -434,14 +434,14 @@ Return **404** for unknown paths (routes deleted in Phase 4c).
 
 Phase 4c is **complete** when:
 
-- [ ] `V007` migration applied; sessions persist across process restart (metadata + cursor)
-- [ ] WS v2: `snapshot` + `tick_batch` + `refill` work end-to-end
-- [ ] Tick latency O(1) — no prefix recompute per step
-- [ ] Rolling trail trim + forward extend work at configured thresholds
-- [ ] Open-ended replay stops at latest DB candle with `replay_completed`
+- [x] `V007` migration applied; sessions persist across process restart (metadata + cursor)
+- [x] WS v2: `snapshot` + `tick_batch` + `refill` work end-to-end
+- [x] Tick latency O(1) — no prefix recompute per step
+- [x] Rolling trail trim + forward extend work at configured thresholds
+- [x] Open-ended replay stops at latest DB candle with `replay_completed`
 - [x] REST chunk/run routes removed
-- [ ] D-88–D-95 recorded in DECISIONS.md
-- [ ] OpenAPI + tests updated; full suite green
+- [x] D-88–D-95 recorded in DECISIONS.md
+- [x] OpenAPI + tests updated; full suite green
 
 ---
 
