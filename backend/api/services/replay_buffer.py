@@ -261,7 +261,10 @@ class ReplayBuffer:
         indicators: dict[str, dict[str, Any]] = {}
         for series_id, values in self.overlays.items():
             if idx < len(values):
-                indicators[series_id] = {"time": bar.time, "value": values[idx]}
+                value = values[idx]
+                if value is not None and pd.isna(value):
+                    value = None
+                indicators[series_id] = {"time": bar.time, "value": value}
         return ReplayTick(bar=bar, indicators=indicators)
 
     def slice_ticks(self, count: int) -> list[ReplayTick]:
