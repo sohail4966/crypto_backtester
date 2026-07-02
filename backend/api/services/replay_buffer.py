@@ -214,10 +214,10 @@ class ReplayBuffer:
         """
         if self.frame.empty:
             return False
-        if self.latest_available_ts is None:
-            return False
         if self.at_latest():
             return False
+        if self.latest_available_ts is None:
+            return self.cursor_idx < self.prefetch_end_idx
         return self.cursor_idx < self.prefetch_end_idx
 
     def index_at_or_before(self, ts: int) -> int:

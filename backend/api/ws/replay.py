@@ -123,8 +123,7 @@ async def _send_tick_batch(
     if engine.buffer.needs_extend(settings.replay_extend_threshold()):
         await _send_json(websocket, {"type": "buffer_loading"})
     ticks, extend_status = engine.step_batch(conn, count=count)
-    if ticks:
-        await _send_json(websocket, engine.tick_batch_payload(ticks))
+    await _send_json(websocket, engine.tick_batch_payload(ticks))
     await _emit_extend_events(websocket, engine, extend_status)
     return extend_status
 

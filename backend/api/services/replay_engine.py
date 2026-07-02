@@ -146,6 +146,8 @@ class ReplayEngine:
         _, latest_ts, _ = self._candles.get_data_range(conn, self.symbol, self.step_timeframe)
         if latest_ts is not None:
             self.buffer.latest_available_ts = latest_ts
+        elif not self.buffer.frame.empty:
+            self.buffer.latest_available_ts = int(self.buffer.frame.iloc[-1]["ts"].timestamp())
 
     def load_buffer(self, conn: psycopg.Connection, *, cursor_ts: int | None = None) -> None:
         """
@@ -184,6 +186,8 @@ class ReplayEngine:
             load_to,
             warmup_bars=warmup,
         )
+        if latest_ts is None and not frame.empty:
+            latest_ts = int(frame.iloc[-1]["ts"].timestamp())
         self.buffer.load(
             frame,
             self.indicators,

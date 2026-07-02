@@ -97,6 +97,32 @@ SELECT MIN(ts) FROM candles
 WHERE symbol = %s AND timeframe = %s
 """
 
+# Derived metadata from canonical 1m rows (same bucketing as SELECT_DERIVED_CANDLES_BY_RANGE).
+SELECT_DERIVED_MAX_TS = """
+SELECT MAX(bucket_ts) FROM (
+    SELECT time_bucket(%s::interval, ts) AS bucket_ts
+    FROM candles
+    WHERE symbol = %s AND timeframe = '1m'
+) AS buckets
+"""
+
+SELECT_DERIVED_MIN_TS = """
+SELECT MIN(bucket_ts) FROM (
+    SELECT time_bucket(%s::interval, ts) AS bucket_ts
+    FROM candles
+    WHERE symbol = %s AND timeframe = '1m'
+) AS buckets
+"""
+
+SELECT_DERIVED_BAR_COUNT = """
+SELECT COUNT(*) FROM (
+    SELECT time_bucket(%s::interval, ts) AS bucket_ts
+    FROM candles
+    WHERE symbol = %s AND timeframe = '1m'
+    GROUP BY bucket_ts
+) AS buckets
+"""
+
 # --- data_gaps DML ---
 
 INSERT_GAP = """

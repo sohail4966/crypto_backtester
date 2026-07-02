@@ -229,8 +229,11 @@ class CandleRepository:
             conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(queries.SELECT_MAX_TS, (symbol, timeframe))
-                # MAX() over zero rows returns a single (None,) row, not an empty result.
+                if timeframe == "1m":
+                    cur.execute(queries.SELECT_MAX_TS, (symbol, timeframe))
+                else:
+                    interval = _to_derived_interval(timeframe)
+                    cur.execute(queries.SELECT_DERIVED_MAX_TS, (interval, symbol))
                 (max_ts,) = cur.fetchone()
                 return max_ts
         finally:
@@ -249,7 +252,11 @@ class CandleRepository:
             conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(queries.SELECT_MIN_TS, (symbol, timeframe))
+                if timeframe == "1m":
+                    cur.execute(queries.SELECT_MIN_TS, (symbol, timeframe))
+                else:
+                    interval = _to_derived_interval(timeframe)
+                    cur.execute(queries.SELECT_DERIVED_MIN_TS, (interval, symbol))
                 (min_ts,) = cur.fetchone()
                 return min_ts
         finally:
@@ -268,7 +275,11 @@ class CandleRepository:
             conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(queries.COUNT_CANDLES, (symbol, timeframe))
+                if timeframe == "1m":
+                    cur.execute(queries.COUNT_CANDLES, (symbol, timeframe))
+                else:
+                    interval = _to_derived_interval(timeframe)
+                    cur.execute(queries.SELECT_DERIVED_BAR_COUNT, (interval, symbol))
                 (count,) = cur.fetchone()
                 return int(count)
         finally:
