@@ -60,9 +60,6 @@ export function Sidebar() {
           <NavLink to="/" end className={navLinkClass}>
             Chart
           </NavLink>
-          <NavLink to="/replay" className={navLinkClass}>
-            Replay
-          </NavLink>
           <NavLink to="/backtest" className={navLinkClass}>
             Backtest
           </NavLink>

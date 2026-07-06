@@ -28,12 +28,14 @@ interface ChartState {
   showGrid: boolean
   showVolume: boolean
   zoomControlsPulse: number
+  replayMode: boolean
   setSymbol: (symbol: Symbol) => void
   setTimeframe: (timeframe: ChartTimeframe) => void
   setTimezone: (timezone: ChartTimezoneId) => void
   setShowGrid: (showGrid: boolean) => void
   setShowVolume: (showVolume: boolean) => void
   pulseZoomControls: () => void
+  setReplayMode: (replayMode: boolean) => void
 }
 
 export const useChartStore = create<ChartState>((set) => ({
@@ -43,6 +45,7 @@ export const useChartStore = create<ChartState>((set) => ({
   showGrid: loadShowGridPreference(),
   showVolume: true,
   zoomControlsPulse: 0,
+  replayMode: false,
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
   setTimezone: (timezone) => {
@@ -56,6 +59,7 @@ export const useChartStore = create<ChartState>((set) => ({
   setShowVolume: (showVolume) => set({ showVolume }),
   pulseZoomControls: () =>
     set((state) => ({ zoomControlsPulse: state.zoomControlsPulse + 1 })),
+  setReplayMode: (replayMode) => set({ replayMode }),
 }))
 
 export const defaultSymbolId = DEFAULT_SYMBOL_ID

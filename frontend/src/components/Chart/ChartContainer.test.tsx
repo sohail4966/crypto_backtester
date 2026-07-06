@@ -16,6 +16,7 @@ const chartMocks = vi.hoisted(() => {
   const chart = {
     addCandlestickSeries: vi.fn(() => ({
       applyOptions: vi.fn(),
+      setData: vi.fn(),
     })),
     addHistogramSeries: vi.fn(() => ({
       applyOptions: vi.fn(),

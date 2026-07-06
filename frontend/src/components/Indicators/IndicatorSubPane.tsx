@@ -330,7 +330,7 @@ export function IndicatorSubPane({
         } else {
           series = chart.addLineSeries({
             color: seriesColor,
-            lineWidth: item.lineWidth ?? 2,
+            lineWidth: (item.lineWidth ?? 2) as 1 | 2 | 3 | 4,
             title: item.key,
             priceLineVisible: false,
             lastValueVisible: true,
@@ -356,7 +356,10 @@ export function IndicatorSubPane({
         )
       } else {
         series.setData(toLineData(points))
-        series.applyOptions({ color: seriesColor, lineWidth: item.lineWidth ?? 2 })
+        series.applyOptions({
+          color: seriesColor,
+          lineWidth: (item.lineWidth ?? 2) as 1 | 2 | 3 | 4,
+        })
       }
 
       series.applyOptions({ visible: item.visible !== false })

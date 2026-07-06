@@ -24,7 +24,8 @@ import { VolumeSeries } from '@/components/Chart/VolumeSeries'
 import { useTheme } from '@/hooks/useTheme'
 import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
-import type { ActiveIndicator, IndicatorSpec } from '@/types/indicator'
+import type { ActiveIndicator, IndicatorSeriesMap, IndicatorSpec } from '@/types/indicator'
+import { useReplayStore } from '@/stores/replayStore'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { usePaneLayout } from '@/hooks/usePaneLayout'
 import type { ChartTimezoneId } from '@/constants/timezone'
@@ -39,6 +40,14 @@ import {
   indicatorDisplayLabel,
   resolveIndicatorColor,
 } from '@/utils/indicatorDisplay'
+import { snapToNearestBarTime } from '@/utils/replayAnchor'
+import {
+  composeReplayCandles,
+  filterCandlesBefore,
+  filterIndicatorsBefore,
+  mergeReplayIndicators,
+} from '@/utils/replayChartData'
+import type { ReplayBaselineSnapshot } from '@/hooks/useReplaySession'
 import {
   candleCloseFromLookup,
   createCandleCloseLookup,
@@ -47,9 +56,18 @@ import {
 interface ChartContainerProps {
   paneId?: string
   className?: string
+  pickAnchorMode?: boolean
+  replaySessionActive?: boolean
+  onPickAnchor?: (time: number, baseline: ReplayBaselineSnapshot) => void
 }
 
-export function ChartContainer({ paneId = 'main', className }: ChartContainerProps) {
+export function ChartContainer({
+  paneId = 'main',
+  className,
+  pickAnchorMode = false,
+  replaySessionActive = false,
+  onPickAnchor,
+}: ChartContainerProps) {
   const layoutRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -109,11 +127,47 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   const symbolId = symbol?.id
   const fitKey = `${symbolId ?? 'none'}-${timeframe}`
 
-  const { candles, indicators, status, error, onVisibleRangeChange } = useChunkManager(
-    symbolId,
-    timeframe,
-    indicatorSpecs,
+  const replayCandles = useReplayStore((state) => state.candles)
+  const replayIndicators = useReplayStore((state) => state.indicators)
+  const baselineCandles = useReplayStore((state) => state.baselineCandles)
+  const baselineIndicators = useReplayStore((state) => state.baselineIndicators)
+  const replayPhase = useReplayStore((state) => state.phase)
+  const startAnchor = useReplayStore((state) => state.startAnchor)
+
+  const { candles: liveCandles, indicators: liveIndicators, status, error, onVisibleRangeChange } =
+    useChunkManager(symbolId, timeframe, indicatorSpecs)
+
+  const chartCandles = useMemo(
+    () =>
+      composeReplayCandles(replaySessionActive, liveCandles, baselineCandles, replayCandles),
+    [baselineCandles, liveCandles, replayCandles, replaySessionActive],
   )
+
+  const chartIndicators = useMemo((): IndicatorSeriesMap => {
+    if (baselineCandles.length > 0 || replayCandles.length > 0) {
+      return mergeReplayIndicators(baselineIndicators, replayIndicators)
+    }
+    if (!replaySessionActive) {
+      return liveIndicators
+    }
+    return liveIndicators
+  }, [
+    baselineCandles.length,
+    baselineIndicators,
+    liveIndicators,
+    replayCandles.length,
+    replayIndicators,
+    replaySessionActive,
+  ])
+
+  const replayViewportLocked = replaySessionActive || baselineCandles.length > 0
+
+  const displayStatus =
+    replaySessionActive && replayPhase === 'seeking'
+      ? 'loading'
+      : replaySessionActive
+        ? 'ready'
+        : status
 
   const [chartReady, setChartReady] = useState(false)
   const [crosshairTime, setCrosshairTime] = useState<number | null>(null)
@@ -128,8 +182,36 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   } = usePaneLayout(layoutHeight, subchartGroups)
 
   useEffect(() => {
-    candleCloseLookupRef.current = createCandleCloseLookup(candles)
-  }, [candles])
+    candleCloseLookupRef.current = createCandleCloseLookup(chartCandles)
+  }, [chartCandles])
+
+  // Freeze pre-anchor chart as-is when the session becomes ready (no series swap).
+  useEffect(() => {
+    if (!replaySessionActive || replayPhase !== 'ready' || startAnchor == null) {
+      return
+    }
+    const store = useReplayStore.getState()
+    if (store.baselineCandles.length > 0) {
+      return
+    }
+    store.setReplayBaseline(
+      filterCandlesBefore(startAnchor, liveCandles),
+      filterIndicatorsBefore(startAnchor, liveIndicators),
+    )
+  }, [liveCandles, liveIndicators, replayPhase, replaySessionActive, startAnchor])
+
+  const handlePickAnchor = useCallback(
+    (time: number) => {
+      if (!onPickAnchor) {
+        return
+      }
+      onPickAnchor(time, {
+        baselineCandles: filterCandlesBefore(time, liveCandles),
+        baselineIndicators: filterIndicatorsBefore(time, liveIndicators),
+      })
+    },
+    [liveCandles, liveIndicators, onPickAnchor],
+  )
 
   useEffect(() => {
     const layout = layoutRef.current
@@ -222,8 +304,28 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
   }, [showGrid])
 
   useEffect(() => {
-    onRangeChangeRef.current = onVisibleRangeChange
-  }, [onVisibleRangeChange])
+    onRangeChangeRef.current = replaySessionActive ? () => {} : onVisibleRangeChange
+  }, [onVisibleRangeChange, replaySessionActive])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !chartReady || !pickAnchorMode || !onPickAnchor) {
+      return
+    }
+
+    const onClick = (param: MouseEventParams) => {
+      if (param.time == null) {
+        return
+      }
+      const time = typeof param.time === 'number' ? param.time : null
+      if (time != null) {
+        handlePickAnchor(snapToNearestBarTime(time, liveCandles))
+      }
+    }
+
+    chart.subscribeClick(onClick)
+    return () => chart.unsubscribeClick(onClick)
+  }, [chartReady, handlePickAnchor, liveCandles, pickAnchorMode])
 
   useEffect(() => {
     const main = chartRef.current
@@ -357,19 +459,19 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
         Select a symbol to load the chart.
       </div>
     )
-  } else if (status === 'loading' || status === 'idle') {
+  } else if (displayStatus === 'loading' || displayStatus === 'idle') {
     overlay = (
       <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-bg/80 text-sm text-text-secondary">
         Loading chart…
       </div>
     )
-  } else if (status === 'error') {
+  } else if (displayStatus === 'error') {
     overlay = (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg/90 px-6 text-center text-sm text-bear">
         {error?.message ?? 'Failed to load chart data.'}
       </div>
     )
-  } else if (candles.length === 0) {
+  } else if (chartCandles.length === 0 && !replaySessionActive) {
     overlay = (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg/90 px-6 text-center text-sm text-text-secondary">
         No candle data returned for this symbol and timeframe.
@@ -394,32 +496,50 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
             data-pane-id={paneId}
           />
           {overlay}
-          {chartReady && candles.length > 0 ? (
+          {replayPhase === 'seeking' ? (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-bg/40 text-sm text-text-secondary">
+              Seeking…
+            </div>
+          ) : null}
+          {chartReady && (chartCandles.length > 0 || replaySessionActive) ? (
             <>
-              <CandlestickSeries candles={candles} fitKey={fitKey} />
-              <VolumeSeries candles={candles} theme={theme} />
+              <CandlestickSeries
+                candles={chartCandles}
+                fitKey={fitKey}
+                lockViewport={replayViewportLocked}
+                incrementalAppend={replaySessionActive}
+              />
+              {chartCandles.length > 0 ? (
+                <VolumeSeries
+                  candles={chartCandles}
+                  theme={theme}
+                  lockViewport={replayViewportLocked}
+                />
+              ) : null}
               {activeIndicators
                 .filter((item) => item.pane === 'overlay')
-                .map((item) => (
-                  <OverlayIndicatorSeries
-                    key={item.instanceId}
-                    seriesId={item.seriesId}
-                    label={indicatorDisplayLabel(item.key, item.params)}
-                    points={indicators[item.seriesId] ?? []}
-                    color={resolveIndicatorColor(
+                .map((item) => {
+                  const seriesProps = {
+                    seriesId: item.seriesId,
+                    label: indicatorDisplayLabel(item.key, item.params),
+                    points: chartIndicators[item.seriesId] ?? [],
+                    color: resolveIndicatorColor(
                       item,
                       colorIndexForInstance(activeIndicators, item.instanceId),
                       theme,
-                    )}
-                    lineWidth={item.lineWidth ?? 2}
-                    visible={item.visible !== false}
-                  />
-                ))}
+                    ),
+                    lineWidth: item.lineWidth ?? 2,
+                    visible: item.visible !== false,
+                  }
+                  return (
+                    <OverlayIndicatorSeries key={item.instanceId} {...seriesProps} />
+                  )
+                })}
               <ChartLegend
-                candles={candles}
+                candles={chartCandles}
                 theme={theme}
                 overlayIndicators={overlayIndicators}
-                indicators={indicators}
+                indicators={chartIndicators}
               />
             </>
           ) : null}
@@ -442,15 +562,15 @@ export function ChartContainer({ paneId = 'main', className }: ChartContainerPro
                   <IndicatorSubPane
                     paneId={paneIdKey}
                     group={group}
-                    indicators={indicators}
+                    indicators={chartIndicators}
                     chartHeight={getSubChartHeight(groupKey)}
                   />
                 </div>
               )
             })
           : null}
-        {chartReady && candles.length > 0 ? (
-          <ChartZoomControls barCount={candles.length} />
+        {chartReady && chartCandles.length > 0 ? (
+          <ChartZoomControls barCount={chartCandles.length} />
         ) : null}
       </div>
     </ChartContext.Provider>

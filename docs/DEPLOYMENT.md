@@ -71,6 +71,7 @@ Still on the create screen (or **Environment** tab after create):
 |-----|-------|
 | `DATABASE_URL` | Your Tiger Cloud string. `postgresql://` or `postgres://` both work. Keep `?sslmode=require`. |
 | `CORS_ORIGINS` | Placeholder for now, e.g. `https://placeholder.vercel.app` — update after Vercel deploy |
+| `CORS_ALLOW_LOCALHOST` | Optional, default `true` — allows `http://localhost:<port>` for local Vite dev against Render |
 
 Render injects `PORT` automatically; do not set it manually.
 
@@ -183,7 +184,7 @@ python -m api
 | Docker build fails on TA-Lib | Check build logs; the Dockerfile uses Linux wheels — retry deploy |
 | API health fails / DB error | Verify `DATABASE_URL`; Tiger IP allow list must allow Render |
 | `create_hypertable` error | Use Tiger Cloud, not Render managed Postgres |
-| CORS errors | `CORS_ORIGINS` must match Vercel URL exactly |
+| CORS errors | `CORS_ORIGINS` must include your Vercel URL exactly. Local dev on `localhost:5174+` is allowed when `CORS_ALLOW_LOCALHOST=true` (default). Or add explicit origins: `http://localhost:5174` |
 | Empty chart | Run `run_sync.py --backfill` locally with `DATABASE_URL` |
 | 502 / slow first load | Render free cold start — wait ~60s and retry |
 | Storage full on Tiger free | Reduce symbols in `data.yaml` |

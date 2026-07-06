@@ -4,15 +4,17 @@ import { useChartContext } from '@/components/Chart/ChartContext'
 import { useChartStore } from '@/stores/chartStore'
 import type { OHLCVBar } from '@/types/candle'
 import { toUtcTimestamp } from '@/utils/chartSeriesData'
+import { captureVisibleTimeRange, restoreVisibleTimeRange } from '@/utils/chartViewport'
 import { resolveChartColor } from '@/utils/color'
 
 interface VolumeSeriesProps {
   candles: OHLCVBar[]
   theme: Theme
+  lockViewport?: boolean
 }
 
-export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
-  const { volumeSeries } = useChartContext()
+export function VolumeSeries({ candles, theme, lockViewport = false }: VolumeSeriesProps) {
+  const { chart, volumeSeries } = useChartContext()
   const showVolume = useChartStore((state) => state.showVolume)
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
     const bull = resolveChartColor('var(--color-bull)', theme)
     const bear = resolveChartColor('var(--color-bear)', theme)
 
+    const visibleRange = lockViewport ? captureVisibleTimeRange(chart) : null
     volumeSeries.setData(
       candles.flatMap((bar) => {
         const time = toUtcTimestamp(bar.time)
@@ -51,7 +54,8 @@ export function VolumeSeries({ candles, theme }: VolumeSeriesProps) {
             }]
       }),
     )
-  }, [candles, theme, volumeSeries])
+    restoreVisibleTimeRange(chart, visibleRange)
+  }, [candles, chart, lockViewport, theme, volumeSeries])
 
   return null
 }

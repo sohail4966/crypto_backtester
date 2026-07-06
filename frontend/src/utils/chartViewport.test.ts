@@ -1,24 +1,31 @@
-import { describe, expect, it } from 'vitest'
-import { FIT_RIGHT_OFFSET_BARS, FIT_VISIBLE_BARS } from '@/constants/chart'
-import { visibleBarsRange } from '@/utils/chartViewport'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  captureVisibleTimeRange,
+  restoreVisibleTimeRange,
+} from '@/utils/chartViewport'
 
-describe('visibleBarsRange', () => {
-  it('returns null for empty data', () => {
-    expect(visibleBarsRange(0)).toBeNull()
+describe('chartViewport time range', () => {
+  it('captures numeric visible time ranges', () => {
+    const chart = {
+      timeScale: () => ({
+        getVisibleRange: () => ({ from: 100, to: 200 }),
+        setVisibleRange: vi.fn(),
+      }),
+    }
+
+    expect(captureVisibleTimeRange(chart as never)).toEqual({ from: 100, to: 200 })
   })
 
-  it('shows all bars when total is below the fit limit', () => {
-    expect(visibleBarsRange(50)).toEqual({
-      from: 0 - FIT_RIGHT_OFFSET_BARS,
-      to: 49 + FIT_RIGHT_OFFSET_BARS,
-    })
-  })
+  it('restores a captured range on the chart', () => {
+    const setVisibleRange = vi.fn()
+    const chart = {
+      timeScale: () => ({
+        getVisibleRange: () => null,
+        setVisibleRange,
+      }),
+    }
 
-  it('shows the last FIT_VISIBLE_BARS candles anchored to the right', () => {
-    const range = visibleBarsRange(500)
-    expect(range).toEqual({
-      from: 500 - FIT_VISIBLE_BARS - FIT_RIGHT_OFFSET_BARS,
-      to: 499 + FIT_RIGHT_OFFSET_BARS,
-    })
+    restoreVisibleTimeRange(chart as never, { from: 100 as never, to: 200 as never })
+    expect(setVisibleRange).toHaveBeenCalledWith({ from: 100, to: 200 })
   })
 })

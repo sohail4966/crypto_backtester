@@ -30,7 +30,7 @@ export function OverlayIndicatorSeries({
     }
 
     const series = chart.addLineSeries({
-      lineWidth,
+      lineWidth: (lineWidth ?? 2) as 1 | 2 | 3 | 4,
       priceLineVisible: false,
       lastValueVisible: true,
     })
@@ -43,7 +43,12 @@ export function OverlayIndicatorSeries({
   }, [chart, seriesId])
 
   useEffect(() => {
-    seriesRef.current?.applyOptions({ color, title: label, visible, lineWidth })
+    seriesRef.current?.applyOptions({
+      color,
+      title: label,
+      visible,
+      lineWidth: (lineWidth ?? 2) as 1 | 2 | 3 | 4,
+    })
   }, [color, label, lineWidth, visible])
 
   useEffect(() => {

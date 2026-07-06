@@ -24,6 +24,18 @@ def cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def cors_allow_localhost_regex() -> str | None:
+    """
+    Optional regex for local SPA dev (Vite may use 5173, 5174, … when ports are taken).
+
+    Set ``CORS_ALLOW_LOCALHOST=false`` to disable (production lock-down).
+    """
+    enabled = os.environ.get("CORS_ALLOW_LOCALHOST", "true").lower()
+    if enabled in ("0", "false", "no", "off"):
+        return None
+    return r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+
+
 def candle_default_limit() -> int:
     """Default number of candles per historical request."""
     return int(os.environ.get("CANDLE_DEFAULT_LIMIT", "1000"))
