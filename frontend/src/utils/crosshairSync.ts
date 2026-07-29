@@ -1,6 +1,6 @@
 import type { IChartApi, ISeriesApi, SeriesType, UTCTimestamp } from 'lightweight-charts'
 import type { OHLCVBar } from '@/types/candle'
-import { createTimeLookup, lookupByTime } from '@/utils/timeSeriesLookup'
+import { lookupByTime } from '@/utils/timeSeriesLookup'
 
 export function createCandleCloseLookup(candles: readonly OHLCVBar[]): Map<number, number> {
   const byTime = new Map<number, number>()
@@ -17,11 +17,6 @@ export function candleCloseFromLookup(
   time: number,
 ): number | null {
   return lookupByTime(lookup, time)
-}
-
-export function candleCloseAtTime(candles: OHLCVBar[], time: number): number | null {
-  const bar = lookupByTime(createTimeLookup(candles), time)
-  return bar?.close ?? null
 }
 
 /** lw-charts throws if the series/chart is mid-mount or the time is not in series data. */

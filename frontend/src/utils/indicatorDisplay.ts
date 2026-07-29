@@ -156,24 +156,3 @@ export function formatIndicatorValue(key: string, value: number): string {
   }
   return formatPrice(value)
 }
-
-export function overlayLegendRows(
-  items: ActiveIndicator[],
-  indicators: Record<string, IndicatorPoint[]>,
-  time: number,
-  theme: Theme,
-): Array<{ label: string; value: string; color: string }> {
-  return items.flatMap((item, index) => {
-    const value = indicatorValueAtTime(indicators[item.seriesId] ?? [], time)
-    if (value == null) {
-      return []
-    }
-    return [
-      {
-        label: indicatorDisplayLabel(item.key, item.params),
-        value: formatIndicatorValue(item.key, value),
-        color: resolveIndicatorColor(item, index, theme),
-      },
-    ]
-  })
-}

@@ -9,11 +9,7 @@ import {
   resolveChartTimeZone,
 } from '@/utils/chartTimezone'
 
-interface TimezoneSelectorProps {
-  layout?: 'topbar' | 'sidebar'
-}
-
-export function TimezoneSelector({ layout = 'topbar' }: TimezoneSelectorProps) {
+export function TimezoneSelector() {
   const timezone = useChartStore((state) => state.timezone)
   const setTimezone = useChartStore((state) => state.setTimezone)
 
@@ -23,20 +19,11 @@ export function TimezoneSelector({ layout = 'topbar' }: TimezoneSelectorProps) {
     [resolvedZone],
   )
 
-  const selectClass =
-    layout === 'sidebar'
-      ? 'w-full cursor-pointer rounded border border-border bg-bg px-2 py-1.5 text-xs text-text outline-none transition-colors hover:border-accent/40'
-      : 'cursor-pointer rounded border border-border bg-bg px-2 py-1 text-xs text-text outline-none transition-colors hover:border-accent/40'
-
   return (
-    <div className={layout === 'sidebar' ? 'w-full space-y-1' : 'flex items-center gap-2 text-xs'}>
-      {layout === 'sidebar' ? (
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
-          Timezone
-        </span>
-      ) : (
-        <span className="hidden text-text-secondary md:inline">{offsetLabel}</span>
-      )}
+    <div className="w-full space-y-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+        Timezone
+      </span>
       <label className="sr-only" htmlFor="chart-timezone">
         Chart timezone
       </label>
@@ -44,17 +31,15 @@ export function TimezoneSelector({ layout = 'topbar' }: TimezoneSelectorProps) {
         id="chart-timezone"
         value={timezone}
         onChange={(event) => setTimezone(event.target.value as ChartTimezoneId)}
-        className={selectClass}
+        className="w-full cursor-pointer rounded border border-border bg-bg px-2 py-1.5 text-xs text-text outline-none transition-colors hover:border-accent/40"
       >
         {CHART_TIMEZONE_OPTIONS.map((option) => (
           <option key={option.id} value={option.id}>
-            {layout === 'sidebar' ? `${option.label} (${offsetLabelFor(option.id)})` : option.label}
+            {`${option.label} (${offsetLabelFor(option.id)})`}
           </option>
         ))}
       </select>
-      {layout === 'sidebar' ? (
-        <span className="text-[10px] text-text-secondary">{offsetLabel}</span>
-      ) : null}
+      <span className="text-[10px] text-text-secondary">{offsetLabel}</span>
     </div>
   )
 }

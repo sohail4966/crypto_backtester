@@ -1,7 +1,6 @@
 // Windowed loading tunables (SPEC-001 §4.2, D-82). Kept centralized for Phase 6 multi-chart reuse.
 export const CHUNK_SIZE_BARS = 500
 export const LOOKBACK_CHUNKS = 2
-export const LOOKAHEAD_CHUNKS = 1
 // Prefetch prior chunk when scroll position is within 20% of the left edge.
 export const PREFETCH_THRESHOLD = 0.2
 

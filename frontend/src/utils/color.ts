@@ -35,20 +35,3 @@ export function resolveChartColor(value: string, theme: Theme): string {
   }
   return THEME_PALETTES[theme][match[1]] ?? '#888888'
 }
-
-/** Apply alpha to a resolved hex chart color for dimmed replay context bars. */
-export function resolveChartColorWithOpacity(
-  value: string,
-  theme: Theme,
-  opacity: number,
-): string {
-  const hex = resolveChartColor(value, theme)
-  const normalized = hex.replace('#', '')
-  if (normalized.length !== 6) {
-    return hex
-  }
-  const r = Number.parseInt(normalized.slice(0, 2), 16)
-  const g = Number.parseInt(normalized.slice(2, 4), 16)
-  const b = Number.parseInt(normalized.slice(4, 6), 16)
-  return `rgba(${r}, ${g}, ${b}, ${opacity})`
-}

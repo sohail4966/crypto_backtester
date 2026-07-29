@@ -1,7 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChartStore } from '@/stores/chartStore'
-import { useReplayStore } from '@/stores/replayStore'
 
 vi.mock('@/components/Chart/ChartContainer', () => ({
   ChartContainer: () => <div data-testid="chart-container" />,
@@ -33,8 +32,7 @@ function mockFetchResponse(body: unknown) {
 
 describe('App', () => {
   beforeEach(() => {
-    useChartStore.setState({ symbol: null, replayMode: false })
-    useReplayStore.getState().resetSession()
+    useChartStore.setState({ symbol: null })
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -92,25 +90,14 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
     expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
     expect(screen.queryByText('Indicators')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Replay' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Replay' })).not.toBeInTheDocument()
     expect(await screen.findByDisplayValue('BTC/USDT')).toBeInTheDocument()
   })
 
-  it('redirects legacy /replay route to chart', async () => {
-    window.history.pushState({}, '', '/replay')
-    render(<App />)
-
-    expect(await screen.findByTestId('chart-container')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Replay' })).not.toBeInTheDocument()
-  })
-
-  it('toggles replay mode from the topbar', async () => {
+  it('renders chart container on the home route', async () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    await screen.findByDisplayValue('BTC/USDT')
-    fireEvent.click(screen.getByRole('button', { name: 'Replay' }))
-    expect(useChartStore.getState().replayMode).toBe(true)
-    expect(useReplayStore.getState().phase).toBe('pick_anchor')
+    expect(await screen.findByTestId('chart-container')).toBeInTheDocument()
   })
 })

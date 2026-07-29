@@ -18,7 +18,6 @@ export function App() {
               <Route element={<AppShell />}>
                 <Route index element={<ChartPage />} />
                 <Route path="backtest" element={<BacktestPage />} />
-                <Route path="replay" element={<Navigate to="/" replace />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

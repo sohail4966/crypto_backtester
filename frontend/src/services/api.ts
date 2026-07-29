@@ -1,4 +1,4 @@
-import type { ApiErrorBody, HealthResponse } from '@/types/api'
+import type { ApiErrorBody } from '@/types/api'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
 
@@ -65,8 +65,4 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   }
 
   return response.json() as Promise<T>
-}
-
-export function getHealth(): Promise<HealthResponse> {
-  return apiRequest<HealthResponse>('/meta/health')
 }

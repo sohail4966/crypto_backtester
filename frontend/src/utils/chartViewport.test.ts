@@ -1,31 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  captureVisibleTimeRange,
-  restoreVisibleTimeRange,
-} from '@/utils/chartViewport'
+import { fitToVisibleBars, visibleBarsRange } from '@/utils/chartViewport'
 
-describe('chartViewport time range', () => {
-  it('captures numeric visible time ranges', () => {
-    const chart = {
-      timeScale: () => ({
-        getVisibleRange: () => ({ from: 100, to: 200 }),
-        setVisibleRange: vi.fn(),
-      }),
-    }
-
-    expect(captureVisibleTimeRange(chart as never)).toEqual({ from: 100, to: 200 })
+describe('chartViewport', () => {
+  it('builds a logical range for the last visible bars', () => {
+    expect(visibleBarsRange(500, 120, 8)).toEqual({ from: 372, to: 507 })
   })
 
-  it('restores a captured range on the chart', () => {
-    const setVisibleRange = vi.fn()
+  it('returns null when there are no bars', () => {
+    expect(visibleBarsRange(0)).toBeNull()
+  })
+
+  it('fits the chart to the visible bars range', () => {
+    const setVisibleLogicalRange = vi.fn()
     const chart = {
-      timeScale: () => ({
-        getVisibleRange: () => null,
-        setVisibleRange,
-      }),
+      timeScale: () => ({ setVisibleLogicalRange }),
     }
 
-    restoreVisibleTimeRange(chart as never, { from: 100 as never, to: 200 as never })
-    expect(setVisibleRange).toHaveBeenCalledWith({ from: 100, to: 200 })
+    fitToVisibleBars(chart as never, 500, 120)
+    expect(setVisibleLogicalRange).toHaveBeenCalledWith({ from: 372, to: 507 })
   })
 })

@@ -3,11 +3,10 @@ import {
   type ActiveIndicator,
   type IndicatorCatalogEntry,
   type IndicatorPane,
-  type IndicatorSpec,
 } from '@/types/indicator'
 import { bundleKeysFor } from '@/utils/indicatorCatalog'
 import { defaultBundleSeriesColor } from '@/utils/indicatorDisplay'
-import { indicatorSeriesId, macdSpecs } from '@/utils/indicatorId'
+import { indicatorSeriesId } from '@/utils/indicatorId'
 import { useChartLayoutStore } from '@/stores/chartLayoutStore'
 import { MAX_SUB_PANES } from '@/constants/chart'
 
@@ -22,10 +21,6 @@ export interface IndicatorAppearance {
 
 export interface IndicatorSettingsPatch {
   params?: Record<string, unknown>
-  /** @deprecated Use seriesStyles for multi-line bundles. */
-  color?: string
-  /** @deprecated Use seriesStyles for multi-line bundles. */
-  lineWidth?: number
   /** Per registry key (e.g. BB_UPPER) within the instance group. */
   seriesStyles?: Record<string, IndicatorAppearance>
 }
@@ -76,10 +71,8 @@ function expandCatalogEntry(
   return keys.map((key, lineIndex) =>
     buildActiveIndicator(key, params, pane, groupInstanceId, {
       color:
-        patch.seriesStyles?.[key]?.color ??
-        patch.color ??
-        defaultBundleSeriesColor(key, lineIndex),
-      lineWidth: patch.seriesStyles?.[key]?.lineWidth ?? patch.lineWidth ?? 2,
+        patch.seriesStyles?.[key]?.color ?? defaultBundleSeriesColor(key, lineIndex),
+      lineWidth: patch.seriesStyles?.[key]?.lineWidth ?? 2,
       visible: patch.seriesStyles?.[key]?.visible,
     }),
   )
@@ -96,19 +89,13 @@ interface IndicatorState {
   toggleVisible: (instanceId: string) => void
   openSettings: (instanceId: string) => void
   closeSettings: () => void
-  isGroupVisible: (instanceId: string) => boolean
   updateParams: (instanceId: string, params: Record<string, unknown>) => UpdateParamsResult
   updateIndicatorSettings: (
     instanceId: string,
     patch: IndicatorSettingsPatch,
-  ) => UpdateIndicatorResult
+  ) => UpdateParamsResult
   clear: () => void
-  getSpecs: () => IndicatorSpec[]
-  getOverlaySeriesIds: () => string[]
-  getSubchartGroups: () => ActiveIndicator[][]
 }
-
-type UpdateIndicatorResult = UpdateParamsResult
 
 export const useIndicatorStore = create<IndicatorState>((set, get) => ({
   active: [],
@@ -164,16 +151,6 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
     })
   },
 
-  isGroupVisible: (instanceId) => {
-    const target = get().active.find((item) => item.instanceId === instanceId)
-    if (!target) {
-      return true
-    }
-    return get()
-      .active.filter((item) => item.groupInstanceId === target.groupInstanceId)
-      .some((item) => item.visible !== false)
-  },
-
   openSettings: (instanceId) => set({ settingsInstanceId: instanceId }),
 
   closeSettings: () => set({ settingsInstanceId: null }),
@@ -201,18 +178,9 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
           ...item,
           params: { ...nextParams },
           seriesId: indicatorSeriesId(item.key, nextParams),
-          color:
-            seriesStyle?.color !== undefined
-              ? seriesStyle.color
-              : patch.color !== undefined
-                ? patch.color
-                : item.color,
+          color: seriesStyle?.color !== undefined ? seriesStyle.color : item.color,
           lineWidth:
-            seriesStyle?.lineWidth !== undefined
-              ? seriesStyle.lineWidth
-              : patch.lineWidth !== undefined
-                ? patch.lineWidth
-                : item.lineWidth,
+            seriesStyle?.lineWidth !== undefined ? seriesStyle.lineWidth : item.lineWidth,
           visible:
             seriesStyle?.visible !== undefined ? seriesStyle.visible : item.visible,
         }
@@ -223,39 +191,4 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
   },
 
   clear: () => set({ active: [], settingsInstanceId: null }),
-
-  getSpecs: () => {
-    const seen = new Set<string>()
-    const specs: IndicatorSpec[] = []
-    for (const item of get().active) {
-      if (item.visible === false) {
-        continue
-      }
-      const id = `${item.key}:${JSON.stringify(item.params)}:${item.pane}`
-      if (seen.has(id)) {
-        continue
-      }
-      seen.add(id)
-      specs.push({ key: item.key, params: item.params, pane: item.pane })
-    }
-    return specs
-  },
-
-  getOverlaySeriesIds: () =>
-    get()
-      .active.filter((item) => item.pane === 'overlay' && item.visible !== false)
-      .map((item) => item.seriesId),
-
-  getSubchartGroups: () => {
-    const subcharts = get().active.filter((item) => item.pane === 'subchart')
-    const groups = new Map<string, ActiveIndicator[]>()
-    for (const item of subcharts) {
-      const list = groups.get(item.groupInstanceId) ?? []
-      list.push(item)
-      groups.set(item.groupInstanceId, list)
-    }
-    return [...groups.values()]
-  },
 }))
-
-export { macdSpecs }

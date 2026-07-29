@@ -5,7 +5,6 @@ import {
   type IndicatorPane,
   isMacdKey,
 } from '@/types/indicator'
-import { indicatorSeriesId } from '@/utils/indicatorId'
 
 /** Primary picker keys that expand to multiple registry series. */
 export const BUNDLE_EXPANSIONS: Record<string, readonly string[]> = {
@@ -45,14 +44,6 @@ export function primaryBundleKey(key: string): string | null {
     }
   }
   return null
-}
-
-export function bundleGroupKey(key: string, params: Record<string, unknown>): string {
-  const primary = primaryBundleKey(key)
-  if (primary) {
-    return `${primary}:${JSON.stringify(params)}`
-  }
-  return indicatorSeriesId(key, params)
 }
 
 /** Registry keys hidden from the add picker (siblings of a bundle). */
@@ -208,10 +199,6 @@ export function paramFieldDefs(entry: IndicatorCatalogEntry): ParamFieldDef[] {
       step: isFloat ? 0.01 : 1,
     }
   })
-}
-
-export function entryHasConfigurableParams(entry: IndicatorCatalogEntry): boolean {
-  return paramFieldDefs(entry).length > 0
 }
 
 export function indicatorChipLabel(key: string, params: Record<string, unknown>): string {

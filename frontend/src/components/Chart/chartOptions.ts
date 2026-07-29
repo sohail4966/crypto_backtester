@@ -6,7 +6,7 @@ import {
   createChartTimezoneFormatters,
   resolveChartTimeZone,
 } from '@/utils/chartTimezone'
-import { resolveChartColor, resolveChartColorWithOpacity } from '@/utils/color'
+import { resolveChartColor } from '@/utils/color'
 
 const MIN_CHART_HEIGHT = MIN_MAIN_PANE_HEIGHT
 
@@ -74,17 +74,6 @@ export function seriesColors(theme: Theme) {
     borderDownColor: resolveChartColor('var(--color-bear)', theme),
     wickUpColor: resolveChartColor('var(--color-bull)', theme),
     wickDownColor: resolveChartColor('var(--color-bear)', theme),
-  }
-}
-
-export function seriesColorsWithOpacity(theme: Theme, opacity: number) {
-  return {
-    upColor: resolveChartColorWithOpacity('var(--color-bull)', theme, opacity),
-    downColor: resolveChartColorWithOpacity('var(--color-bear)', theme, opacity),
-    borderUpColor: resolveChartColorWithOpacity('var(--color-bull)', theme, opacity),
-    borderDownColor: resolveChartColorWithOpacity('var(--color-bear)', theme, opacity),
-    wickUpColor: resolveChartColorWithOpacity('var(--color-bull)', theme, opacity),
-    wickDownColor: resolveChartColorWithOpacity('var(--color-bear)', theme, opacity),
   }
 }
 

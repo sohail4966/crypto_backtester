@@ -67,8 +67,8 @@ export function Sidebar() {
 
         <div className="mt-auto border-t border-border p-3">
           <div className="flex flex-col gap-3">
-            <TimezoneSelector layout="sidebar" />
-            <ChartSettingsMenu layout="sidebar" />
+            <TimezoneSelector />
+            <ChartSettingsMenu />
           </div>
         </div>
       </div>

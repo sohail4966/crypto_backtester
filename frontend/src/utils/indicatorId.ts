@@ -1,4 +1,4 @@
-import { MACD_KEYS, type IndicatorSpec } from '@/types/indicator'
+import type { IndicatorSpec } from '@/types/indicator'
 
 /** Mirror backend `indicator_series_id` in chart_data_service.py. */
 export function indicatorSeriesId(key: string, params: Record<string, unknown>): string {
@@ -36,8 +36,4 @@ export function specsCacheKey(specs: IndicatorSpec[]): string {
       return idA.localeCompare(idB)
     }),
   )
-}
-
-export function macdSpecs(params: Record<string, unknown>): IndicatorSpec[] {
-  return MACD_KEYS.map((key) => ({ key, params, pane: 'subchart' as const }))
 }

@@ -40,8 +40,9 @@ describe('indicatorStore', () => {
   it('adds indicators with custom params, color, and line width', () => {
     const result = useIndicatorStore.getState().addFromCatalog(EMA_ENTRY, {
       params: { period: 25 },
-      color: '#ff0000',
-      lineWidth: 3,
+      seriesStyles: {
+        EMA: { color: '#ff0000', lineWidth: 3 },
+      },
     })
     expect(result.ok).toBe(true)
 
