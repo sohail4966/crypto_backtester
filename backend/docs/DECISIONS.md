@@ -1356,13 +1356,295 @@ timeframe is chosen at session create only.
 
 ---
 
+## D-96 — SMC reference defaults are ICT-leaning (resolves OQ-19)
+
+**Decision:** Phase 7 SMC detectors use an **ICT-leaning** interpretation as the
+documented default (BOS with trend / CHOCH against trend; close-based structure
+breaks; OB = last opposing body before BOS). Mentfx / The Trading Channel are not
+binding. Every detector parameter is overridable via `SmcConfig` / condition `params`.
+
+**Reasoning:** Users need one reproducible default; ICT terminology is the most common
+shared vocabulary for BOS/CHOCH/FVG/OB. Documenting “one interpretation” matches the
+ROADMAP subjectivity note.
+
+**Resolves:** OQ-19
+
+---
+
+## D-97 — FVG invalidation default is full fill (resolves OQ-20)
+
+**Decision:** Default FVG invalidation mode is **`full_fill`**: the gap is invalidated
+when price trades through the far edge (`low <= gap_bottom` for bullish FVG;
+`high >= gap_top` for bearish). Overrides: `touch`, `midpoint`, `full_fill`.
+
+**Reasoning:** Full fill is the strictest common rule and avoids premature
+invalidation on shallow probes; traders who prefer CE/50% or first touch can opt in.
+
+**Resolves:** OQ-20
+
+---
+
+## D-98 — Phase 7 library-first with `"smc"` named conditions
+
+**Decision:** Ship SMC as package `smc/` (no REST / no FE). Integrate with the signal
+evaluator via an additive condition key:
+
+```yaml
+entry: { smc: bos, side: bullish, params: { ... } }
+```
+
+Do **not** register SMC into `indicators/registry.py` (keeps Phase 6 pattern work
+clear of indicator-registry collisions). Boolean Series are **event-bar** True.
+
+**Reasoning:** Open/Closed dispatch on condition shape; mirrors the intended
+`"pattern"` extension path for Phase 6 without sharing registry keys.
+
+---
+
+## D-99 — Pattern definition references (resolves OQ-13)
+
+**Decision:** Phase 6 pattern detectors cite category-level references:
+
+| Category | Primary reference |
+|---|---|
+| Candlesticks (5a) | Steve Nison / industry-standard body–wick geometry (TA-Lib CDL*-compatible ratios) |
+| Classical (5b) | Thomas Bulkowski, *Encyclopedia of Chart Patterns* — simplified measurable rules |
+| Divergence (5c) | John Murphy / standard TA (price pivot vs oscillator sample disagreement) |
+
+Rules are named-constant approximations; not statistical replicas of Bulkowski tables.
+
+**Resolves:** OQ-13
+
+---
+
+## D-100 — Pattern output is binary Series plus optional confidence (resolves OQ-14)
+
+**Decision:** Primary pattern output is a **boolean Series** (True on confirmation bar)
+compatible with indicator-based signals (D-11). Each `PatternHit` also carries
+`confidence ∈ [0, 1]` as metadata. Default emission does **not** gate on confidence;
+callers may filter.
+
+**Reasoning:** Binary keeps Phase 9 DSL/`&` composition simple; confidence preserves
+quality filtering without forcing score thresholds into the evaluator.
+
+**Resolves:** OQ-14
+
+---
+
+## D-101 — Patterns emit on completion only (resolves OQ-15)
+
+**Decision:** Phase 6 v1 emits patterns only in **`completed`** mode — on the
+confirmation / breakout bar (`end_index`). Mid-formation / anticipatory mode is
+deferred (screener / later). Backtest consumers never see forming patterns.
+
+**Reasoning:** Avoids look-ahead bias in backtests; formation mode needs a separate
+API contract for screeners.
+
+**Resolves:** OQ-15
+
+---
+
+## D-102 — Screener/alert default is edge trigger (resolves OQ-21 remainder)
+
+**Decision:** Phase 8 screener alerts default to **edge** (fire when the condition
+*becomes* true). `alert_trigger: level` opts into every-bar-true behavior. Aligns
+with D-52 entry semantics; backtest exit legs remain level-triggered.
+
+**Reasoning:** Edge avoids alert spam while a condition stays latched; level remains
+available for dashboards that want continuous matches.
+
+**Resolves:** OQ-21 (alerts/screener path)
+
+---
+
+## D-103 — Scans evaluate closed candles; cron via `--once` (resolves OQ-22)
+
+**Decision:** Scans use only **closed** candles in the requested window (last bar =
+last closed). Scheduling is operator-driven: `run_scan.py --once` after TF close
+(UTC). No DB-insert trigger in v1.
+
+**Reasoning:** Avoids reacting to incomplete open bars; cron is enough for local-first.
+
+**Resolves:** OQ-22
+
+---
+
+## D-104 — Local-first deployment through Phase 8 (resolves OQ-29)
+
+**Decision:** Screener/alerts run **locally** (developer machine + cron). Cloud
+always-on and auth remain Phase 11.
+
+**Reasoning:** Matches D-69 no-auth API; avoids premature multi-tenant complexity.
+
+**Resolves:** OQ-29 (for Phase 8 scope)
+
+---
+
+## D-105 — Nested `all` / `any` / `not` for screener DSL (OQ-23 slice)
+
+**Decision:** Extend the signal condition tree with nested Option A: `all` (AND,
+existing), `any` (OR), `not` (unary). Full Phase 9 grammar (lookback, sequences)
+stays deferred.
+
+**Reasoning:** Screener needs boolean combinations now; nested trees evaluate cleanly.
+
+**Partial resolve:** OQ-23 (AND/OR/NOT); lookback/sequences remain Phase 9.
+
+---
+
+## D-106 — Optional `timeframe` on condition leaves (OQ-24 slice)
+
+**Decision:** Leaf conditions may set `timeframe`. The evaluator loads that TF’s
+candles (via caller-provided `frames`) and **as-of forward-fills** the boolean
+Series onto the base index (no lookahead; same spirit as D-58).
+
+**Reasoning:** Enables “daily RSI oversold AND hourly setup” without a full Phase 9
+MTF DSL.
+
+**Partial resolve:** OQ-24
+
+---
+
+## D-107 — Stay on Timescale for Phase 8 (no ClickHouse)
+
+**Decision:** Do **not** migrate candles to ClickHouse in Phase 8. Revisit if real
+multi-symbol scans miss the ROADMAP performance goal.
+
+**Reasoning:** D-06 keeps the migration surface small; premature migration adds ops
+cost. Evaluate with production-sized data first.
+
+---
+
+## D-108 — Alert delivery is console/log in v1
+
+**Decision:** Phase 8 alert sink is Python `logging` / console only. Email, webhook,
+and Telegram are deferred.
+
+**Reasoning:** Unblocks cron operators without external credentials or delivery infra.
+
+---
+
+## D-109 — Full nested Trading DSL + schema_version (resolves OQ-23/OQ-24 remainder)
+
+**Decision:** Phase 9 ships the canonical nested Option A grammar
+`{op: AND|OR|NOT, conditions: [...]}` alongside Phase 8 `all` / `any` / `not`.
+Strategies carry `schema_version` (default `"1"`). Multi-TF continues D-106 as-of
+ffill; `dsl.align.align_series_to_base(..., completed_only=True)` is available for
+stricter HTF-close gating. Package `dsl/` owns pydantic models + JSON Schema export;
+`signals/evaluator.py` evaluates. Screener keeps importing `evaluate_condition`.
+
+**Reasoning:** LLM-ready versioned schema without breaking Phase 8 screener trees.
+
+**Resolves:** OQ-23 (full), OQ-24 (full)
+
+---
+
+## D-110 — Lookback `bars_ago`/`ref` and SEQUENCE (resolves OQ-25)
+
+**Decision:** Express lookbacks as:
+```json
+{"field": "close", "op": ">", "ref": {"field": "close", "bars_ago": 5}}
+```
+LHS may also set `bars_ago`. SEQUENCE nodes require ≥2 ordered legs and
+`within_bars >= 1`; True on the last-leg bar when priors appear in strictly
+increasing indices inside the window.
+
+**Reasoning:** Covers “N bars ago” and pragmatic A→B patterns without a full
+temporal logic language.
+
+**Resolves:** OQ-25
+
+---
+
+## D-111 — Named strategies are JSON files (Phase 9)
+
+**Decision:** Named strategy save/load uses JSON files under
+`backend/data/strategies/` (configurable root). No DB migration in Phase 9.
+
+**Reasoning:** Sufficient for local presets; DB CRUD can wait for multi-user auth.
+
+---
+
+## D-112 — Pluggable LLM providers (resolves OQ-26)
+
+**Decision:** Phase 10 NL → DSL uses a pluggable `LLMProvider` protocol with two
+implementations: `mock` (offline fixtures for CI/default) and `openai_compat`
+(HTTP `POST {base}/chat/completions`). Selection via `AI_LLM_PROVIDER`, or auto
+(`openai_compat` when `AI_LLM_API_KEY` is set, else `mock`). API keys come from
+env only — never committed.
+
+**Reasoning:** Avoids locking to one vendor; enables deterministic CI; OpenAI-
+compatible base URL covers OpenAI, Azure, Ollama proxies, etc.
+
+**Resolves:** OQ-26
+
+---
+
+## D-113 — Ask-on-ambiguity clarification loop (resolves OQ-27)
+
+**Decision:** When NL is ambiguous, the model returns `needs_clarification` with
+questions. The API stores an in-memory session and exposes `POST /ai/clarify` for
+answers. No silent defaults for missing thresholds in v1.
+
+**Reasoning:** Matches trader expectations and prevents inventing RSI levels /
+periods that the user did not state.
+
+**Resolves:** OQ-27
+
+---
+
+## D-114 — JSON Schema in prompt + validate gate (resolves OQ-28)
+
+**Decision:** System prompts inject Phase 9 `strategy_json_schema()` plus few-shot
+NL→DSL examples. Every `status=ok` strategy is passed through
+`dsl.validate_strategy` before return; failures surface as `INVALID_DSL` (422).
+
+**Reasoning:** Prompt guidance reduces invalid structure; the pydantic gate keeps
+the backtest engine deterministic and safe regardless of model drift.
+
+**Resolves:** OQ-28
+
+---
+
+## D-115 — JWT auth wrapping `app.users` (Phase 11)
+
+**Decision:** Add nullable `password_hash` on `app.users`. Issue HS256 JWTs via
+`POST /auth/register`, `/auth/login`, and `/auth/claim` (one-time password set for
+legacy passwordless rows). Watchlist routes and user PATCH/DELETE require Bearer JWT
+with `sub == path user_id`. `GET /users` (list) requires JWT; `GET /users/{id}` and
+`POST /users` stay public for bootstrap. `/ai/*` remains public in v1.
+
+**Amends:** D-69 (Phase 4 no-auth), D-77 (name+email only), D-78 (auth deferred).
+
+**Resolves:** OQ-52 remainder for Phase 11.
+
+---
+
+## D-116 — Live candle WebSocket is DB-tail (Phase 11)
+
+**Decision:** `WS /ws/live` polls TimescaleDB for the latest closed candle per
+subscription and pushes `candle` events when bar `time` changes. No exchange stream
+in v1. Poll interval `LIVE_WS_POLL_INTERVAL_MS` (default 2000). Public in v1.
+
+**Amends:** D-78 live WS deferral.
+
+**Resolves:** OQ-58 remainder for Phase 11.
+
+---
+
+## D-117 — Replay DB persistence already complete (D-93)
+
+**Decision:** Phase 11 verifies `V007__replay_sessions` + checkpoint path from Phase 4c
+(D-93). No new replay table. Remaining D-78 items were auth + live WS only.
+
+---
+
 ## Open Questions (not yet decided)
 
 | # | Question | Context |
 |---|---|---|
-| OQ-06 | TimescaleDB → ClickHouse migration trigger | Decide before Phase 7, once scan performance matters. |
+| OQ-06 | TimescaleDB → ClickHouse migration trigger | Revisit after Phase 8 performance measurement (D-107 deferred migration). |
 | OQ-31 | Derived timeframe performance strategy | Higher timeframes are derived from `1m`; decide when to introduce TimescaleDB continuous aggregates versus on-demand aggregation after Phase 1 performance is measured. |
-| OQ-23 | Future DSL schema design | As conditions grow (AND/OR, multi-indicator, cross-indicator), the signal dict needs a grammar. Design separately before implementing. |
 
 ---
 

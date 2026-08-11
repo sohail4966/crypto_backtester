@@ -227,7 +227,7 @@ API tests (22 replay-specific). Manual smoke: `POST /replay/sessions` → `WS /w
 
 ## Phase 4d — Backtest HTTP API
 
-**Status:** Not started  
+**Status:** Complete — see [docs/agents/be-phase-4d-backtest-api/agent-h-report.md](../../docs/agents/be-phase-4d-backtest-api/agent-h-report.md)  
 **Prerequisite:** Phase 4c recommended; core backtest engine exists (CLI)  
 **Enables:** Non-empty `signals` / `trades` in chart-data; backtest results UI
 
@@ -236,33 +236,53 @@ API tests (22 replay-specific). Manual smoke: `POST /replay/sessions` → `WS /w
 **Note:** Was labelled “Phase 4c” in [PHASE_4B_HLD.md](PHASE_4B_HLD.md) before Replay V2
 took the 4c slot (**D-95**).
 
+| Area | What was built |
+|---|---|
+| REST | `POST /backtest`, `GET /backtest/{run_id}`, `GET /backtest/{run_id}/trades`, `GET /backtest/strategies` |
+| Persistence | `V008__backtest_runs.sql` — metrics, equity, signals, trade log |
+| Chart data | Optional `runId` populates `signals` / `trades` when include flags are true |
+| Engine | Wraps Phase 3 CLI path — no engine rewrite |
+| OpenAPI | API **0.5.0** |
+
+**Done when:** ✅ AC in agent artifacts; API pytest green; thin `/backtest` FE page optional.
+
 ---
 
 ## Phase 5 — Market Structure Detection
 
+**Status:** Complete — [PHASE_5_HLD.md — Completion Assessment](PHASE_5_HLD.md#phase-5-completion-assessment)  
+**Prerequisite:** Phase 2 (indicators style); Phase 1 `get_candles()`  
+**Enables:** Phase 6 patterns, Phase 7 SMC  
+**Design doc:** [PHASE_5_HLD.md](PHASE_5_HLD.md) · **Agents:** [be-phase-5-structure](../../docs/agents/be-phase-5-structure/)
+
 **Theme:** Build the structural layer that patterns and SMC depend on. Swing detection
 is the prerequisite for classical patterns and liquidity logic.
 
-**Prior design:** Decisions D-53–D-66 and the original Phase 4 HLD content apply here.
-A dedicated `PHASE_5_HLD.md` will be written before implementation.
+**Prior design:** Decisions D-53–D-66 apply; library-first (D-63).
 
 **Goal:** Given a candle series, reliably detect swing highs, swing lows, label trend
 structure (HH/HL/LH/LL/EQH/EQL), derive S/R from swings, and expose multi-timeframe context.
 
 | Feature | Notes |
 |---|---|
-| Swing highs / lows | Symmetric pivot 5/5 (D-53) |
+| Swing highs / lows | Symmetric pivot 5/5 (D-53) — confirmed + provisional |
 | HH / HL / LH / LL / EQH / EQL | First-class labels (D-65) |
 | Support / resistance | Last k swings, recency-first (D-64, D-57) |
 | Trend classification | Event-driven on confirmed swings (D-66) |
 | Multi-timeframe structure | `StructureContext` forward-fill (D-58) |
+| Package | `structure/` + `run_structure_report.py` (no REST / no evaluator hook) |
 
-**Done when:** Swing points are visually correct on BTC/USDT charts across trending, ranging,
-and volatile regimes; `structure/` library + tests complete.
+**Done when:** ✅ `structure/` library + `tests/structure/` complete (`17 passed`); report script
+ships for manual BTC/USDT chart review (D-60).
 
 ---
 
 ## Phase 6 — Pattern Recognition
+
+**Status:** Complete — [PHASE_6_HLD.md — Completion Assessment](PHASE_6_HLD.md#phase-6-completion-assessment)  
+**Prerequisite:** Phase 5 (`structure/`)  
+**Enables:** Phase 8 screener, Phase 9 DSL pattern conditions  
+**Design doc:** [PHASE_6_HLD.md](PHASE_6_HLD.md) · **Agents:** [be-phase-6-patterns](../../docs/agents/be-phase-6-patterns/)
 
 **Theme:** Detect classical chart patterns and candlestick patterns using the market
 structure layer from phase 5.
@@ -270,6 +290,8 @@ structure layer from phase 5.
 **Note on difficulty:** Pattern detection is the hardest engineering problem in the
 platform. Classical patterns have no single universal definition. Every implementation
 is an approximation. Expect iteration and configurable thresholds.
+
+**Decisions:** D-99 (refs), D-100 (binary + confidence), D-101 (completed-only); library-first.
 
 ### 5a — Candlestick Patterns (easier, well-defined)
 
@@ -306,24 +328,22 @@ is an approximation. Expect iteration and configurable thresholds.
 
 **Architecture note:** All patterns output the same format as indicator-based signals —
 a boolean Series with optional metadata (pattern start bar, end bar, key price levels).
-The signal evaluator treats them identically.
+The signal evaluator treats them identically. Phase 6 ships the library; YAML `pattern:`
+hook is Phase 9.
 
-**Reference (investigate later):** [vectorbt PRO](https://vectorbt.pro/tutorials/patterns-and-projections/)
-uses a different approach from our planned rule-based patterns. It scans price windows
-with `find_pattern()` / `PatternRanges.from_pattern_search()`: rescale a numeric
-template (shape or recent price slice), score element-wise similarity (Numba, no ML),
-keep matches above a threshold, then optionally project forward paths from historical
-matches. Candlestick tutorials often pair **TA-Lib `CDL*`** with vectorbt for
-backtesting — that path is rule-based like 5a, not PRO’s similarity search. Worth
-reviewing before Phase 5 for projections and sweep performance; our spine still
-targets explicit swing + pattern rules (Phase 5 → 6).
+**Reference (deferred):** [vectorbt PRO](https://vectorbt.pro/tutorials/patterns-and-projections/)
+similarity search remains out of scope (D-61). Rule-based spine is Phase 5 → 6.
 
-**Done when:** Each pattern is detectable, produces minimal false positives on clean
-historical data, and outputs standard signal format.
+**Done when:** ✅ `patterns/` library + `tests/patterns/` (`30 passed`); boolean Series +
+hit metadata; OQ-13–15 resolved (D-99–D-101); no REST / no evaluator hook.
 
 ---
 
 ## Phase 7 — Smart Money Concepts (SMC)
+
+**Status:** Complete — [PHASE_7_HLD.md — Completion Assessment](PHASE_7_HLD.md#phase-7-completion-assessment)  
+**Depends on:** Phase 5 structure  
+**Design doc:** [PHASE_7_HLD.md](PHASE_7_HLD.md) · **Agents:** [be-phase-7-smc](../../docs/agents/be-phase-7-smc/)
 
 **Theme:** Add SMC-based market structure analysis for traders who use that framework.
 
@@ -333,48 +353,51 @@ specific interpretation. Users should be able to adjust parameters.
 
 | Concept | Notes |
 |---|---|
-| Break of Structure (BOS) | Price breaks past a prior swing high/low with intent |
-| Change of Character (CHOCH) | First BOS in the opposite direction; trend shift signal |
-| Fair Value Gap (FVG) | Three-candle imbalance; bullish and bearish variants |
-| Order Block | Last up/down candle before a strong impulse move |
-| Liquidity Sweep | Price briefly breaks a swing level and reverses (stop hunt) |
-| Breaker Block | Failed order block that flips role |
-| Mitigation Block | Order block that gets partially mitigated |
+| Break of Structure (BOS) | Close beyond prior confirmed swing **with** trend (ICT-leaning) |
+| Change of Character (CHOCH) | Close break **against** trend |
+| Fair Value Gap (FVG) | Three-candle imbalance; default invalidate `full_fill` (D-97) |
+| Order Block | Last opposing body candle before BOS (visible at BOS bar) |
+| Liquidity Sweep | Wick beyond swing + close back inside |
+| Breaker Block | Failed OB (close through) flips role |
+| Mitigation Block | First return into still-valid OB zone |
 
-**Done when:** Each concept is detectable on BTC/USDT, configurable, and integrated
-into the signal evaluator as a named condition.
+**Package:** `smc/` + named `"smc"` evaluator conditions (D-98). No REST.
+
+**Done when:** ✅ Each concept detectable + configurable; `"smc"` named conditions in
+evaluator; `pytest tests/smc/` green (12 passed).
 
 ---
 
 ## Phase 8 — Screener & Alert Engine
 
-**Theme:** Apply the signal evaluator across many symbols simultaneously. This is
-where TimescaleDB → ClickHouse migration becomes worth doing.
+**Status:** **Complete** (see [PHASE_8_HLD.md](PHASE_8_HLD.md))
+
+**Theme:** Apply the signal evaluator across many symbols simultaneously.
+Timescale remains the storage backend (ClickHouse deferred — D-107).
 
 **Goal:** "Show me all coins where RSI(14) < 30 on the daily and price is above SMA(200)"
-runs in seconds across 100+ symbols.
+runs across tracked symbols on multiple timeframes.
 
 | Feature | Notes |
 |---|---|
-| Multi-symbol scan | Run a signal dict against all tracked symbols |
-| Multi-timeframe scan | Scan on 1h, 4h, and 1d simultaneously |
-| Condition combinations | AND / OR logic in the signal dict (DSL extension) |
-| Alert triggers | Detect when a condition *becomes* true (edge trigger vs level trigger) |
-| Alert delivery | Console first; email/webhook/Telegram later |
-| Scheduled scans | Run every candle close on configured timeframes |
-| Scan results storage | Save scan history for tracking when signals appeared |
+| Multi-symbol scan | Signal condition against active catalog (or explicit list) |
+| Multi-timeframe scan | Cartesian `(symbol × TF)`; optional cross-TF leaves |
+| Condition combinations | Nested `all` / `any` / `not` (D-105) |
+| Alert triggers | Default **edge**; `level` opt-in (D-102) |
+| Alert delivery | Console/log first; email/webhook deferred (D-108) |
+| Scheduled scans | `run_scan.py --once` (cron-friendly; D-103) |
+| Scan results storage | `app.scan_runs` (V009) |
+| REST | `POST /api/v1/scan` |
 
-**DB migration note (TimescaleDB → ClickHouse):** If scan performance is the bottleneck
-at this phase, migrate the `candles` table to ClickHouse. Because of D-06, only
-`data/repository/` and `loader.py` change. Evaluate actual performance before migrating — Timescale may
-be sufficient.
-
-**Done when:** A scan across 50+ symbols on two timeframes completes in under 10
-seconds and alert triggers fire correctly on candle close.
+**Done when:** Multi-symbol / multi-TF scans + edge alerts + persistence + tests;
+ROADMAP/HLD updated. (Performance target &lt;10s / 50+ symbols remains a runtime
+benchmark against a filled DB — not gated in CI.)
 
 ---
 
 ## Phase 9 — Full Trading DSL
+
+**Status:** Complete — [PHASE_9_HLD.md — Completion Assessment](PHASE_9_HLD.md#phase-9-completion-assessment)
 
 **Theme:** Formalize the signal dict into a real grammar that can express any
 combination of conditions.
@@ -384,13 +407,13 @@ in plain English, and strict enough to be reliably generated by an LLM.
 
 | Feature | Notes |
 |---|---|
-| AND / OR / NOT logic | Combine multiple conditions |
-| Cross-indicator conditions | e.g. RSI > SMA of RSI |
-| Multi-timeframe conditions | e.g. daily trend is up AND hourly RSI < 40 |
-| Lookback references | e.g. close > close[5] (5 bars ago) |
-| Sequence conditions | e.g. pattern A followed by pattern B within N bars |
-| Named strategy library | Save, name, and reload strategy definitions |
-| DSL versioning | Schema version field for forward compatibility |
+| AND / OR / NOT logic | Nested `{op, conditions}` + Phase 8 `all`/`any`/`not` (D-109) |
+| Cross-indicator conditions | e.g. RSI > SMA of RSI via `compare` |
+| Multi-timeframe conditions | Leaf `timeframe` + as-of ffill (D-106 / D-109) |
+| Lookback references | `bars_ago` / `ref` (D-110) |
+| Sequence conditions | A then B within N bars (D-110) |
+| Named strategy library | JSON file store under `data/strategies/` (D-111) |
+| DSL versioning | `schema_version: "1"` + pydantic / JSON Schema |
 
 **This phase is the bridge to the AI layer.** The DSL schema becomes the exact output
 format the LLM is prompted to generate. Every token the LLM writes maps to a
@@ -404,6 +427,8 @@ multi-timeframe condition.
 
 ## Phase 10 — AI Natural Language Interface
 
+**Status:** Complete — [PHASE_10_HLD.md — Completion Assessment](PHASE_10_HLD.md#phase-10-completion-assessment)
+
 **Theme:** Allow traders to describe a strategy in plain English and have it
 translated into a valid DSL signal dict.
 
@@ -412,13 +437,13 @@ translated into a valid DSL signal dict.
 
 | Feature | Notes |
 |---|---|
-| NL → DSL translation | LLM takes free text, returns signal dict JSON |
-| Validation layer | Signal dict is validated against DSL schema before execution |
-| Clarification loop | If translation is ambiguous, ask the user to confirm before running |
-| Context awareness | LLM knows what indicators, patterns, and timeframes are available |
-| Strategy explanation | Given a signal dict, explain it back in plain English |
-| Backtest narrative | After a backtest, explain why it performed well or poorly |
-| Strategy suggestions | Given an asset and timeframe, suggest strategies to explore |
+| NL → DSL translation | Pluggable LLM → validated Phase 9 strategy JSON |
+| Validation layer | `dsl.validate_strategy` before return (D-114) |
+| Clarification loop | Ask-on-ambiguity; `POST /ai/clarify` (D-113) |
+| Context awareness | Schema + indicator allow-list in system prompt |
+| Strategy explanation | Template English via `POST /ai/explain` |
+| Backtest narrative | Deferred (stretch) |
+| Strategy suggestions | Deferred (stretch) |
 
 **Key design principle:** The LLM generates data (JSON), not code. The backtest engine
 remains fully deterministic. AI is a translation layer only.
@@ -426,9 +451,15 @@ remains fully deterministic. AI is a translation layer only.
 **Done when:** A non-technical trader can describe a strategy, run it, and get results
 without touching any config file or code.
 
+**REST:** `POST /api/v1/ai/translate|clarify|explain` (public; Phase 11 may wrap auth later).
+**Providers:** `mock` (CI/default) + `openai_compat` (env key). See D-112–D-114.
+
 ---
 
 ## Phase 11 — Visualization & Web UI
+
+**Status:** **Partial** — backend auth + live WS **complete** (see [PHASE_11_HLD.md](PHASE_11_HLD.md));
+FE chart client already exists; polished login UI and remaining FE surfaces still accrete.
 
 **Theme:** TradingView-like chart client consuming the Phase 4 API. Focused tool for
 analysis, screening, and backtesting — not a full TradingView clone.
@@ -438,10 +469,10 @@ analysis, screening, and backtesting — not a full TradingView clone.
 | Candle charts | Historical load via Phase 4 REST |
 | Indicator overlays | Phase 4 `/indicators/compute` + replay WS |
 | Bar replay UI | Phase 4 replay WebSocket |
-| Watchlists | Phase 4 user/watchlist APIs (`user_id`, no auth yet) |
-| **Auth (JWT)** | **Phase 11** — wrap existing user table |
-| **Live chart tail** | **Phase 11** — WebSocket after sync |
-| **Replay persistence** | **Phase 11** — `app.replay_sessions` table |
+| Watchlists | Phase 4 APIs + **JWT ownership (Phase 11)** |
+| **Auth (JWT)** | **Complete** — register/login/claim; `password_hash` (D-115) |
+| **Live chart tail** | **Complete** — `WS /ws/live` DB-tail (D-116) |
+| **Replay persistence** | **Complete in Phase 4c** — V007 / D-93 verified (D-117) |
 | Signal markers | Show entry / exit points on chart (backtest API stretch) |
 | Pattern overlays | Phase 6+ structure/pattern endpoints |
 | Backtest results UI | Equity curve, trade list, metrics dashboard |
@@ -450,10 +481,12 @@ analysis, screening, and backtesting — not a full TradingView clone.
 | Strategy chat | Phase 10 AI chat interface |
 | Alert management | Phase 8 alerts |
 
-**Frontend:** React + TypeScript. **Backend:** Phase 4 FastAPI (extend with later phases).
+**Frontend:** React + TypeScript (minimal: Authorization header when token present).
+**Backend:** FastAPI JWT + live WS shipped this slice.
 
-**Done when:** Core workflows (create user → watchlist → historical chart + indicators →
-bar replay → backtest results) work in a browser. Login optional until Phase 11 auth ships.
+**Done when (backend slice):** JWT protects user-scoped watchlists; live WS pushes closed
+candles after sync; OpenAPI + tests green. Full FE “Done when” (browser workflows) remains
+partial as UI features continue to land.
 
 ---
 
@@ -508,9 +541,9 @@ These may be future phases but are not part of the current vision.
 | 3 | Full backtest engine | Fees, stops, sizing, full metrics | Phase 2 |
 | 4 | Client API | REST + replay WS: candles, indicators, users, watchlists | Phases 1, 2 | **Complete** (8.5/10) |
 | 5 | Market structure | Swing detection, trend labeling | Phase 2 |
-| 6 | Pattern recognition | Chart patterns, candles, divergence | Phase 5 |
+| 6 | Pattern recognition | Chart patterns, candles, divergence | Phase 5 | **Complete** |
 | 7 | SMC | BOS, CHOCH, FVG, Order Blocks | Phase 5 |
-| 8 | Screener & alerts | Multi-symbol scans, alert triggers | Phases 2, 3, 4 |
-| 9 | Full DSL | AND/OR, multi-TF, sequence conditions | Phases 6, 7, 8 |
-| 10 | AI NL interface | Plain English → backtest results | Phase 9 |
-| 11 | Web UI | Browser chart client on Phase 4 API | Phase 4 |
+| 8 | Screener & alerts | Multi-symbol scans, alert triggers | Phases 2, 3, 4 | **Complete** |
+| 9 | Full DSL | AND/OR, multi-TF, sequence conditions | Phases 6, 7, 8 | **Complete** |
+| 10 | AI NL interface | Plain English → validated DSL + clarify | Phase 9 | **Complete** |
+| 11 | Web UI | Browser chart client; **backend auth+live complete** | Phase 4 | **Partial** |

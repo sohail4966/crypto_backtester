@@ -125,7 +125,7 @@ candle/indicator requests; toggling off hides series.
 
 ## Phase 3 — Replay
 
-**Status:** Not started — **current focus**  
+**Status:** Complete (v1) — live Phase 4c smoke still recommended  
 **Design doc:** [FE_PHASE_3_HLD.md](FE_PHASE_3_HLD.md) · **Spec:** [SPEC-001 §4.5](SPEC-001.md)  
 **Prerequisite:** FE Phase 1–2 complete  
 **Backend:** ✅ [Phase 4c](../../backend/docs/PHASE_4C_HLD.md) complete — **8.9/10** ([assessment](../../backend/docs/PHASE_4C_HLD.md#phase-4c-completion-assessment)); `POST /replay/sessions`, `WS /ws/replay/{sessionId}`  
@@ -133,7 +133,7 @@ candle/indicator requests; toggling off hides series.
 
 **Theme:** Browser owns playback clock; backend precomputes indicators in a rolling buffer.
 
-**Goal:** `/replay` progressively reveals bars; play/pause/step/speed/jump work.
+**Goal:** Replay mode on `/` progressively reveals bars; play/pause/stop/step/speed/scrub work.
 
 | Area | What gets built |
 |---|---|
@@ -149,10 +149,10 @@ step-forward advances one bar; jump-to-date sends seek and resets from snapshot.
 
 ## Phase 4 — Watchlist + Symbol Search
 
-**Status:** Not started  
+**Status:** Complete (v1) — live API smoke still recommended  
 **Design doc:** [FE_PHASE_4_HLD.md](FE_PHASE_4_HLD.md) · **Spec:** [SPEC-001 §5, §8.1](SPEC-001.md)  
 **Prerequisite:** FE Phase 1 complete  
-**Backend:** `POST /users`, `GET/POST …/watchlists`, `GET /symbols/search`
+**Backend:** ✅ users + nested watchlists + `/symbols/search` (Agent D/F no-op)
 
 **Theme:** Persistent watchlists scoped by `user_id`; symbol entities everywhere.
 
@@ -166,13 +166,13 @@ step-forward advances one bar; jump-to-date sends seek and resets from snapshot.
 | Prices | Placeholder `—` until Phase 11 live WS; optional poll last bar close |
 
 **Done when:** App creates/reuses a dev user; watchlist syncs from API; row click updates
-`chartStore.symbol`; add-to-watchlist works.
+`chartStore.symbol`; add-to-watchlist works. ✅
 
 ---
 
 ## Phase 5 — Drawings (MVP)
 
-**Status:** Not started  
+**Status:** Complete (v1) — live chart smoke still recommended  
 **Design doc:** [FE_PHASE_5_HLD.md](FE_PHASE_5_HLD.md) · **Spec:** [SPEC-001 §5.5–5.6](SPEC-001.md)  
 **Prerequisite:** FE Phase 1 complete  
 **Backend:** None required for render; **Phase 4d** for server sync (**D-83**, **D-84**, **D-85**)
@@ -193,13 +193,13 @@ notes; drawings persist per symbol+timeframe in IndexedDB.
 **Explicitly excluded (SPEC-002):** Fibonacci, channels, rays, pattern tools.
 
 **Done when:** All five tools create, render, and survive page reload; colors are resolved
-hex (not CSS `var()` strings).
+hex (not CSS `var()` strings). ✅
 
 ---
 
 ## Phase 6 — Multi-Chart + Workspace Polish
 
-**Status:** Not started  
+**Status:** Complete (v1) — live multi-pane smoke still recommended  
 **Design doc:** [FE_PHASE_6_HLD.md](FE_PHASE_6_HLD.md) · **Spec:** [SPEC-001 §5.4, §8.2–8.3](SPEC-001.md)  
 **Prerequisite:** FE Phases 1–5 complete  
 **Backend:** Phase 4d for full workspace sync; interim IndexedDB only
@@ -217,7 +217,7 @@ across panes; theme toggle persists.
 | Theme | Light/dark via CSS variables + `ThemeProvider` |
 
 **Done when:** 2×2 shows four independent charts; sync toggles work; layout + theme survive
-reload from IndexedDB.
+reload from IndexedDB. ✅
 
 ---
 
@@ -240,10 +240,10 @@ reload from IndexedDB.
 ```
 Phase 0 (scaffold)
     └── Phase 1 (core chart) ──┬── Phase 2 (indicators)
-                               ├── Phase 4 (watchlist)     [parallel after Phase 1]
-                               └── Phase 5 (drawings)      [parallel after Phase 1]
-    Phase 2 + Phase 1 ──► Phase 3 (replay)                 [current focus]
-    Phases 1–5 ──► Phase 6 (multi-chart + workspace)
+                               ├── Phase 4 (watchlist)     [complete v1]
+                               └── Phase 5 (drawings)      [complete v1]
+    Phase 2 + Phase 1 ──► Phase 3 (replay)                 [complete v1]
+    Phases 1–5 ──► Phase 6 (multi-chart + workspace)          [complete v1]
 ```
 
 Phases 2, 4, and 5 can run in parallel once Phase 1 lands. Phase 3 (replay) needs

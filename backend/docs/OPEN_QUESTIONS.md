@@ -281,16 +281,16 @@ is deferred to **Phase 5** if added.
 ## Phase 4 — Client API
 
 ### OQ-52 — Authentication
-**Priority:** PHASE 4  
-**Status:** **Resolved → D-69**  
-**Decision:** **No auth** — all endpoints public.
+**Priority:** PHASE 4 / PHASE 11  
+**Status:** **Resolved → D-69 (Phase 4 none); Phase 11 → D-115**  
+**Decision:** Phase 4 public. Phase 11 JWT + password_hash; ownership on watchlists.
 
 ---
 
 ### OQ-53 — Replay session persistence
-**Priority:** PHASE 4  
-**Status:** **Resolved → D-71, D-78**  
-**Decision:** **In-memory** in Phase 4; DB table → **Phase 11**.
+**Priority:** PHASE 4 / PHASE 4c  
+**Status:** **Resolved → D-71, D-78, D-93, D-117**  
+**Decision:** In-memory in Phase 4; `app.replay_sessions` in Phase 4c; Phase 11 verified complete.
 
 ---
 
@@ -323,10 +323,9 @@ is deferred to **Phase 5** if added.
 ---
 
 ### OQ-58 — Live candle streaming in Phase 4
-**Priority:** PHASE 4  
-**Status:** **Resolved → D-78**  
-**Decision:** **No live chart tail** in Phase 4. Historical REST + replay WS only.
-Live streaming → **Phase 11**.
+**Priority:** PHASE 4 / PHASE 11  
+**Status:** **Resolved → D-78 (deferred); Phase 11 → D-116**  
+**Decision:** No live chart tail in Phase 4. Phase 11 ships `WS /ws/live` DB-tail.
 
 ---
 
@@ -334,18 +333,21 @@ Live streaming → **Phase 11**.
 
 ### OQ-13 — Pattern definition source of truth
 **Priority:** BEFORE PHASE 5  
+**Status:** **Resolved → D-99**  
 **Question:** Which reference defines each classical chart pattern? Options include
 Bulkowski's "Encyclopedia of Chart Patterns," Thomas Bulkowski's website, John Murphy's
 "Technical Analysis of the Financial Markets," or a custom definition.  
 **Why it matters:** Without a single reference, every pattern becomes a moving target.
 Users will argue about whether a detected pattern is "correct." Documenting the
 reference per pattern makes the implementation auditable.  
-**Decision needed:** Choose a primary reference per pattern category before Phase 5 starts.
+**Decision:** Category references — Nison (candles), Bulkowski (classical), Murphy
+(divergence). See D-99.
 
 ---
 
 ### OQ-14 — Pattern confidence scoring
 **Priority:** BEFORE PHASE 5  
+**Status:** **Resolved → D-100**  
 **Question:** Should pattern detection return a binary result (pattern found / not found)
 or a confidence score (0–1)?  
 **Why it matters:** Real patterns rarely meet strict geometric criteria perfectly.
@@ -354,17 +356,18 @@ implement and use in conditions.
 **Options:**
 - Binary: simpler, easier to use in signal conditions
 - Score: more realistic, enables "only show high-quality patterns," harder to implement  
-**Decision needed:** Before Phase 5 pattern API is designed.
+**Decision:** Binary Series primary + optional `confidence` on hits (D-100).
 
 ---
 
 ### OQ-15 — Pattern detection timing: completion vs formation
 **Priority:** BEFORE PHASE 5  
+**Status:** **Resolved → D-101**  
 **Question:** Should a pattern be emitted when it is fully formed (confirmation bar) or
 during formation (anticipatory)?  
 **Why it matters:** In a backtest, emitting mid-formation introduces look-ahead bias.
 In a screener, traders often want to know a pattern is forming before it completes.  
-**Decision needed:** Probably two modes, but the exact API needs to be defined before Phase 5.
+**Decision:** Completed-only in Phase 6 v1; formation deferred (D-101).
 
 ---
 
@@ -449,18 +452,20 @@ edge case.
 
 ### OQ-19 — SMC reference framework
 **Priority:** BEFORE PHASE 6  
+**Status:** **Resolved → D-96**  
 **Question:** Which SMC educator or framework to use as the primary reference?
 ICT (Inner Circle Trader), SMC by The Trading Channal, Mentfx, or a synthesis?  
 **Why it matters:** SMC terminology and rules differ meaningfully between educators.
 ICT's BOS definition differs from others. If the implementation is based on a specific
 framework, users aligned with that framework will find it "correct."  
-**Decision needed:** Pick one reference per concept or explicitly document the
-interpretation used.
+**Decision:** ICT-leaning defaults documented per concept in Phase 7 (`smc/`, PHASE_7_HLD).
+Not Mentfx/TTC-primary; all parameters remain configurable.
 
 ---
 
 ### OQ-20 — FVG invalidation rules
 **Priority:** BEFORE PHASE 6  
+**Status:** **Resolved → D-97**  
 **Question:** When is a Fair Value Gap considered "filled" or "invalidated"?  
 **Options:**
 - When price closes inside the gap (50% fill)
@@ -468,7 +473,8 @@ interpretation used.
 - When price fully closes beyond the far edge  
 **Why it matters:** Different traders use different fill criteria. The backtesting
 behavior changes significantly depending on which rule is used.  
-**Decision needed:** Default rule + configurable override before Phase 6.
+**Decision:** Default **`full_fill`** (trade through far edge). Configurable:
+`touch` | `midpoint` | `full_fill` via `SmcConfig.fvg_invalidation`.
 
 ---
 
@@ -476,24 +482,21 @@ behavior changes significantly depending on which rule is used.
 
 ### OQ-21 — Edge trigger vs level trigger
 **Priority:** BEFORE PHASE 7  
-**Status:** **Partially resolved → D-52** (backtest entries only)  
+**Status:** **Resolved → D-52** (backtest entries) **+ D-102** (screener/alerts)  
 **Question:** Should alerts fire every bar the condition is true (level trigger) or
 only on the bar the condition *becomes* true (edge trigger)?  
 **Backtest decision (D-52):** Entry signals default to **edge**; `entry_trigger: level`
 opts into legacy re-entry behavior. Exit signals remain level-triggered.  
-**Still open:** Phase 7 screener/alert default and whether exit legs should also be configurable.
+**Screener decision (D-102):** Alerts default to **edge**; `alert_trigger: level` opt-in.
 
 ---
 
 ### OQ-22 — Scan timing relative to candle close
 **Priority:** BEFORE PHASE 7  
-**Question:** Exactly when does a scheduled scan run? Options:
-- At candle close time (derived from timeframe: 1d closes at UTC 00:00)
-- Fixed schedule regardless of candle close
-- Triggered by new candle insert in the DB  
-**Why it matters:** Running a scan before the candle is confirmed (closed) may detect
-conditions that the final candle invalidates.  
-**Decision needed:** Trigger mechanism for scheduled scans in Phase 7.
+**Status:** **Resolved → D-103**  
+**Question:** Exactly when does a scheduled scan run?  
+**Decision:** Evaluate **closed candles only**. Operators schedule
+`run_scan.py --once` after the relevant TF close (UTC). No DB-insert trigger in v1.
 
 ---
 
@@ -501,64 +504,35 @@ conditions that the final candle invalidates.
 
 ### OQ-23 — DSL grammar for AND / OR / NOT
 **Priority:** BEFORE PHASE 8  
+**Status:** **Resolved → D-105 (screener slice) + D-109 (full Phase 9 grammar)**  
 **Question:** What does the signal dict look like when conditions are combined with
 AND / OR / NOT?  
-**Draft option A — nested list:**
-```json
-{
-  "entry": {
-    "op": "AND",
-    "conditions": [
-      {"indicator": "RSI", "params": {"period": 14}, "op": "<", "value": 30},
-      {"indicator": "SMA", "params": {"period": 200}, "op": "price_above"}
-    ]
-  }
-}
-```
-**Draft option B — flat array with explicit logic:**
-```json
-{
-  "entry": [
-    {"indicator": "RSI", "params": {"period": 14}, "op": "<", "value": 30},
-    {"logic": "AND"},
-    {"indicator": "SMA", "params": {"period": 200}, "op": "price_above"}
-  ]
-}
-```
-**Decision needed:** Pick a schema and document it fully before Phase 8.
-Option A (nested tree) is likely cleaner for recursive evaluation.
+**Decision:** Nested Option A. Phase 8: `all` / `any` / `not`. Phase 9 canonical LLM
+form: `{op: AND|OR|NOT, conditions: [...]}` with `all`/`any`/`not` retained as aliases.
 
 ---
 
 ### OQ-24 — Multi-timeframe condition syntax in DSL
 **Priority:** BEFORE PHASE 8  
+**Status:** **Resolved → D-106 + D-109**  
 **Question:** How does a condition reference a different timeframe?  
-**Draft:**
-```json
-{
-  "indicator": "RSI",
-  "params": {"period": 14},
-  "timeframe": "1d",
-  "op": "<",
-  "value": 30
-}
-```
-**Things to consider:** When evaluating an hourly signal, the evaluator must know how
-to fetch and align daily candles. Alignment (how many 1h bars map to one 1d bar) must
-be handled without look-ahead bias.  
-**Decision needed:** Syntax and evaluator behavior before Phase 8.
+**Decision:** Optional leaf `timeframe`. Evaluate on that TF’s candles; as-of
+forward-fill onto the base index (no future HTF opens). Callers pass `frames` or the
+library resamples from base. Stricter `completed_only` align is available in
+`dsl.align.align_series_to_base`.
 
 ---
 
 ### OQ-25 — Lookback / bar-ago references
 **Priority:** BEFORE PHASE 8  
+**Status:** **Resolved → D-110**  
 **Question:** How does the DSL express "N bars ago"? Example: "close is higher than
 the close 5 bars ago."  
-**Draft:**
+**Decision:**
 ```json
 {"field": "close", "op": ">", "ref": {"field": "close", "bars_ago": 5}}
 ```
-**Decision needed:** Syntax and how the evaluator handles it.
+LHS may also set `bars_ago`. SEQUENCE conditions cover ordered multi-event lookbacks.
 
 ---
 
@@ -566,36 +540,42 @@ the close 5 bars ago."
 
 ### OQ-26 — LLM choice
 **Priority:** BEFORE PHASE 9  
+**Status:** **Resolved → D-112**  
 **Question:** Which LLM powers the NL → DSL translation? Options: OpenAI GPT-4o,
 Anthropic Claude, local model (Ollama), or pluggable.  
 **Things to consider:**
 - Quality of JSON generation (structured output mode)
 - Cost per translation request
 - Whether a local model is good enough to avoid API costs  
-**Decision needed:** Before Phase 9. Can be deferred entirely until then.
+**Decision:** Pluggable providers — OpenAI-compatible HTTP + offline mock fixtures
+(D-112). Default mock when no API key.
 
 ---
 
 ### OQ-27 — Ambiguity handling in NL → DSL
 **Priority:** BEFORE PHASE 9  
+**Status:** **Resolved → D-113**  
 **Question:** When the user's natural language input is ambiguous (e.g. "buy when RSI
 is low" — how low is "low"?), what does the system do?  
 **Options:**
 - Assume a default and proceed
 - Ask the user a clarifying question before generating the signal dict
 - Generate multiple interpretations and ask the user to pick  
-**Decision needed:** Interaction pattern for the AI layer before Phase 9.
+**Decision:** Ask clarifying questions before emitting a strategy (D-113).
+`POST /ai/clarify` completes the loop.
 
 ---
 
 ### OQ-28 — Prompt engineering strategy
 **Priority:** BEFORE PHASE 9  
+**Status:** **Resolved → D-114**  
 **Question:** How is the LLM prompted to ensure it generates valid DSL JSON?  
 **Things to consider:**
 - The LLM must know the exact DSL schema (inject schema into system prompt)
 - Structured output / JSON mode reduces hallucination of invalid structure
 - Few-shot examples of NL → DSL pairs significantly improve quality  
-**Decision needed:** Prompting strategy and validation pipeline before Phase 9.
+**Decision:** Inject Phase 9 `strategy_json_schema()` + few-shots into the system
+prompt; validate with `validate_strategy` before return (D-114).
 
 ---
 
@@ -603,13 +583,11 @@ is low" — how low is "low"?), what does the system do?
 
 ### OQ-29 — Local-only vs cloud deployment
 **Priority:** ANYTIME  
+**Status:** **Resolved for Phase 8 → D-104** (local-first); cloud/auth still Phase 11  
 **Question:** Is this platform intended to run locally (developer's machine) or be
 deployed to a server/cloud?  
-**Why it matters:** Local-only simplifies everything (no auth, no multi-user, no
-cloud costs). Cloud deployment requires auth, API security, environment management.  
-**Current assumption:** Local-only through Phase 3 at minimum.  
-**Decision needed:** Before Phase 7 (screener) where scheduling and always-on
-behavior becomes important.
+**Decision:** Local-first through Phase 8 (CLI cron + no-auth API). Cloud always-on
+and authentication remain Phase 11.
 
 ---
 
@@ -679,9 +657,9 @@ higher-timeframe reads.
 | OQ-56 | Replay step TF | Phase 4 | Resolved |
 | OQ-57 | Indicator batching | Phase 4 | Resolved |
 | OQ-58 | Live streaming | Phase 4 | Resolved → D-78 (deferred) |
-| OQ-13 | Pattern definition reference | Phase 5 | Open |
-| OQ-14 | Pattern confidence scoring | Phase 5 | Open |
-| OQ-15 | Pattern completion vs formation | Phase 5 | Open |
+| OQ-13 | Pattern definition reference | Phase 6 | Resolved → D-99 |
+| OQ-14 | Pattern confidence scoring | Phase 6 | Resolved → D-100 |
+| OQ-15 | Pattern completion vs formation | Phase 6 | Resolved → D-101 |
 | OQ-16 | Multiple position rules | Phase 3 | Resolved → D-43 |
 | OQ-17 | Backtest benchmark | Phase 3 | Resolved → D-42 |
 | OQ-39 | Sharpe on intraday data | Phase 3 | Resolved → D-46 |
@@ -691,17 +669,17 @@ higher-timeframe reads.
 | OQ-43 | Complete position close / risk sizing | Phase 3 | Resolved → D-47, D-51 |
 | OQ-44 | Phase 3 scope | Phase 3 | Resolved → D-48 |
 | OQ-18 | Look-ahead bias enforcement | POC | Resolved → D-14 |
-| OQ-19 | SMC reference framework | Phase 6 | Open |
-| OQ-20 | FVG invalidation rules | Phase 6 | Open |
-| OQ-21 | Edge vs level trigger | Phase 7 | Partial → D-52 (backtest entries) |
-| OQ-22 | Scan timing | Phase 7 | Open |
-| OQ-23 | DSL AND/OR/NOT grammar | Phase 8 | Open |
-| OQ-24 | Multi-TF DSL syntax | Phase 8 | Open |
-| OQ-25 | Lookback syntax in DSL | Phase 8 | Open |
-| OQ-26 | LLM choice | Phase 9 | Open |
-| OQ-27 | Ambiguity handling | Phase 9 | Open |
-| OQ-28 | Prompt engineering strategy | Phase 9 | Open |
-| OQ-29 | Local vs cloud deployment | Phase 7 | Open |
+| OQ-19 | SMC reference framework | Phase 7 | Resolved → D-96 |
+| OQ-20 | FVG invalidation rules | Phase 7 | Resolved → D-97 |
+| OQ-21 | Edge vs level trigger | Phase 7/8 | **Resolved** → D-52 + D-102 |
+| OQ-22 | Scan timing | Phase 7/8 | **Resolved** → D-103 |
+| OQ-23 | DSL AND/OR/NOT grammar | Phase 8/9 | Resolved → D-105, D-109 |
+| OQ-24 | Multi-TF DSL syntax | Phase 8/9 | Resolved → D-106, D-109 |
+| OQ-25 | Lookback syntax in DSL | Phase 8/9 | Resolved → D-110 |
+| OQ-29 | Local vs cloud deployment | Phase 7/8 | **Resolved** → D-104 (Phase 8) |
+| OQ-26 | LLM choice | Phase 10 | Resolved → D-112 |
+| OQ-27 | Ambiguity handling | Phase 10 | Resolved → D-113 |
+| OQ-28 | Prompt engineering strategy | Phase 10 | Resolved → D-114 |
 | OQ-30 | API design for web layer | Phase 10 | Open |
 | OQ-31 | Derived timeframe performance strategy | Phase 2 | Open |
 

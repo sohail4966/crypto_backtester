@@ -1,17 +1,22 @@
 openapi: 3.1.0
 info:
   title: Crypto Backtester API
-  version: 0.4.1
+  version: 0.8.0
   description: |
-    Phase 4/4b chart client API — unified chart-data, historical candles, indicator
-    compute, structured symbols, users, watchlists, and replay (WebSocket v2 + DB sessions).
+    Chart client API — unified chart-data, historical candles, indicator
+    compute, structured symbols, users, watchlists, replay (WebSocket v2),
+    backtest HTTP, screener scan, AI NL→DSL, **JWT auth**, and **live candle WS**.
 
     **Base path (REST):** `/api/v1`
 
-    **Authentication:** None in Phase 4 (public API).
+    **Authentication (Phase 11):** Bearer JWT for user/watchlist ownership.
+    Public: health, symbols, candles, chart-data, indicators, scan, backtest,
+    replay, live WS, `POST /users`, `GET /users/{id}`, `/auth/*`, `/ai/*`.
+    Protected: `GET /users` (list), user PATCH/DELETE, all watchlist routes
+    (`Authorization: Bearer <token>`; JWT `sub` must match path `user_id`).
 
-    **Timestamps:** Candle `time`, replay `start`/`end`/`cursor`, and indicator
-    `from`/`to` use **Unix seconds UTC**.
+    **Timestamps:** Candle `time`, replay `start`/`end`/`cursor`, backtest
+    windows, scan windows, and indicator `from`/`to` use **Unix seconds UTC**.
 
     **Errors (REST):** JSON envelope `{"error": {"code": "...", "message": "..."}}`.
 
@@ -28,6 +33,8 @@ servers:
 tags:
   - name: meta
     description: Health and supported timeframes
+  - name: auth
+    description: Register / login / claim password + JWT issue
   - name: symbols
     description: Tradable symbol catalog (`app.symbols`)
   - name: candles
@@ -35,13 +42,21 @@ tags:
   - name: indicators
     description: Registry catalog and batch compute
   - name: users
-    description: User CRUD (no auth — dev/trust model)
+    description: User CRUD (list/mutations require JWT; GET by id public)
   - name: watchlists
-    description: Per-user symbol watchlists
+    description: Per-user symbol watchlists (JWT ownership required)
   - name: chart-data
-    description: Unified chart window (candles + indicators)
+    description: Unified chart window (candles + indicators + optional backtest overlays)
   - name: replay
     description: Open-ended bar replay (DB sessions + WebSocket v2 tick batches)
+  - name: backtest
+    description: Sync backtest runs, trade log, and strategy catalog (Phase 4d)
+  - name: scan
+    description: Multi-symbol / multi-TF screener scans (Phase 8)
+  - name: ai
+    description: Natural language → Trading DSL translation (Phase 10; public)
+  - name: ai
+    description: NL → DSL translate / clarify / explain (Phase 10; public in v1)
 
 paths:
   /api/v1/meta/health:
@@ -171,7 +186,9 @@ paths:
       summary: Unified chart window
       description: >
         Returns structured symbol, candles, and indicator series in one response.
-        Default limit 500 bars (max 5000). Signals/trades empty until Phase 4c.
+        Default limit 500 bars (max 5000). Signals/trades are populated when
+        `runId` references a persisted backtest run and include flags are true;
+        otherwise empty arrays.
       operationId: getChartData
       parameters:
         - name: symbolId
@@ -214,6 +231,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: runId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Persisted backtest run whose markers overlay this window
         - name: limit
           in: query
           required: false
@@ -318,6 +342,78 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register with password
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthRegisterRequest"
+      responses:
+        "201":
+          description: User created with JWT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Login with email and password
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginRequest"
+      responses:
+        "200":
+          description: JWT access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/claim:
+    post:
+      tags: [auth]
+      summary: Claim legacy passwordless account
+      description: |
+        Sets a password once when `password_hash` is null, then returns a JWT.
+        If a password is already set, returns `PASSWORD_ALREADY_SET` — use `/auth/login`.
+      operationId: authClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthClaimRequest"
+      responses:
+        "200":
+          description: Password set and JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /api/v1/users:
     post:
       tags: [users]
@@ -342,6 +438,8 @@ paths:
       tags: [users]
       summary: List users
       operationId: listUsers
+      security:
+        - bearerAuth: []
       parameters:
         - name: limit
           in: query
@@ -422,6 +520,8 @@ paths:
       tags: [watchlists]
       summary: List watchlists
       operationId: listWatchlists
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
@@ -433,12 +533,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WatchlistResponse"
+        "401":
+          description: Missing or invalid JWT
+        "403":
+          description: JWT subject does not match user_id
         "404":
           $ref: "#/components/responses/NotFound"
     post:
       tags: [watchlists]
       summary: Create watchlist
       operationId: createWatchlist
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       requestBody:
@@ -534,6 +640,196 @@ paths:
                 $ref: "#/components/schemas/WatchlistResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/backtest/strategies:
+    get:
+      tags: [backtest]
+      summary: List named strategies
+      description: Catalog of strategies defined in server config.yaml.
+      operationId: listBacktestStrategies
+      responses:
+        "200":
+          description: Strategy catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategiesResponse"
+
+  /api/v1/backtest:
+    post:
+      tags: [backtest]
+      summary: Run a backtest
+      description: >
+        Synchronously execute the Phase 3 backtest engine and persist the run.
+        Provide exactly one of `strategy_name` or inline `strategy`. Does not
+        write equity PNG or trades CSV.
+      operationId: createBacktest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BacktestCreateRequest"
+      responses:
+        "201":
+          description: Persisted backtest run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestRunResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/backtest/{run_id}:
+    get:
+      tags: [backtest]
+      summary: Get backtest run
+      operationId: getBacktest
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Persisted run summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestRunResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/backtest/{run_id}/trades:
+    get:
+      tags: [backtest]
+      summary: Get backtest trade log
+      operationId: getBacktestTrades
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Full round-trip trade log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BacktestTradesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/scan:
+    post:
+      tags: [scan]
+      summary: Run a multi-symbol screener scan
+      description: >
+        Synchronously evaluate a condition tree across symbols and timeframes.
+        Defaults to active catalog symbols when `symbols` is omitted. Persists
+        to `app.scan_runs` when `persist` is true (default). Alert delivery is
+        console/log only (email/webhook deferred).
+      operationId: createScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanCreateRequest"
+      responses:
+        "201":
+          description: Scan completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanRunResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/ai/translate:
+    post:
+      tags: [ai]
+      summary: Translate natural language into a Trading DSL strategy
+      description: >
+        LLM returns a validated Phase 9 strategy JSON, or `needs_clarification`
+        with questions when the request is ambiguous (D-112–D-114). Public in v1.
+      operationId: aiTranslate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiTranslateRequest"
+      responses:
+        "200":
+          description: Strategy or clarification questions
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AiTranslateOkResponse"
+                  - $ref: "#/components/schemas/AiTranslateClarifyResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "502":
+          description: Upstream LLM provider failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/ai/clarify:
+    post:
+      tags: [ai]
+      summary: Answer clarification questions and continue translation
+      operationId: aiClarify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiClarifyRequest"
+      responses:
+        "200":
+          description: Strategy or further clarification
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AiTranslateOkResponse"
+                  - $ref: "#/components/schemas/AiTranslateClarifyResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/ai/explain:
+    post:
+      tags: [ai]
+      summary: Explain a DSL strategy in plain English
+      description: Template walk of the condition tree (no LLM required).
+      operationId: aiExplain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiExplainRequest"
+      responses:
+        "200":
+          description: English explanation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiExplainResponse"
         "422":
           $ref: "#/components/responses/ValidationError"
 
@@ -634,7 +930,35 @@ x-websocket:
         - $ref: "#/components/schemas/ReplayWsCompletedEvent"
         - $ref: "#/components/schemas/ReplayWsErrorEvent"
 
+  live:
+    path: /ws/live
+    description: |
+      Live candle tail (Phase 11). Polls TimescaleDB for the latest **closed** candle
+      per subscription and pushes a `candle` event when the bar `time` changes.
+      Public in v1 (same trust model as historical candles). Poll interval:
+      `LIVE_WS_POLL_INTERVAL_MS` (default 2000).
+    clientMessages:
+      description: JSON text frames sent by the client
+      oneOf:
+        - $ref: "#/components/schemas/LiveWsSubscribe"
+        - $ref: "#/components/schemas/LiveWsUnsubscribe"
+        - $ref: "#/components/schemas/LiveWsPing"
+    serverMessages:
+      description: JSON text frames sent by the server
+      oneOf:
+        - $ref: "#/components/schemas/LiveWsSubscribedEvent"
+        - $ref: "#/components/schemas/LiveWsCandleEvent"
+        - $ref: "#/components/schemas/LiveWsPongEvent"
+        - $ref: "#/components/schemas/LiveWsErrorEvent"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from `/auth/register`, `/auth/login`, or `/auth/claim`.
+
   parameters:
     SymbolPath:
       name: symbol
@@ -1029,6 +1353,156 @@ components:
           minLength: 3
           maxLength: 320
           format: email
+
+    AuthRegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+
+    AuthLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+        password:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    AuthClaimRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+
+    AuthTokenResponse:
+      type: object
+      required: [access_token, token_type, user_id, email, name, created_at, updated_at]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          default: bearer
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LiveWsSubscribe:
+      type: object
+      required: [action, symbols]
+      properties:
+        action:
+          type: string
+          enum: [subscribe]
+        symbols:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        timeframe:
+          type: string
+          default: 1m
+
+    LiveWsUnsubscribe:
+      type: object
+      required: [action, symbols]
+      properties:
+        action:
+          type: string
+          enum: [unsubscribe]
+        symbols:
+          type: array
+          items:
+            type: string
+
+    LiveWsPing:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [ping]
+
+    LiveWsSubscribedEvent:
+      type: object
+      required: [type, symbols, timeframe]
+      properties:
+        type:
+          type: string
+          enum: [subscribed]
+        symbols:
+          type: array
+          items:
+            type: string
+        timeframe:
+          type: string
+
+    LiveWsCandleEvent:
+      type: object
+      required: [type, symbol, timeframe, bar]
+      properties:
+        type:
+          type: string
+          enum: [candle]
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        bar:
+          $ref: "#/components/schemas/Bar"
+
+    LiveWsPongEvent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [pong]
+
+    LiveWsErrorEvent:
+      type: object
+      required: [type, code, message]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        code:
+          type: string
+        message:
+          type: string
 
     UserUpdate:
       type: object
@@ -1433,4 +1907,466 @@ components:
             - INVALID_SPEED
             - REPLAY_NOT_FOUND
         message:
+          type: string
+
+    StrategiesResponse:
+      type: object
+      required: [strategies]
+      properties:
+        strategies:
+          type: array
+          items:
+            $ref: "#/components/schemas/StrategyInfo"
+
+    StrategyInfo:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [dual, long_only]
+
+    BacktestCreateRequest:
+      type: object
+      required: [symbol, timeframe, start, end]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        initial_capital:
+          type: number
+          format: double
+        strategy_name:
+          type: string
+          description: XOR with strategy — catalog name from config.yaml
+        strategy:
+          type: object
+          additionalProperties: true
+          description: XOR with strategy_name — inline YAML-compatible strategy
+        backtest:
+          $ref: "#/components/schemas/BacktestParamsBody"
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    ScanCreateRequest:
+      type: object
+      required: [timeframes, start, end, condition]
+      properties:
+        timeframes:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        condition:
+          type: object
+          additionalProperties: true
+          description: Signal condition tree (all/any/not + indicator/smc leaves)
+        symbols:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Optional explicit list; defaults to active catalog
+        alert_trigger:
+          type: string
+          enum: [edge, level]
+          default: edge
+        persist:
+          type: boolean
+          default: true
+
+    ScanMatchResponse:
+      type: object
+      required: [symbol, timeframe, bar_ts, triggered]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        bar_ts:
+          type: string
+        triggered:
+          type: boolean
+        close:
+          type: number
+          nullable: true
+
+    ScanErrorResponse:
+      type: object
+      required: [symbol, timeframe, error]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        error:
+          type: string
+
+    ScanRunResponse:
+      type: object
+      required:
+        - timeframes
+        - symbols
+        - start
+        - end
+        - alert_trigger
+        - matches
+        - alert_count
+        - duration_ms
+        - scanned_pairs
+        - persisted
+      properties:
+        scan_id:
+          type: string
+          format: uuid
+          nullable: true
+        timeframes:
+          type: array
+          items:
+            type: string
+        symbols:
+          type: array
+          items:
+            type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        alert_trigger:
+          type: string
+          enum: [edge, level]
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanMatchResponse"
+        alert_count:
+          type: integer
+        duration_ms:
+          type: integer
+        scanned_pairs:
+          type: integer
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanErrorResponse"
+        persisted:
+          type: boolean
+
+    BacktestParamsBody:
+      type: object
+      properties:
+        slippage_bps:
+          type: number
+          format: double
+        commission:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [percent, flat]
+            rate:
+              type: number
+            amount:
+              type: number
+        sizing:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [full_capital, fixed_pct, fixed_notional, risk_pct]
+            pct:
+              type: number
+            amount:
+              type: number
+            risk_pct:
+              type: number
+
+    BacktestRunResponse:
+      type: object
+      required:
+        - run_id
+        - symbol
+        - timeframe
+        - start
+        - end
+        - initial_capital
+        - status
+        - metrics
+        - equity
+        - signals
+        - trades
+        - created_at
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        start:
+          type: integer
+          format: int64
+        end:
+          type: integer
+          format: int64
+        initial_capital:
+          type: number
+        strategy_name:
+          type: string
+          nullable: true
+        status:
+          type: string
+        metrics:
+          $ref: "#/components/schemas/BacktestMetricsResponse"
+        equity:
+          type: array
+          items:
+            $ref: "#/components/schemas/EquityPoint"
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartSignal"
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartTrade"
+        created_at:
+          type: string
+          format: date-time
+
+    BacktestMetricsResponse:
+      type: object
+      required:
+        - total_return
+        - win_rate
+        - max_drawdown
+        - trade_count
+        - forced_close
+        - final_capital
+        - initial_capital
+      properties:
+        total_return:
+          type: number
+        win_rate:
+          type: number
+        max_drawdown:
+          type: number
+        trade_count:
+          type: integer
+        forced_close:
+          type: boolean
+        final_capital:
+          type: number
+        initial_capital:
+          type: number
+        sharpe_ratio:
+          type: number
+          nullable: true
+        sortino_ratio:
+          type: number
+          nullable: true
+        calmar_ratio:
+          type: number
+          nullable: true
+        profit_factor:
+          type: number
+          nullable: true
+        benchmark_return:
+          type: number
+          nullable: true
+        alpha_vs_benchmark:
+          type: number
+          nullable: true
+
+    EquityPoint:
+      type: object
+      required: [time, value]
+      properties:
+        time:
+          type: integer
+          format: int64
+        value:
+          type: number
+
+    ChartSignal:
+      type: object
+      required: [time]
+      properties:
+        time:
+          type: integer
+          format: int64
+        side:
+          type: string
+          nullable: true
+        label:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ChartTrade:
+      type: object
+      required: [time]
+      properties:
+        time:
+          type: integer
+          format: int64
+        side:
+          type: string
+          nullable: true
+        price:
+          type: number
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    BacktestTradesResponse:
+      type: object
+      required: [run_id, trades]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradeDetail"
+
+    TradeDetail:
+      type: object
+      required:
+        - entry_time
+        - exit_time
+        - entry_price
+        - exit_price
+        - side
+        - exit_reason
+        - forced_close
+        - return_pct
+        - size
+        - commission_paid
+        - pnl_quote
+      properties:
+        entry_time:
+          type: integer
+          format: int64
+        exit_time:
+          type: integer
+          format: int64
+        entry_price:
+          type: number
+        exit_price:
+          type: number
+        side:
+          type: string
+        exit_reason:
+          type: string
+        forced_close:
+          type: boolean
+        return_pct:
+          type: number
+        size:
+          type: number
+        commission_paid:
+          type: number
+        pnl_quote:
+          type: number
+
+    AiTranslateRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Plain-English strategy description
+
+    AiClarifyRequest:
+      type: object
+      required: [session_id, answers]
+      properties:
+        session_id:
+          type: string
+        answers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of clarification question id → answer
+
+    AiExplainRequest:
+      type: object
+      required: [strategy]
+      properties:
+        strategy:
+          type: object
+          additionalProperties: true
+          description: Phase 9 Trading DSL strategy document
+
+    AiClarificationQuestion:
+      type: object
+      required: [id, prompt]
+      properties:
+        id:
+          type: string
+        prompt:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+
+    AiTranslateOkResponse:
+      type: object
+      required: [status, strategy]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        strategy:
+          type: object
+          additionalProperties: true
+        explanation:
+          type: string
+
+    AiTranslateClarifyResponse:
+      type: object
+      required: [status, session_id, questions]
+      properties:
+        status:
+          type: string
+          enum: [needs_clarification]
+        session_id:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiClarificationQuestion"
+
+    AiExplainResponse:
+      type: object
+      required: [explanation]
+      properties:
+        explanation:
           type: string
