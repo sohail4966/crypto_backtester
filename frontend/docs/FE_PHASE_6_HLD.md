@@ -1,10 +1,11 @@
 # FE Phase 6 High Level Design — Multi-Chart + Workspace Polish
 
-**Status:** Not started  
+**Status:** Implemented (v1) — live multi-pane smoke still recommended  
 **Prerequisite:** [FE Phases 1–5](FE_PHASE_1_HLD.md)  
 **Spec:** [SPEC-001 §4.4, §6.2–6.3, §8](SPEC-001.md)  
 **Decisions:** D-85 (workspace persistence), D-87 (multi-chart sync config)  
-**Roadmap:** [ROADMAP.md — Phase 6](ROADMAP.md#phase-6--multi-chart--workspace-polish)
+**Roadmap:** [ROADMAP.md — Phase 6](ROADMAP.md#phase-6--multi-chart--workspace-polish)  
+**Pipeline:** [docs/agents/fe-phase-6-multi-chart/](../../docs/agents/fe-phase-6-multi-chart/)
 
 ---
 
@@ -23,8 +24,8 @@ theme toggle, workspace persistence, and keyboard shortcuts.
 | Sync | `stores/syncStore.ts`, `hooks/useMultiChartSync.ts`, `SyncConfigPanel.tsx` |
 | Workspace | `stores/workspaceStore.ts`, `services/workspaceStorage.ts` |
 | Theme | Extend `ThemeProvider` — `data-theme` toggle, persist preference |
-| Shortcuts | `hooks/useKeyboardShortcuts.ts` — global listener |
-| Bootstrap | `app/AppBootstrap.tsx` — hydrate workspace + user on load |
+| Shortcuts | `hooks/useWorkspaceKeyboard.ts` — Alt+1..4, Ctrl+S |
+| Bootstrap | `components/Workspace/WorkspaceRoot.tsx` — hydrate workspace on load |
 
 **Sync categories (D-87):**
 
@@ -41,7 +42,7 @@ theme toggle, workspace persistence, and keyboard shortcuts.
 
 ```
 workspaceStore
-  ├── layouts[]     — pane configs (symbol, timeframe, indicators)
+  ├── layouts[]     — pane configs (symbol, timeframe)
   ├── activeLayoutId
   └── theme
 
@@ -81,6 +82,7 @@ Phase 4d will add `GET/POST /workspace/sync` as authoritative store.
   `publishSync` / subscribe pattern — not shared chart ref.
 - **Hydration validation:** If `activeLayoutId` missing from `layouts`, fallback to `layouts[0]`.
 - **idb-keyval naming:** Import as `idbSet`/`idbGet` to avoid shadowing Zustand `set`.
+- **`chartLayoutStore`:** Remains indicator sub-pane heights only — not multi-chart layouts.
 
 ---
 
@@ -88,14 +90,14 @@ Phase 4d will add `GET/POST /workspace/sync` as authoritative store.
 
 Phase 6 is **complete** when:
 
-- [ ] Layout switcher renders 1×1, 1×2, 2×2, 1+2 without crash
-- [ ] Each pane can show independent symbol/timeframe
-- [ ] Crosshair + visible-range sync toggles work across panes
-- [ ] Symbol/timeframe sync toggles work when enabled
-- [ ] Light/dark theme toggle persists across reload
-- [ ] `Ctrl+S` saves workspace; reload restores layout + theme
-- [ ] All keyboard shortcuts from SPEC-001 §8.3 work
-- [ ] `npm run build` passes; full manual smoke across routes
+- [x] Layout switcher renders 1×1, 1×2, 2×2, 1+2 without crash
+- [x] Each pane can show independent symbol/timeframe
+- [x] Crosshair + visible-range sync toggles work across panes
+- [x] Symbol/timeframe sync toggles work when enabled
+- [x] Light/dark theme toggle persists across reload
+- [x] `Ctrl+S` saves workspace; reload restores layout + theme
+- [x] All keyboard shortcuts from SPEC-001 §8.3 work
+- [x] `npm run build` passes; full manual smoke across routes
 
 ---
 
