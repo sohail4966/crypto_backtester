@@ -1,36 +1,64 @@
 import { apiRequest } from '@/services/api'
 
-export type AiTranslateRequest = {
+/**
+ * Thin HTTP clients for POST /ai/translate|clarify|explain (FE-L2-006).
+ *
+ * Request/response shapes mirror the BE Pydantic models exactly
+ * (``backend/api/schemas/ai.py``). Auth via Bearer flows through ``apiRequest``.
+ */
+
+export interface AiTranslateRequest {
   text: string
 }
 
-export type AiClarifyRequest = {
-  message: string
-  session_id?: string
+export interface AiClarifyRequest {
+  session_id: string
+  answers: Record<string, string>
 }
 
-export type AiExplainRequest = {
-  run_id?: string
-  context?: string
+export interface AiExplainRequest {
+  strategy: Record<string, unknown>
 }
 
-/** Thin AI HTTP clients (FE-006). Auth via Bearer once BE-004 gates /ai/*. */
-export function aiTranslate(body: AiTranslateRequest): Promise<unknown> {
-  return apiRequest('/ai/translate', {
+export interface ClarificationQuestion {
+  id: string
+  prompt: string
+  options: string[]
+}
+
+export type AiTranslateResponse =
+  | {
+      status: 'ok'
+      strategy: Record<string, unknown>
+      explanation: string
+    }
+  | {
+      status: 'needs_clarification'
+      session_id: string
+      questions: ClarificationQuestion[]
+    }
+
+export interface AiExplainResponse {
+  explanation: string
+}
+
+export function aiTranslate(body: AiTranslateRequest): Promise<AiTranslateResponse> {
+  return apiRequest<AiTranslateResponse>('/ai/translate', {
     method: 'POST',
     body: JSON.stringify(body),
   })
 }
 
-export function aiClarify(body: AiClarifyRequest): Promise<unknown> {
-  return apiRequest('/ai/clarify', {
+/** Same discriminated union as ``translate`` — BE may return either shape. */
+export function aiClarify(body: AiClarifyRequest): Promise<AiTranslateResponse> {
+  return apiRequest<AiTranslateResponse>('/ai/clarify', {
     method: 'POST',
     body: JSON.stringify(body),
   })
 }
 
-export function aiExplain(body: AiExplainRequest): Promise<unknown> {
-  return apiRequest('/ai/explain', {
+export function aiExplain(body: AiExplainRequest): Promise<AiExplainResponse> {
+  return apiRequest<AiExplainResponse>('/ai/explain', {
     method: 'POST',
     body: JSON.stringify(body),
   })

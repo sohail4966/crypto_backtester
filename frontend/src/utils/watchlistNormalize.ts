@@ -13,6 +13,13 @@ export class SymbolResolveError extends Error {
   }
 }
 
+/** Result of a partial watchlist resolve (FE-L2-010). */
+export interface WatchlistResolveResult {
+  watchlists: Watchlist[]
+  /** IDs the BE returned but the FE catalog could not resolve. */
+  unresolved: string[]
+}
+
 function asString(value: unknown): string {
   if (typeof value === 'string') {
     return value
@@ -63,8 +70,12 @@ async function mapPool<T, R>(
 }
 
 /**
- * Resolve ordered symbol IDs via active catalog, then concurrent getSymbol fallbacks.
- * Fails the entire refresh if any ID remains unresolved.
+ * Resolve ordered symbol IDs via the active catalog, then concurrent
+ * ``getSymbol`` fallbacks. Unresolved IDs are dropped from the returned
+ * watchlists and returned via ``unresolved`` so the caller can surface a soft
+ * warning (FE-L2-010). ``SymbolResolveError`` is still thrown when a watchlist
+ * that had symbols ends up with zero resolved — that indicates a real BE outage
+ * rather than one delisted pair.
  */
 export async function resolveWatchlistDtos(
   dtos: WatchlistDto[],
@@ -72,13 +83,16 @@ export async function resolveWatchlistDtos(
     searchSymbols?: typeof searchSymbols
     getSymbol?: typeof getSymbol
   } = {},
-): Promise<Watchlist[]> {
+): Promise<WatchlistResolveResult> {
   const catalogSearch = deps.searchSymbols ?? searchSymbols
   const fetchSymbol = deps.getSymbol ?? getSymbol
 
   const needsResolution = dtos.some((dto) => dto.symbols.length > 0)
   if (!needsResolution) {
-    return dtos.map((dto) => mapWatchlistDto(dto, []))
+    return {
+      watchlists: dtos.map((dto) => mapWatchlistDto(dto, [])),
+      unresolved: [],
+    }
   }
 
   const catalog = await catalogSearch('')
@@ -96,7 +110,6 @@ export async function resolveWatchlistDtos(
     }
   }
 
-  const unresolved: string[] = []
   if (missing.size > 0) {
     const ids = [...missing]
     const fetched = await mapPool(ids, SYMBOL_RESOLVE_CONCURRENCY, async (id) => {
@@ -108,29 +121,33 @@ export async function resolveWatchlistDtos(
     })
     for (let i = 0; i < ids.length; i += 1) {
       const symbol = fetched[i]
-      const id = ids[i] as string
       if (symbol) {
         byId.set(symbol.id, symbol)
-      } else {
-        unresolved.push(id)
       }
     }
   }
 
-  if (unresolved.length > 0) {
-    throw new SymbolResolveError(unresolved)
+  const unresolvedIds = new Set<string>()
+  const watchlists: Watchlist[] = []
+  for (const dto of dtos) {
+    const resolved: Symbol[] = []
+    for (const id of dto.symbols) {
+      const symbol = byId.get(id)
+      if (symbol) {
+        resolved.push(symbol)
+      } else {
+        unresolvedIds.add(id)
+      }
+    }
+    // A watchlist that started with symbols but resolved zero of them is a
+    // hard failure — likely a BE outage, not a single delisted pair.
+    if (dto.symbols.length > 0 && resolved.length === 0) {
+      throw new SymbolResolveError(dto.symbols.slice())
+    }
+    watchlists.push(mapWatchlistDto(dto, resolved))
   }
 
-  return dtos.map((dto) => {
-    const symbols = dto.symbols.map((id) => {
-      const symbol = byId.get(id)
-      if (!symbol) {
-        throw new SymbolResolveError([id])
-      }
-      return symbol
-    })
-    return mapWatchlistDto(dto, symbols)
-  })
+  return { watchlists, unresolved: [...unresolvedIds] }
 }
 
 /**

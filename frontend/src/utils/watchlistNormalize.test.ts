@@ -53,20 +53,21 @@ function dto(overrides: Partial<WatchlistDto> = {}): WatchlistDto {
 
 describe('watchlistNormalize', () => {
   it('maps snake_case DTO metadata and preserves backend symbol order', async () => {
-    const result = await resolveWatchlistDtos([dto()], {
+    const { watchlists, unresolved } = await resolveWatchlistDtos([dto()], {
       searchSymbols: async () => [eth, btc],
       getSymbol: async () => {
         throw new Error('should not fallback')
       },
     })
 
-    expect(result[0]).toMatchObject({
+    expect(watchlists[0]).toMatchObject({
       id: 'wl-1',
       userId: 'user-1',
       isDefault: true,
       sortOrder: 0,
     })
-    expect(result[0]?.symbols.map((s) => s.id)).toEqual(['BTC/USDT', 'ETH/USDT'])
+    expect(watchlists[0]?.symbols.map((s) => s.id)).toEqual(['BTC/USDT', 'ETH/USDT'])
+    expect(unresolved).toEqual([])
   })
 
   it('falls back to getSymbol for catalog misses', async () => {
@@ -77,7 +78,7 @@ describe('watchlistNormalize', () => {
       throw new Error('missing')
     })
 
-    const result = await resolveWatchlistDtos(
+    const { watchlists, unresolved } = await resolveWatchlistDtos(
       [dto({ symbols: ['BTC/USDT', 'INACTIVE/USDT'] })],
       {
         searchSymbols: async () => [btc],
@@ -86,16 +87,32 @@ describe('watchlistNormalize', () => {
     )
 
     expect(getSymbol).toHaveBeenCalledWith('INACTIVE/USDT')
-    expect(result[0]?.symbols.map((s) => s.id)).toEqual([
+    expect(watchlists[0]?.symbols.map((s) => s.id)).toEqual([
       'BTC/USDT',
       'INACTIVE/USDT',
     ])
+    expect(unresolved).toEqual([])
   })
 
-  it('fails rather than dropping an unresolved ID', async () => {
-    await expect(
-      resolveWatchlistDtos([dto({ symbols: ['BTC/USDT', 'MISSING'] })], {
+  it('drops individual unresolved IDs and reports them via `unresolved`', async () => {
+    const { watchlists, unresolved } = await resolveWatchlistDtos(
+      [dto({ symbols: ['BTC/USDT', 'MISSING'] })],
+      {
         searchSymbols: async () => [btc],
+        getSymbol: async () => {
+          throw new Error('404')
+        },
+      },
+    )
+
+    expect(watchlists[0]?.symbols.map((s) => s.id)).toEqual(['BTC/USDT'])
+    expect(unresolved).toEqual(['MISSING'])
+  })
+
+  it('throws when a watchlist with symbols resolves to zero', async () => {
+    await expect(
+      resolveWatchlistDtos([dto({ symbols: ['MISSING', 'ALSO_MISSING'] })], {
+        searchSymbols: async () => [],
         getSymbol: async () => {
           throw new Error('404')
         },
@@ -105,7 +122,7 @@ describe('watchlistNormalize', () => {
 
   it('skips catalog fetch when every list has empty symbols', async () => {
     const searchSymbols = vi.fn(async () => [btc])
-    const result = await resolveWatchlistDtos(
+    const { watchlists } = await resolveWatchlistDtos(
       [dto({ symbols: [] }), dto({ id: 'wl-2', symbols: [] })],
       {
         searchSymbols,
@@ -116,9 +133,9 @@ describe('watchlistNormalize', () => {
     )
 
     expect(searchSymbols).not.toHaveBeenCalled()
-    expect(result).toHaveLength(2)
-    expect(result[0]?.symbols).toEqual([])
-    expect(result[1]?.symbols).toEqual([])
+    expect(watchlists).toHaveLength(2)
+    expect(watchlists[0]?.symbols).toEqual([])
+    expect(watchlists[1]?.symbols).toEqual([])
   })
 
   it('selects default, then lowest sortOrder, then response order', () => {

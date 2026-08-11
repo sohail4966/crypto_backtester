@@ -23,13 +23,19 @@ import {
   patchWatchlist as patchWatchlistApi,
   replaceWatchlistSymbols,
 } from '@/services/watchlistApi'
-import { readWatchlistCache, writeWatchlistCache } from '@/services/watchlistCache'
+import {
+  deleteWatchlistCache,
+  readWatchlistCache,
+  writeWatchlistCache,
+} from '@/services/watchlistCache'
 import { useWatchlistStore } from '@/stores/watchlistStore'
+import { useToast } from '@/components/ui/Toast'
 import type { Watchlist } from '@/types/watchlist'
 import type { Symbol } from '@/types/symbol'
 import {
   mapWatchlistDto,
   resolveWatchlistDtos,
+  type WatchlistResolveResult,
 } from '@/utils/watchlistNormalize'
 
 interface WatchlistSessionValue {
@@ -92,7 +98,9 @@ async function persistConfirmedSnapshot(): Promise<void> {
   })
 }
 
-async function loadCanonicalWatchlists(userId: string): Promise<Watchlist[]> {
+async function loadCanonicalWatchlists(
+  userId: string,
+): Promise<WatchlistResolveResult> {
   const dtos = await listWatchlists(userId)
   if (dtos.length === 0) {
     const created = await createWatchlistApi(userId, DEFAULT_WATCHLIST_NAME, [])
@@ -105,6 +113,7 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
   const [reloadToken, setReloadToken] = useState(0)
   const staleRecoveryUsedRef = useRef(false)
   const generationRef = useRef(0)
+  const { showToast } = useToast()
 
   const pendingWatchlistIds = useWatchlistStore((state) => state.pendingWatchlistIds)
 
@@ -144,7 +153,7 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
             useWatchlistStore.getState().selectedWatchlistId ??
             cache?.selectedWatchlistId ??
             null
-          const watchlists = await loadCanonicalWatchlists(userId)
+          const { watchlists, unresolved } = await loadCanonicalWatchlists(userId)
           if (cancelled || generation !== generationRef.current) {
             return
           }
@@ -154,6 +163,9 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
             .applyCanonical(watchlists, preferredSelectedId)
           await persistConfirmedSnapshot()
           staleRecoveryUsedRef.current = false
+          if (unresolved.length > 0) {
+            showToast('Some symbols could not be loaded and were hidden')
+          }
         } catch (error) {
           if (cancelled || generation !== generationRef.current) {
             return
@@ -167,27 +179,32 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
             error instanceof ApiError &&
             (error.status === 401 || error.status === 403)
 
-          if (isUserMissing || isUnauthorized) {
+          if (isUnauthorized) {
+            // apiRequest → notifyAuthFailure already cleared the JWT and set the
+            // auth store to `session: 'expired'` with the correct error code.
+            // Only drop the stale watchlist cache here — never touch the auth
+            // store (a full clear would wipe `lastErrorCode` and downgrade the
+            // AuthModal copy from "Session expired" to first-time "Sign in").
+            await deleteWatchlistCache(userId)
+            useWatchlistStore
+              .getState()
+              .setError('Session expired. Sign in again.')
+            if (useAuthStore.getState().session !== 'expired') {
+              useAuthStore.getState().setNeedsAuth()
+            }
+            return
+          }
+
+          if (isUserMissing) {
             if (staleRecoveryUsedRef.current) {
               useWatchlistStore
                 .getState()
-                .setError(
-                  isUnauthorized
-                    ? 'Session expired. Sign in again.'
-                    : 'Stored user is invalid. Clear site data and reload.',
-                )
-              if (isUnauthorized) {
-                useAuthStore.getState().setNeedsAuth()
-              }
+                .setError('Stored user is invalid. Clear site data and reload.')
               return
             }
             staleRecoveryUsedRef.current = true
             await clearStaleUser(userId)
             clearLocalUserId()
-            if (isUnauthorized) {
-              useAuthStore.getState().setNeedsAuth()
-              return
-            }
             setReloadToken((token) => token + 1)
             return
           }
@@ -233,7 +250,8 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
     const dto = await createWatchlistApi(userId, trimmed, [])
     let resolved: Watchlist | undefined
     try {
-      ;[resolved] = await resolveWatchlistDtos([dto])
+      const result = await resolveWatchlistDtos([dto])
+      resolved = result.watchlists[0]
     } catch {
       resolved = mapWatchlistDto(dto, [])
     }
@@ -288,9 +306,12 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
     const dto = await patchWatchlistApi(userId, watchlistId, {
       is_default: true,
     })
-    const lists = await loadCanonicalWatchlists(userId)
-    useWatchlistStore.getState().applyCanonical(lists, dto.id)
+    const { watchlists, unresolved } = await loadCanonicalWatchlists(userId)
+    useWatchlistStore.getState().applyCanonical(watchlists, dto.id)
     await persistConfirmedSnapshot()
+    if (unresolved.length > 0) {
+      showToast('Some symbols could not be loaded and were hidden')
+    }
     return true
   }
 
@@ -333,7 +354,8 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
 
         let resolved: Watchlist | undefined
         try {
-          ;[resolved] = await resolveWatchlistDtos([dto])
+          const result = await resolveWatchlistDtos([dto])
+          resolved = result.watchlists[0]
         } catch {
           // PUT already committed on the server — keep local symbols in DTO order.
           const byId = new Map(current.symbols.map((item) => [item.id, item]))

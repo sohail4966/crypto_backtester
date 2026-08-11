@@ -1,5 +1,9 @@
 import { useState, type FormEvent } from 'react'
-import { allowDevAuth } from '@/constants/auth'
+import {
+  PASSWORD_MIN_LENGTH_LOGIN,
+  PASSWORD_MIN_LENGTH_REGISTER,
+  allowDevAuth,
+} from '@/constants/auth'
 import {
   AuthRequiredError,
   authenticateWithCredentials,
@@ -130,12 +134,21 @@ export function AuthModal({ onAuthenticated }: AuthModalProps) {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={
+                mode === 'register'
+                  ? PASSWORD_MIN_LENGTH_REGISTER
+                  : PASSWORD_MIN_LENGTH_LOGIN
+              }
               className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-text"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
+            {mode === 'register' ? (
+              <span className="mt-1 block text-xs text-text-secondary">
+                At least {PASSWORD_MIN_LENGTH_REGISTER} characters
+              </span>
+            ) : null}
           </label>
 
           {error ? (
