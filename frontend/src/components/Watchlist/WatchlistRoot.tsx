@@ -8,7 +8,9 @@ import {
 } from 'react'
 import { DEFAULT_WATCHLIST_NAME } from '@/constants/watchlist'
 import { ApiError } from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
 import {
+  AuthRequiredError,
   clearLocalUserId,
   clearStaleUser,
   ensureUserId,
@@ -16,7 +18,9 @@ import {
 } from '@/services/userBootstrap'
 import {
   createWatchlist as createWatchlistApi,
+  deleteWatchlist as deleteWatchlistApi,
   listWatchlists,
+  patchWatchlist as patchWatchlistApi,
   replaceWatchlistSymbols,
 } from '@/services/watchlistApi'
 import { readWatchlistCache, writeWatchlistCache } from '@/services/watchlistCache'
@@ -31,6 +35,9 @@ import {
 interface WatchlistSessionValue {
   retry: () => void
   createWatchlist: (name: string) => Promise<Watchlist | null>
+  renameWatchlist: (watchlistId: string, name: string) => Promise<boolean>
+  deleteWatchlist: (watchlistId: string) => Promise<boolean>
+  setDefaultWatchlist: (watchlistId: string) => Promise<boolean>
   addSymbolToSelected: (symbol: Symbol) => Promise<boolean>
   isAddPending: (watchlistId: string | null) => boolean
 }
@@ -43,6 +50,9 @@ export function useWatchlistSession(): WatchlistSessionValue {
     return {
       retry: () => {},
       createWatchlist: async () => null,
+      renameWatchlist: async () => false,
+      deleteWatchlist: async () => false,
+      setDefaultWatchlist: async () => false,
       addSymbolToSelected: async () => false,
       isAddPending: () => false,
     }
@@ -153,17 +163,31 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
             error instanceof ApiError &&
             error.status === 404 &&
             getErrorCode(error) === 'USER_NOT_FOUND'
+          const isUnauthorized =
+            error instanceof ApiError &&
+            (error.status === 401 || error.status === 403)
 
-          if (isUserMissing) {
+          if (isUserMissing || isUnauthorized) {
             if (staleRecoveryUsedRef.current) {
               useWatchlistStore
                 .getState()
-                .setError('Stored user is invalid. Clear site data and reload.')
+                .setError(
+                  isUnauthorized
+                    ? 'Session expired. Sign in again.'
+                    : 'Stored user is invalid. Clear site data and reload.',
+                )
+              if (isUnauthorized) {
+                useAuthStore.getState().setNeedsAuth()
+              }
               return
             }
             staleRecoveryUsedRef.current = true
             await clearStaleUser(userId)
             clearLocalUserId()
+            if (isUnauthorized) {
+              useAuthStore.getState().setNeedsAuth()
+              return
+            }
             setReloadToken((token) => token + 1)
             return
           }
@@ -175,6 +199,11 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         if (cancelled || generation !== generationRef.current) {
+          return
+        }
+        if (error instanceof AuthRequiredError) {
+          useAuthStore.getState().setNeedsAuth()
+          useWatchlistStore.getState().setError('Sign in to load watchlists')
           return
         }
         const message =
@@ -214,6 +243,55 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
     useWatchlistStore.getState().appendWatchlist(resolved)
     await persistConfirmedSnapshot()
     return resolved
+  }
+
+  async function renameWatchlist(
+    watchlistId: string,
+    name: string,
+  ): Promise<boolean> {
+    const trimmed = name.trim()
+    const { userId } = useWatchlistStore.getState()
+    if (!userId || !trimmed) {
+      return false
+    }
+    const dto = await patchWatchlistApi(userId, watchlistId, { name: trimmed })
+    const current = useWatchlistStore
+      .getState()
+      .watchlists.find((list) => list.id === watchlistId)
+    const resolved = mapWatchlistDto(dto, current?.symbols ?? [])
+    useWatchlistStore.getState().commitWatchlist(resolved)
+    await persistConfirmedSnapshot()
+    return true
+  }
+
+  async function deleteWatchlist(watchlistId: string): Promise<boolean> {
+    const { userId, watchlists, selectedWatchlistId } =
+      useWatchlistStore.getState()
+    if (!userId) {
+      return false
+    }
+    await deleteWatchlistApi(userId, watchlistId)
+    const next = watchlists.filter((list) => list.id !== watchlistId)
+    useWatchlistStore.getState().applyCanonical(
+      next,
+      selectedWatchlistId === watchlistId ? null : selectedWatchlistId,
+    )
+    await persistConfirmedSnapshot()
+    return true
+  }
+
+  async function setDefaultWatchlist(watchlistId: string): Promise<boolean> {
+    const { userId } = useWatchlistStore.getState()
+    if (!userId) {
+      return false
+    }
+    const dto = await patchWatchlistApi(userId, watchlistId, {
+      is_default: true,
+    })
+    const lists = await loadCanonicalWatchlists(userId)
+    useWatchlistStore.getState().applyCanonical(lists, dto.id)
+    await persistConfirmedSnapshot()
+    return true
   }
 
   async function addSymbolToSelected(symbol: Symbol): Promise<boolean> {
@@ -299,6 +377,9 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
       setReloadToken((token) => token + 1)
     },
     createWatchlist,
+    renameWatchlist,
+    deleteWatchlist,
+    setDefaultWatchlist,
     addSymbolToSelected,
     isAddPending: (watchlistId) =>
       Boolean(watchlistId && pendingWatchlistIds.includes(watchlistId)),

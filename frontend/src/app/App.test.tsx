@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { USER_ID_STORAGE_KEY } from '@/constants/watchlist'
+import { AUTH_TOKEN_STORAGE_KEY } from '@/constants/auth'
 import { useChartStore } from '@/stores/chartStore'
 import { useReplayStore } from '@/stores/replayStore'
 import { useWatchlistStore } from '@/stores/watchlistStore'
+import { useAuthStore } from '@/stores/authStore'
 import { resetUserBootstrapLatch } from '@/services/userBootstrap'
 import {
   deleteWatchlistCache,
@@ -105,15 +107,15 @@ function installDefaultFetch(
         return custom
       }
 
-      // Phase 11 JWT bootstrap: register → claim → login (no stored token)
+      // Phase 11 JWT bootstrap: register → login (no stored token)
       if (url.includes('/auth/register') && method === 'POST') {
         return mockFetchResponse(mockAuthToken, 201)
       }
-      if (url.includes('/auth/claim') && method === 'POST') {
-        return mockFetchResponse(mockAuthToken)
-      }
       if (url.includes('/auth/login') && method === 'POST') {
         return mockFetchResponse(mockAuthToken)
+      }
+      if (url.includes('/auth/me') && method === 'GET') {
+        return mockFetchResponse(mockUser)
       }
 
       if (url.endsWith('/users') && method === 'POST') {
@@ -185,6 +187,7 @@ describe('App', () => {
   beforeEach(async () => {
     localStorage.clear()
     resetUserBootstrapLatch()
+    useAuthStore.getState().clear()
     useChartStore.setState({ symbol: null, replayMode: false })
     useReplayStore.getState().reset()
     useWatchlistStore.getState().reset()
@@ -196,7 +199,7 @@ describe('App', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
+    expect(await screen.findByRole('navigation', { name: 'Main' })).toBeInTheDocument()
     expect(screen.getByLabelText('Search symbols')).toBeInTheDocument()
     expect(screen.queryByText('Indicators')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Replay' })).toBeInTheDocument()
@@ -225,6 +228,7 @@ describe('App', () => {
 
   it('paints IndexedDB cache before a deferred watchlist GET resolves', async () => {
     localStorage.setItem(USER_ID_STORAGE_KEY, 'user-test-1')
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, 'test-access-token')
     await writeWatchlistCache({
       version: 1,
       userId: 'user-test-1',

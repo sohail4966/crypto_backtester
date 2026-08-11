@@ -1,5 +1,6 @@
 import {
   DEV_USER_PASSWORD,
+  allowDevAuth,
 } from '@/constants/auth'
 import {
   DEV_USER_EMAIL,
@@ -13,6 +14,7 @@ import {
   setAuthToken,
 } from '@/services/authToken'
 import { deleteWatchlistCache } from '@/services/watchlistCache'
+import { useAuthStore } from '@/stores/authStore'
 import type { UserResponse } from '@/types/watchlist'
 
 export type AuthTokenResponse = {
@@ -25,36 +27,33 @@ export type AuthTokenResponse = {
   updated_at: string
 }
 
-function getErrorCode(error: unknown): string | null {
-  if (!(error instanceof ApiError)) {
-    return null
+export class AuthRequiredError extends Error {
+  constructor(message = 'Authentication required') {
+    super(message)
+    this.name = 'AuthRequiredError'
   }
-  const body = error.body
-  if (!body || typeof body !== 'object') {
-    return null
-  }
-  const envelope = body as { error?: { code?: unknown } }
-  return typeof envelope.error?.code === 'string' ? envelope.error.code : null
 }
 
-export function createUser(
-  name = DEV_USER_NAME,
-  email = DEV_USER_EMAIL,
-): Promise<UserResponse> {
-  return apiRequest<UserResponse>('/users', {
-    method: 'POST',
-    body: JSON.stringify({ name, email }),
-  })
+export function getErrorCode(error: unknown): string | null {
+  if (error instanceof ApiError) {
+    return error.code
+  }
+  return null
 }
 
 export function getUser(userId: string): Promise<UserResponse> {
   return apiRequest<UserResponse>(`/users/${encodeURIComponent(userId)}`)
 }
 
+/** Authenticated session probe (BE-016 / FE-002). */
+export function getCurrentUser(): Promise<UserResponse> {
+  return apiRequest<UserResponse>('/auth/me')
+}
+
 export function registerUser(
-  name = DEV_USER_NAME,
-  email = DEV_USER_EMAIL,
-  password = DEV_USER_PASSWORD,
+  name: string,
+  email: string,
+  password: string,
 ): Promise<AuthTokenResponse> {
   return apiRequest<AuthTokenResponse>('/auth/register', {
     method: 'POST',
@@ -63,20 +62,10 @@ export function registerUser(
 }
 
 export function loginUser(
-  email = DEV_USER_EMAIL,
-  password = DEV_USER_PASSWORD,
+  email: string,
+  password: string,
 ): Promise<AuthTokenResponse> {
   return apiRequest<AuthTokenResponse>('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  })
-}
-
-export function claimUser(
-  email = DEV_USER_EMAIL,
-  password = DEV_USER_PASSWORD,
-): Promise<AuthTokenResponse> {
-  return apiRequest<AuthTokenResponse>('/auth/claim', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   })
@@ -103,38 +92,37 @@ async function clearStaleUser(userId: string): Promise<void> {
 function storeAuthSession(auth: AuthTokenResponse): string {
   setAuthToken(auth.access_token)
   storeUserId(auth.user_id)
+  useAuthStore.getState().setAuthenticated({
+    userId: auth.user_id,
+    email: auth.email,
+    name: auth.name,
+  })
   return auth.user_id
 }
 
+/**
+ * Silent local-dev token path. Gated by allowDevAuth(); not used in production builds
+ * unless VITE_ALLOW_DEV_AUTH is explicitly enabled.
+ */
 async function obtainDevToken(): Promise<string> {
   try {
-    return storeAuthSession(await registerUser())
+    return storeAuthSession(
+      await registerUser(DEV_USER_NAME, DEV_USER_EMAIL, DEV_USER_PASSWORD),
+    )
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 422) {
       throw error
     }
     const code = getErrorCode(error)
-    if (code !== 'EMAIL_EXISTS') {
-      throw error
+    // BE-024/G-008: register conflicts use REGISTRATION_FAILED (legacy EMAIL_EXISTS kept for older APIs).
+    if (
+      code === 'REGISTRATION_FAILED' ||
+      code === 'EMAIL_EXISTS' ||
+      code === 'AUTH_FAILED'
+    ) {
+      return storeAuthSession(await loginUser(DEV_USER_EMAIL, DEV_USER_PASSWORD))
     }
-    try {
-      return storeAuthSession(await claimUser())
-    } catch (claimError) {
-      if (
-        claimError instanceof ApiError &&
-        getErrorCode(claimError) === 'PASSWORD_ALREADY_SET'
-      ) {
-        return storeAuthSession(await loginUser())
-      }
-      // Legacy passwordless user path: create may have raced; try claim after createUser recover
-      try {
-        const created = await createUser()
-        storeUserId(created.id)
-        return storeAuthSession(await claimUser())
-      } catch {
-        throw claimError
-      }
-    }
+    throw error
   }
 }
 
@@ -144,42 +132,53 @@ async function ensureUserIdOnce(): Promise<string> {
 
   if (stored && token) {
     try {
-      const user = await getUser(stored)
+      const user = await getCurrentUser()
       storeUserId(user.id)
+      useAuthStore.getState().setAuthenticated({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+      })
       return user.id
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        await clearStaleUser(stored)
-        return obtainDevToken()
+      if (error instanceof ApiError) {
+        if (error.status === 401 || error.status === 403) {
+          await clearStaleUser(stored)
+          useAuthStore.getState().setNeedsAuth()
+          if (allowDevAuth()) {
+            return obtainDevToken()
+          }
+          throw new AuthRequiredError('Session expired')
+        }
+        if (error.status === 404) {
+          await clearStaleUser(stored)
+          if (allowDevAuth()) {
+            return obtainDevToken()
+          }
+          useAuthStore.getState().setNeedsAuth()
+          throw new AuthRequiredError('Stored user is invalid')
+        }
       }
       throw error
     }
   }
 
   if (stored && !token) {
-    try {
-      await getUser(stored)
-      try {
-        return storeAuthSession(await claimUser())
-      } catch (claimError) {
-        if (
-          claimError instanceof ApiError &&
-          getErrorCode(claimError) === 'PASSWORD_ALREADY_SET'
-        ) {
-          return storeAuthSession(await loginUser())
-        }
-        throw claimError
-      }
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        await clearStaleUser(stored)
-        return obtainDevToken()
-      }
-      throw error
+    // Missing JWT — reclaim via auth UX / DEV login without wiping watchlist cache yet.
+    if (allowDevAuth()) {
+      return obtainDevToken()
     }
+    clearStoredUserId()
+    useAuthStore.getState().setNeedsAuth()
+    throw new AuthRequiredError()
   }
 
-  return obtainDevToken()
+  if (allowDevAuth()) {
+    return obtainDevToken()
+  }
+
+  useAuthStore.getState().setNeedsAuth()
+  throw new AuthRequiredError()
 }
 
 /** Module-level in-flight promise so Strict Mode cannot double-create users. */
@@ -195,6 +194,28 @@ export function ensureUserId(): Promise<string> {
   return inFlight
 }
 
+/**
+ * Explicit login/register for the Auth UI. Stores session and returns user id.
+ */
+export async function authenticateWithCredentials(input: {
+  mode: 'login' | 'register'
+  email: string
+  password: string
+  name?: string
+}): Promise<string> {
+  const email = input.email.trim().toLowerCase()
+  const password = input.password
+  if (!email || !password) {
+    throw new AuthRequiredError('Email and password are required')
+  }
+
+  if (input.mode === 'register') {
+    const name = (input.name ?? email.split('@')[0] ?? 'User').trim() || 'User'
+    return storeAuthSession(await registerUser(name, email, password))
+  }
+  return storeAuthSession(await loginUser(email, password))
+}
+
 /** Test helper — resets the in-flight bootstrap latch. */
 export function resetUserBootstrapLatch(): void {
   inFlight = null
@@ -203,6 +224,7 @@ export function resetUserBootstrapLatch(): void {
 export function clearLocalUserId(): void {
   clearStoredUserId()
   clearAuthToken()
+  useAuthStore.getState().clear()
 }
 
-export { getErrorCode, clearStaleUser }
+export { clearStaleUser }
