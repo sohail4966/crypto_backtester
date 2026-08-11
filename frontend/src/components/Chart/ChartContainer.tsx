@@ -17,16 +17,27 @@ import {
 import { CandlestickSeries } from '@/components/Chart/CandlestickSeries'
 import { ChartContext, type SubChartHandle } from '@/components/Chart/ChartContext'
 import { ChartLegend } from '@/components/Chart/ChartLegend'
+import { DrawingsLayer } from '@/components/Drawings/DrawingsLayer'
 import { OverlayIndicatorSeries } from '@/components/Indicators/OverlayIndicatorSeries'
 import { IndicatorSubPane } from '@/components/Indicators/IndicatorSubPane'
 import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
+import { useOptionalReplaySession } from '@/components/Replay/ReplaySessionContext'
 import { useTheme } from '@/hooks/useTheme'
+import { useDrawingInteraction } from '@/hooks/useDrawingInteraction'
+import { useDrawingKeyboard } from '@/hooks/useDrawingKeyboard'
+import { useMultiChartSync } from '@/hooks/useMultiChartSync'
 import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
+import { useReplayStore } from '@/stores/replayStore'
+import { publishSync } from '@/stores/syncStore'
+import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { ActiveIndicator, IndicatorSpec } from '@/types/indicator'
+import type { ChartTimeframe } from '@/constants/chart'
+import type { Symbol } from '@/types/symbol'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { usePaneLayout } from '@/hooks/usePaneLayout'
+import { useReplayChart } from '@/hooks/useReplayChart'
 import type { ChartTimezoneId } from '@/constants/timezone'
 import { PaneResizeHandle } from '@/components/Chart/PaneResizeHandle'
 import type { Theme } from '@/types/theme'
@@ -48,11 +59,19 @@ import {
 interface ChartContainerProps {
   paneId?: string
   className?: string
+  isActive?: boolean
+  symbolOverride?: Symbol | null
+  timeframeOverride?: ChartTimeframe
+  onActivate?: () => void
 }
 
 export function ChartContainer({
   paneId = 'main',
   className,
+  isActive = true,
+  symbolOverride,
+  timeframeOverride,
+  onActivate,
 }: ChartContainerProps) {
   const layoutRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -68,12 +87,22 @@ export function ChartContainer({
   const candleCloseLookupRef = useRef<ReadonlyMap<number, number>>(new Map())
 
   const { theme } = useTheme()
-  const symbol = useChartStore((state) => state.symbol)
-  const timeframe = useChartStore((state) => state.timeframe)
+  const storeSymbol = useChartStore((state) => state.symbol)
+  const storeTimeframe = useChartStore((state) => state.timeframe)
+  const symbol = symbolOverride !== undefined ? symbolOverride : storeSymbol
+  const timeframe =
+    timeframeOverride !== undefined ? timeframeOverride : storeTimeframe
   const timezone = useChartStore((state) => state.timezone)
   const showGrid = useChartStore((state) => state.showGrid)
   const pulseZoomControls = useChartStore((state) => state.pulseZoomControls)
   const activeIndicators = useIndicatorStore((state) => state.active)
+  const trailAuthoritative = useReplayStore((state) => state.trailAuthoritative)
+  const trailBars = useReplayStore((state) => state.trailBars)
+  const trailIndicators = useReplayStore((state) => state.trailIndicators)
+  const replayPhase = useReplayStore((state) => state.phase)
+  const replaySessionId = useReplayStore((state) => state.sessionId)
+  const replaySession = useOptionalReplaySession()
+  const useReplayTrail = Boolean(isActive && trailAuthoritative)
 
   const indicatorSpecs = useMemo((): IndicatorSpec[] => {
     const seen = new Set<string>()
@@ -111,10 +140,25 @@ export function ChartContainer({
   }, [activeIndicators])
 
   const symbolId = symbol?.id
-  const fitKey = `${symbolId ?? 'none'}-${timeframe}`
+  const fitKey = useReplayTrail
+    ? `replay-${replaySessionId ?? 'none'}`
+    : `${symbolId ?? 'none'}-${timeframe}`
 
-  const { candles, indicators, status, error, onVisibleRangeChange } =
-    useChunkManager(symbolId, timeframe, indicatorSpecs)
+  const {
+    candles: liveCandles,
+    indicators: liveIndicators,
+    status,
+    error,
+    onVisibleRangeChange,
+  } = useChunkManager(symbolId, timeframe, indicatorSpecs)
+
+  const candles = useReplayTrail ? trailBars : liveCandles
+  const indicators = useReplayTrail ? trailIndicators : liveIndicators
+
+  const candleCloseLookup = useMemo(
+    () => createCandleCloseLookup(candles),
+    [candles],
+  )
 
   const [chartReady, setChartReady] = useState(false)
   const [crosshairTime, setCrosshairTime] = useState<number | null>(null)
@@ -128,9 +172,37 @@ export function ChartContainer({
     onResizeBetweenSubs,
   } = usePaneLayout(layoutHeight, subchartGroups)
 
+  useReplayChart({
+    chart: isActive && chartReady ? chartRef.current : null,
+    candleSeries: isActive && chartReady ? candleSeriesRef.current : null,
+    chartReady: isActive && chartReady,
+    phase: isActive ? replayPhase : 'inactive',
+    liveCandles,
+    onAnchorClick: (barTime) => {
+      void replaySession?.startFromAnchor(barTime)
+    },
+  })
+
+  useDrawingKeyboard(isActive)
+  useDrawingInteraction({
+    chart: isActive && chartReady ? chartRef.current : null,
+    candleSeries: isActive && chartReady ? candleSeriesRef.current : null,
+    chartReady: isActive && chartReady,
+  })
+
+  const multiSync = useMultiChartSync({
+    paneId,
+    chart: chartReady ? chartRef.current : null,
+    candleSeries: chartReady ? candleSeriesRef.current : null,
+    chartReady,
+    candleCloseLookup,
+  })
+  const multiSyncRef = useRef(multiSync)
+  multiSyncRef.current = multiSync
+
   useEffect(() => {
-    candleCloseLookupRef.current = createCandleCloseLookup(candles)
-  }, [candles])
+    candleCloseLookupRef.current = candleCloseLookup
+  }, [candleCloseLookup])
 
   useEffect(() => {
     const layout = layoutRef.current
@@ -191,7 +263,18 @@ export function ChartContainer({
     } finally {
       syncingCrosshairRef.current = false
     }
-  }, [])
+
+    if (!multiSyncRef.current.isApplying()) {
+      const sync = useWorkspaceStore.getState().sync
+      if (sync.crosshair) {
+        publishSync({
+          type: 'crosshair',
+          sourcePaneId: paneId,
+          time: time == null ? null : Number(time),
+        })
+      }
+    }
+  }, [paneId])
 
   const onSubChartCrosshairMove = useCallback(
     (param: MouseEventParams) => {
@@ -223,8 +306,10 @@ export function ChartContainer({
   }, [showGrid])
 
   useEffect(() => {
-    onRangeChangeRef.current = onVisibleRangeChange
-  }, [onVisibleRangeChange])
+    onRangeChangeRef.current = useReplayTrail
+      ? () => {}
+      : onVisibleRangeChange
+  }, [onVisibleRangeChange, useReplayTrail])
 
   useEffect(() => {
     const main = chartRef.current
@@ -246,7 +331,6 @@ export function ChartContainer({
     return () => main.unsubscribeCrosshairMove(onMainCrosshairMove)
   }, [applyCrosshairTime, chartReady])
 
-  // Reveal bottom zoom bar briefly after mouse-wheel zoom on the chart.
   useEffect(() => {
     const container = containerRef.current
     if (!container || !chartReady) {
@@ -286,6 +370,18 @@ export function ChartContainer({
 
     const onVisibleLogicalRangeChange = (range: LogicalRange | null) => {
       onRangeChangeRef.current(range)
+      if (multiSyncRef.current.isApplying()) {
+        return
+      }
+      const sync = useWorkspaceStore.getState().sync
+      if (!sync.visibleRange) {
+        return
+      }
+      publishSync({
+        type: 'visibleRange',
+        sourcePaneId: paneId,
+        range: range ? { from: range.from, to: range.to } : null,
+      })
     }
     chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
 
@@ -358,19 +454,19 @@ export function ChartContainer({
         Select a symbol to load the chart.
       </div>
     )
-  } else if (status === 'loading' || status === 'idle') {
+  } else if (!useReplayTrail && (status === 'loading' || status === 'idle')) {
     overlay = (
       <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-bg/80 text-sm text-text-secondary">
         Loading chart…
       </div>
     )
-  } else if (status === 'error') {
+  } else if (!useReplayTrail && status === 'error') {
     overlay = (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg/90 px-6 text-center text-sm text-bear">
         {error?.message ?? 'Failed to load chart data.'}
       </div>
     )
-  } else if (candles.length === 0) {
+  } else if (!useReplayTrail && candles.length === 0) {
     overlay = (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg/90 px-6 text-center text-sm text-text-secondary">
         No candle data returned for this symbol and timeframe.
@@ -378,12 +474,15 @@ export function ChartContainer({
     )
   }
 
+  const showSeries = chartReady && (useReplayTrail || candles.length > 0)
+
   return (
     <ChartContext.Provider value={contextValue}>
       <div
         ref={layoutRef}
         className={`${className ?? 'relative flex h-full min-h-[420px] w-full flex-col'} overflow-hidden`}
         onMouseLeave={clearCrosshair}
+        onMouseDown={() => onActivate?.()}
       >
         <div
           className="relative min-h-0 shrink-0"
@@ -395,7 +494,7 @@ export function ChartContainer({
             data-pane-id={paneId}
           />
           {overlay}
-          {chartReady && candles.length > 0 ? (
+          {showSeries ? (
             <>
               <CandlestickSeries candles={candles} fitKey={fitKey} />
               <VolumeSeries candles={candles} theme={theme} />
@@ -422,6 +521,7 @@ export function ChartContainer({
                 overlayIndicators={overlayIndicators}
                 indicators={indicators}
               />
+              <DrawingsLayer symbolId={symbol?.id} timeframe={timeframe} />
             </>
           ) : null}
         </div>
@@ -450,8 +550,8 @@ export function ChartContainer({
               )
             })
           : null}
-        {chartReady && candles.length > 0 ? (
-          <ChartZoomControls barCount={candles.length} />
+        {showSeries ? (
+          <ChartZoomControls barCount={Math.max(candles.length, 1)} />
         ) : null}
       </div>
     </ChartContext.Provider>

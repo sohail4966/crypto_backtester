@@ -1,5 +1,7 @@
 import { useLocation } from 'react-router-dom'
 import { IndicatorsBar } from '@/components/Layout/IndicatorsBar'
+import { LayoutSwitcher } from '@/components/Layout/LayoutSwitcher'
+import { SyncConfigPanel } from '@/components/Layout/SyncConfigPanel'
 import { TimeframeSelector } from '@/components/Layout/TimeframeSelector'
 import { SymbolSearch } from '@/components/Watchlist/SymbolSearch'
 import { useTheme } from '@/hooks/useTheme'
@@ -50,6 +52,8 @@ export function Topbar() {
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <SymbolSearch />
           <TimeframeSelector />
+          <LayoutSwitcher />
+          <SyncConfigPanel />
           <IndicatorsBar />
         </div>
       ) : (

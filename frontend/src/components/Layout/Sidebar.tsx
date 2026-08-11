@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { ChartSettingsMenu } from '@/components/Layout/ChartSettingsMenu'
 import { TimezoneSelector } from '@/components/Layout/TimezoneSelector'
+import { WatchlistPanel } from '@/components/Watchlist/WatchlistPanel'
 import { useLayoutStore } from '@/stores/layoutStore'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -41,8 +42,8 @@ export function Sidebar() {
       ].join(' ')}
       aria-hidden={!sidebarOpen}
     >
-      <div className="flex w-52 flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-border px-3 py-3">
+      <div className="flex w-52 min-h-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
             Workspace
           </p>
@@ -56,7 +57,7 @@ export function Sidebar() {
           </button>
         </div>
 
-        <nav className="flex flex-col gap-1 p-3" aria-label="Main">
+        <nav className="flex shrink-0 flex-col gap-1 p-3" aria-label="Main">
           <NavLink to="/" end className={navLinkClass}>
             Chart
           </NavLink>
@@ -65,7 +66,9 @@ export function Sidebar() {
           </NavLink>
         </nav>
 
-        <div className="mt-auto border-t border-border p-3">
+        <WatchlistPanel />
+
+        <div className="mt-auto shrink-0 border-t border-border p-3">
           <div className="flex flex-col gap-3">
             <TimezoneSelector />
             <ChartSettingsMenu />

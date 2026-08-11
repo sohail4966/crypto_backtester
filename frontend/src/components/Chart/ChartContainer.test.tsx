@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChartContainer } from '@/components/Chart/ChartContainer'
 import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
+import { useReplayStore } from '@/stores/replayStore'
 import type { Symbol } from '@/types/symbol'
 
 const capturedFitKeys: string[] = []
@@ -29,8 +30,10 @@ const chartMocks = vi.hoisted(() => {
     })),
     remove: vi.fn(),
     subscribeCrosshairMove: vi.fn(),
-    timeScale: vi.fn(() => timeScale),
     unsubscribeCrosshairMove: vi.fn(),
+    subscribeClick: vi.fn(),
+    unsubscribeClick: vi.fn(),
+    timeScale: vi.fn(() => timeScale),
   }
   return { chart, timeScale }
 })
@@ -90,6 +93,10 @@ vi.mock('@/components/Indicators/IndicatorSubPane', () => ({
   IndicatorSubPane: () => null,
 }))
 
+vi.mock('@/components/Drawings/DrawingsLayer', () => ({
+  DrawingsLayer: () => null,
+}))
+
 const mockSymbol: Symbol = {
   id: 'BTC/USDT',
   ticker: 'BTC/USDT',
@@ -114,11 +121,13 @@ describe('ChartContainer', () => {
       showGrid: true,
       showVolume: true,
       zoomControlsPulse: 0,
+      replayMode: false,
     })
     useIndicatorStore.setState({
       active: [],
       settingsInstanceId: null,
     })
+    useReplayStore.getState().reset()
   })
 
   it('keeps the candle fit key stable when indicator specs change', async () => {

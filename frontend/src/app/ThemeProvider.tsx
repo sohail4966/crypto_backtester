@@ -7,29 +7,15 @@ import {
 } from 'react'
 import type { Theme } from '@/types/theme'
 import { ThemeContext } from '@/app/ThemeContext'
-
-const STORAGE_KEY = 'cb-theme'
-
-function readStoredTheme(): Theme {
-  try {
-    const stored = globalThis.localStorage?.getItem(STORAGE_KEY)
-    return stored === 'light' ? 'light' : 'dark'
-  } catch {
-    return 'dark'
-  }
-}
+import {
+  readThemeBootHint,
+  writeThemeBootHint,
+} from '@/services/workspaceStorage'
+import { useWorkspaceStore } from '@/stores/workspaceStore'
 
 function applyThemeToDocument(theme: Theme): void {
   if (typeof document !== 'undefined') {
     document.documentElement.dataset.theme = theme
-  }
-}
-
-function persistTheme(theme: Theme): void {
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, theme)
-  } catch {
-    // Ignore quota / private-mode errors.
   }
 }
 
@@ -38,20 +24,31 @@ interface ThemeProviderProps {
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const initial = readStoredTheme()
+  const workspaceTheme = useWorkspaceStore((s) => s.theme)
+  const workspaceHydrated = useWorkspaceStore((s) => s.hydrated)
+  const setWorkspaceTheme = useWorkspaceStore((s) => s.setTheme)
+
+  const [bootTheme, setBootTheme] = useState<Theme>(() => {
+    const initial = readThemeBootHint()
     applyThemeToDocument(initial)
     return initial
   })
 
+  const theme = workspaceHydrated ? workspaceTheme : bootTheme
+
   useEffect(() => {
     applyThemeToDocument(theme)
-    persistTheme(theme)
+    writeThemeBootHint(theme)
   }, [theme])
 
   const toggleTheme = useCallback(() => {
-    setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
-  }, [])
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    if (workspaceHydrated) {
+      setWorkspaceTheme(next)
+    } else {
+      setBootTheme(next)
+    }
+  }, [setWorkspaceTheme, theme, workspaceHydrated])
 
   const value = useMemo(
     () => ({
