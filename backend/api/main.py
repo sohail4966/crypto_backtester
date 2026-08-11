@@ -26,6 +26,7 @@ from api.routers import (
     symbols,
     users,
     watchlists,
+    ws_tickets,
 )
 from api.schemas.common import ErrorBody, ErrorResponse
 from api.ws import live as live_ws
@@ -92,6 +93,8 @@ def create_app() -> FastAPI:
     app.include_router(scan.router, prefix=api_prefix)
     # Phase 10 AI — JWT required (BE-004).
     app.include_router(ai.router, prefix=api_prefix)
+    # WS ticket issuance (BE-for-FE-L2-003).
+    app.include_router(ws_tickets.router, prefix=api_prefix)
     app.include_router(replay_ws.router)
     app.include_router(live_ws.router)
 

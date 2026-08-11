@@ -8,6 +8,7 @@ the full socket lifetime (BE-018).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from uuid import UUID
@@ -16,7 +17,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
 from api.auth import UnauthorizedError
-from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_token, user_from_ws_token
+from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_user
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.schemas.indicators import IndicatorSpec
 from api.services.replay_engine import ReplayEngine
@@ -34,6 +35,9 @@ WS_SUPERSEDED = 4402
 WS_REPLAY_NOT_FOUND = 4404
 
 _active_connections: dict[UUID, WebSocket] = {}
+# Guards the check-then-supersede-then-store sequence against concurrent
+# connects to the same ``session_id`` (BE-L2-013).
+_active_lock = asyncio.Lock()
 
 
 def _error_event(code: str, message: str) -> dict[str, Any]:
@@ -93,19 +97,18 @@ async def replay_websocket(
     websocket: WebSocket,
     session_id: UUID,
     token: str | None = None,
+    ticket: str | None = None,
 ) -> None:
     """
     WebSocket v2 replay control plane for one session.
 
-    Auth: ``?token=`` or ``Authorization: Bearer``; ownership enforced (BE-006).
+    Auth: prefer ``?ticket=`` from ``POST /api/v1/ws/tickets`` (BE-for-FE-L2-003).
+    Legacy ``?token=`` / ``Authorization: Bearer`` remain accepted for one
+    release window; ownership is enforced (BE-006).
     """
     service = get_replay_service()
-    raw_token = resolve_ws_token(websocket, token)
-    if not raw_token:
-        await websocket.close(code=WS_UNAUTHORIZED, reason="UNAUTHORIZED")
-        return
     try:
-        user = user_from_ws_token(raw_token)
+        user = resolve_ws_user(websocket, token=token, ticket=ticket)
     except UnauthorizedError:
         await websocket.close(code=WS_UNAUTHORIZED, reason="UNAUTHORIZED")
         return
@@ -123,18 +126,27 @@ async def replay_websocket(
         await websocket.close(code=4429, reason=exc.code)
         return
 
-    prior = _active_connections.get(session_id)
+    # BE-L2-012: acquire is paired with the try/finally below so an exception
+    # in ``accept()`` or the initial replay-state fetch does not leak the slot.
+    slot_released = False
+
+    prior: WebSocket | None = None
+    async with _active_lock:
+        prior = _active_connections.get(session_id)
+        _active_connections[session_id] = websocket
     if prior is not None:
         try:
-            await _send_json(prior, _error_event("SUPERSEDED", "A newer connection replaced this session"))
+            await _send_json(
+                prior,
+                _error_event("SUPERSEDED", "A newer connection replaced this session"),
+            )
             await prior.close(code=WS_SUPERSEDED, reason="SUPERSEDED")
         except Exception:
             pass
 
-    await websocket.accept()
-    _active_connections[session_id] = websocket
-
     try:
+        await websocket.accept()
+
         with connect() as conn:
             engine = service.get_engine(conn, session_id, user_id=user.id)
             await _send_json(websocket, _replay_state_payload(service, engine))
@@ -245,11 +257,17 @@ async def replay_websocket(
         except Exception:
             pass
     except ApiError as exc:
-        await _send_json(websocket, _error_event(exc.code, exc.message))
+        try:
+            await _send_json(websocket, _error_event(exc.code, exc.message))
+        except Exception:
+            pass
     finally:
-        if _active_connections.get(session_id) is websocket:
-            del _active_connections[session_id]
-        release_ws_slot(user.id)
+        async with _active_lock:
+            if _active_connections.get(session_id) is websocket:
+                del _active_connections[session_id]
+        if not slot_released:
+            slot_released = True
+            release_ws_slot(user.id)
         try:
             with connect() as conn:
                 service.checkpoint(conn, session_id, force=True)

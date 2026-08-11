@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from api.auth import create_access_token
-from api.deps import user_from_ws_token
 from api.repositories.replay_repository import _row_to_session
 from api.repositories.user_repository import UserRow
 from api.schemas.replay import ReplaySessionCreate
@@ -127,7 +126,7 @@ def _mock_create_store(sample_candles_df: pd.DataFrame) -> tuple[uuid4, ReplaySe
     return session_id, _row_to_session(row_tuple)
 
 
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -207,7 +206,7 @@ def test_replay_websocket_step_emits_tick_batch(
         assert state_msg["barIndex"] == 1
 
 
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -288,7 +287,7 @@ def test_replay_websocket_autoplay_emits_tick_batch_on_connect(
         assert len(batch_msg["ticks"]) >= 1
 
 
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.ReplayRepository.get")
 def test_replay_websocket_unknown_session_closes_4404(
@@ -329,7 +328,7 @@ def test_replay_ws_close_codes_auth_vs_superseded_are_distinct() -> None:
 
 
 @patch("api.settings.replay_tick_batch_size", return_value=2)
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -385,7 +384,7 @@ def test_replay_websocket_refill_emits_tick_batch(
 
 
 @patch("api.settings.replay_session_idle_minutes", return_value=0)
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -462,7 +461,7 @@ def test_replay_websocket_reconnect_after_idle_eviction(
 
 @patch("api.settings.replay_extend_threshold", return_value=1)
 @patch("api.settings.replay_prefetch_bars", return_value=2)
-@patch("api.ws.replay.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")

@@ -27,7 +27,7 @@ def _user() -> UserRow:
 
 @patch("api.ws.live.connect")
 @patch("api.ws.live._latest_bars")
-@patch("api.ws.live.user_from_ws_token")
+@patch("api.deps.user_from_ws_token")
 def test_live_ws_subscribe_pushes_candle(
     mock_user: MagicMock,
     mock_latest: MagicMock,
@@ -38,7 +38,8 @@ def test_live_ws_subscribe_pushes_candle(
     mock_user.return_value = user
     mock_connect.return_value = MagicMock()
     bar = Bar(time=1_700_000_000, open=1, high=2, low=0.5, close=1.5, volume=10)
-    mock_latest.return_value = {("BTC/USDT", "1m"): bar}
+    # _latest_bars now returns ``(results, invalid_keys)`` (BE-L2-002).
+    mock_latest.return_value = ({("BTC/USDT", "1m"): bar}, [])
     token = create_access_token(user_id=user.id, email=user.email)
 
     with client.websocket_connect(f"/ws/live?token={token}") as ws:

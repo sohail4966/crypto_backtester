@@ -20,8 +20,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
 from api.auth import UnauthorizedError
-from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_token, user_from_ws_token
-from api.exceptions import ValidationError
+from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_user
+from api.exceptions import NotFoundError, ValidationError
 from api.schemas.candles import Bar
 from api.services.candle_service import CandleService
 from api.services.timeframes import validate_timeframe
@@ -44,13 +44,17 @@ async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
 def _latest_bars(
     conn,
     subscriptions: list[tuple[str, str]],
-) -> dict[tuple[str, str], Bar | None]:
+) -> tuple[dict[tuple[str, str], Bar | None], list[tuple[str, str]]]:
     """
     Load latest closed bars for all subscriptions on one shared connection.
 
     Groups by timeframe and uses ``WHERE symbol = ANY(%)`` for ``1m`` (G-009).
+    Returns ``(results, invalid_keys)`` — invalid keys are subscriptions whose
+    symbol is not in the active catalog. They are surfaced once by ``poll_once``
+    so a single bad subscription does not tear down the poll loop (BE-L2-002).
     """
     results: dict[tuple[str, str], Bar | None] = {}
+    invalid: list[tuple[str, str]] = []
     by_tf: dict[str, list[str]] = {}
     for symbol, timeframe in subscriptions:
         try:
@@ -60,26 +64,41 @@ def _latest_bars(
         by_tf.setdefault(timeframe, []).append(symbol)
 
     for timeframe, symbols in by_tf.items():
-        batch = _candles.get_latest_candles_batch(conn, symbols, timeframe)
+        try:
+            batch = _candles.get_latest_candles_batch(conn, symbols, timeframe)
+        except NotFoundError:
+            # Fall back to per-symbol queries so one unknown symbol cannot
+            # blank the whole timeframe group (BE-L2-002).
+            batch = {}
+            for symbol in symbols:
+                try:
+                    single = _candles.get_latest_candles_batch(conn, [symbol], timeframe)
+                except NotFoundError:
+                    invalid.append((symbol, timeframe))
+                    results[(symbol, timeframe)] = None
+                    continue
+                batch.update(single)
         for symbol, bar in batch.items():
             results[(symbol, timeframe)] = bar
-    return results
+    return results, invalid
 
 
 @router.websocket("/ws/live")
-async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> None:
+async def live_candles_ws(
+    websocket: WebSocket,
+    token: str | None = None,
+    ticket: str | None = None,
+) -> None:
     """
     Subscribe to latest closed candle updates for one or more symbols.
 
     Polls the DB on ``LIVE_WS_POLL_INTERVAL_MS`` and pushes ``candle`` when
-    the latest bar ``time`` changes. Auth required (BE-004).
+    the latest bar ``time`` changes. Auth required — prefer ``?ticket=``
+    from ``POST /api/v1/ws/tickets`` (BE-for-FE-L2-003); ``?token=`` /
+    ``Authorization: Bearer`` remain accepted for one release.
     """
-    raw_token = resolve_ws_token(websocket, token)
-    if not raw_token:
-        await websocket.close(code=4401, reason="UNAUTHORIZED")
-        return
     try:
-        user = user_from_ws_token(raw_token)
+        user = resolve_ws_user(websocket, token=token, ticket=ticket)
     except UnauthorizedError:
         await websocket.close(code=4401, reason="UNAUTHORIZED")
         return
@@ -90,14 +109,18 @@ async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> Non
         await websocket.close(code=4429, reason=exc.code)
         return
 
-    await websocket.accept()
+    # BE-L2-012: the acquire above is now paired with a try/finally that always
+    # releases the slot, including when websocket.accept() or the poll setup
+    # raise before the main loop starts.
+    slot_released = False
+    db_conn = None
 
     # (symbol, timeframe) → last pushed bar time
     last_times: dict[tuple[str, str], int | None] = {}
+    # Keys already reported as invalid so we do not spam INVALID_SYMBOL every poll.
+    reported_invalid: set[tuple[str, str]] = set()
     timeframe = "1m"
     poll_s = max(0.25, settings.live_ws_poll_interval_ms() / 1000.0)
-    # One shared DB connection for the socket lifetime (BE-019).
-    db_conn = connect()
 
     async def poll_once() -> None:
         """Poll all subscriptions and push changed candles."""
@@ -105,7 +128,7 @@ async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> Non
         if not keys:
             return
         try:
-            bars = await asyncio.to_thread(_latest_bars, db_conn, keys)
+            bars, invalid = await asyncio.to_thread(_latest_bars, db_conn, keys)
         except ValidationError as exc:
             await _send_json(websocket, _error_event(exc.code, exc.message))
             return
@@ -115,6 +138,17 @@ async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> Non
                 _error_event("LIVE_POLL_FAILED", str(exc)),
             )
             return
+
+        for key in invalid:
+            if key in reported_invalid:
+                continue
+            reported_invalid.add(key)
+            symbol, tf = key
+            await _send_json(
+                websocket,
+                _error_event("INVALID_SYMBOL", f"Unknown symbol: {symbol}"),
+            )
+            last_times.pop(key, None)
 
         for key, bar in bars.items():
             if bar is None:
@@ -135,6 +169,15 @@ async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> Non
             )
 
     try:
+        # One shared DB connection for the socket lifetime (BE-019). Autocommit
+        # keeps a transient DB failure or NotFoundError from leaving the
+        # connection in InFailedSqlTransaction and poisoning every subsequent
+        # poll (BE-L2-002).
+        db_conn = connect()
+        db_conn.autocommit = True
+
+        await websocket.accept()
+
         while True:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=poll_s)
@@ -207,8 +250,11 @@ async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> Non
     except WebSocketDisconnect:
         return
     finally:
-        try:
-            db_conn.close()
-        except Exception:
-            pass
-        release_ws_slot(user.id)
+        if db_conn is not None:
+            try:
+                db_conn.close()
+            except Exception:
+                pass
+        if not slot_released:
+            slot_released = True
+            release_ws_slot(user.id)
