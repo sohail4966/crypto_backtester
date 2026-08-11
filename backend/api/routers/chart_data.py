@@ -1,8 +1,10 @@
 """
-Unified chart data endpoint (Phase 4b).
+Unified chart data endpoint (Phase 4b / 4d).
 """
 
 from __future__ import annotations
+
+from uuid import UUID
 
 import psycopg
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +26,7 @@ def get_chart_data(
     indicators: str | None = Query(default=None),
     include_signals: bool = Query(default=False, alias="includeSignals"),
     include_trades: bool = Query(default=False, alias="includeTrades"),
+    run_id: UUID | None = Query(default=None, alias="runId"),
     limit: int | None = Query(default=None),
     conn: psycopg.Connection = Depends(get_db),
 ) -> ChartDataResponse:
@@ -38,5 +41,6 @@ def get_chart_data(
         indicator_specs=specs,
         include_signals=include_signals,
         include_trades=include_trades,
+        run_id=run_id,
         limit=limit,
     )

@@ -1,11 +1,12 @@
 """
-Unified chart data bundling for frontend clients (Phase 4b).
+Unified chart data bundling for frontend clients (Phase 4b / 4d).
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any
+from uuid import UUID
 
 import psycopg
 
@@ -13,6 +14,7 @@ from api import settings
 from api.exceptions import ValidationError
 from api.schemas.chart_data import ChartDataResponse, Signal, Trade
 from api.schemas.indicators import IndicatorSpec
+from api.services.backtest_service import BacktestService
 from api.services.candle_service import CandleService
 from api.services.indicator_service import IndicatorService
 from api.services.symbol_service import SymbolService
@@ -55,10 +57,12 @@ class ChartDataService:
         candle_service: CandleService | None = None,
         indicator_service: IndicatorService | None = None,
         symbol_service: SymbolService | None = None,
+        backtest_service: BacktestService | None = None,
     ) -> None:
         self._candles = candle_service or CandleService()
         self._indicators = indicator_service or IndicatorService()
         self._symbols = symbol_service or SymbolService()
+        self._backtests = backtest_service or BacktestService()
 
     def get_chart_data(
         self,
@@ -71,6 +75,7 @@ class ChartDataService:
         indicator_specs: list[IndicatorSpec],
         include_signals: bool = False,
         include_trades: bool = False,
+        run_id: UUID | None = None,
         limit: int | None = None,
     ) -> ChartDataResponse:
         """
@@ -83,16 +88,14 @@ class ChartDataService:
             start: Inclusive window start (unix seconds).
             end: Inclusive window end (unix seconds).
             indicator_specs: Indicators to compute on the window.
-            include_signals: When true, include signals (empty until Phase 4c).
-            include_trades: When true, include trades (empty until Phase 4c).
+            include_signals: When true and ``run_id`` set, include signal markers.
+            include_trades: When true and ``run_id`` set, include trade markers.
+            run_id: Optional persisted backtest run for overlays.
             limit: Max bars returned (default from settings).
 
         Returns:
             ChartDataResponse with aligned candles and indicator points.
         """
-        _ = include_signals
-        _ = include_trades
-
         try:
             validate_timeframe(timeframe)
         except ValueError as exc:
@@ -137,6 +140,18 @@ class ChartDataService:
                 series_id = indicator_series_id(series.key, series.params)
                 indicator_map[series_id] = series.points
 
+        signals: list[Signal] = []
+        trades: list[Trade] = []
+        if run_id is not None and (include_signals or include_trades):
+            signals, trades = self._backtests.get_chart_overlays(
+                conn,
+                run_id,
+                start=start,
+                end=end,
+                include_signals=include_signals,
+                include_trades=include_trades,
+            )
+
         chunk_start = candles_response.bars[0].time if candles_response.bars else start
         chunk_end = candles_response.bars[-1].time if candles_response.bars else end
         next_start = candles_response.next_from
@@ -153,7 +168,7 @@ class ChartDataService:
             end=chunk_end,
             candles=candles_response.bars,
             indicators=indicator_map,
-            signals=[],
-            trades=[],
+            signals=signals,
+            trades=trades,
             next_start=next_start,
         )

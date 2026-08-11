@@ -14,7 +14,7 @@ from api.schemas.symbols import SymbolResponse
 
 
 class Signal(BaseModel):
-    """Strategy signal on a bar (populated in Phase 4c)."""
+    """Strategy signal on a bar (populated from a backtest run — Phase 4d)."""
 
     time: int
     side: str | None = None
@@ -23,7 +23,7 @@ class Signal(BaseModel):
 
 
 class Trade(BaseModel):
-    """Executed trade marker (populated in Phase 4c)."""
+    """Executed trade marker (populated from a backtest run — Phase 4d)."""
 
     time: int
     side: str | None = None
