@@ -1,6 +1,6 @@
 # FE Phase 5 High Level Design — Drawings (MVP)
 
-**Status:** Not started  
+**Status:** Implemented (v1)  
 **Prerequisite:** [FE Phase 1](FE_PHASE_1_HLD.md)  
 **Spec:** [SPEC-001 §5.5–5.6](SPEC-001.md)  
 **Decisions:** D-83 (MVP tool scope), D-84 (Price Range primitive), D-85 (IndexedDB until 4d)  
@@ -55,11 +55,11 @@ Range is a first-class primitive with entry / target / stop levels and R:R displ
 
 ## Architecture Notes
 
-- **Colors:** Store resolved hex at creation time; re-resolve on theme change if needed.
+- **Colors:** Store resolved hex at creation time; theme toggle does not rewrite stored hex in v1.
 - **Zustand selectors:** Select `allDrawings` + `useMemo` filter — avoid `drawingsFor()`
   returning new array every call.
 - **Backend sync:** Deferred to Phase 4d; IndexedDB is source of truth for MVP.
-- **Drag-edit:** Optional stretch — click near anchor, drag, `updateDrawing` on mouse-up.
+- **Drag-edit:** Deferred beyond v1 (select + delete only).
 
 ---
 
@@ -67,12 +67,12 @@ Range is a first-class primitive with entry / target / stop levels and R:R displ
 
 Phase 5 is **complete** when:
 
-- [ ] All five tools create drawings via click-to-place
-- [ ] Drawings render correctly on chart (lines, rects, price range zones)
-- [ ] Drawings scoped per `symbolId` + `timeframe`
-- [ ] Drawings survive page reload (IndexedDB)
-- [ ] `Esc` cancels active tool; `Delete` removes selected drawing
-- [ ] No lw-charts color parse errors (`var(--*)` resolved to hex)
+- [x] All five tools create drawings via click-to-place
+- [x] Drawings render correctly on chart (lines, rects, price range zones)
+- [x] Drawings scoped per `symbolId` + `timeframe`
+- [x] Drawings survive page reload (IndexedDB)
+- [x] `Esc` cancels active tool; `Delete` removes selected drawing
+- [x] No lw-charts color parse errors (`var(--*)` resolved to hex)
 
 ---
 
@@ -80,3 +80,4 @@ Phase 5 is **complete** when:
 
 - [SPEC-001.md](SPEC-001.md)
 - Backend Phase 4d (future workspace sync)
+- Pipeline: `docs/agents/fe-phase-5-drawings/`
