@@ -14,17 +14,43 @@ class IndicatorRef(TypedDict, total=False):
 
     indicator: str
     params: NotRequired[dict[str, int | float | str]]
+    bars_ago: NotRequired[int]
+
+
+class FieldRef(TypedDict, total=False):
+    """OHLCV field reference with optional lookback."""
+
+    field: str
+    bars_ago: NotRequired[int]
 
 
 class SignalCondition(TypedDict, total=False):
-    """A single indicator-based condition or an AND group of conditions."""
+    """
+    A condition leaf or group (Phase 9 DSL).
+
+    Groups: ``op`` in AND/OR/NOT/SEQUENCE + ``conditions``, or legacy ``all``.
+    Leaves: ``indicator``, ``field``, ``smc``, or ``pattern``.
+    """
 
     indicator: str
+    field: str
     op: str
     value: float
     params: NotRequired[dict[str, int | float | str]]
     compare: str | IndicatorRef
+    ref: FieldRef | IndicatorRef
+    bars_ago: NotRequired[int]
+    timeframe: NotRequired[str]
     all: list["SignalCondition"]
+    any: list["SignalCondition"]
+    # ``not`` is a reserved keyword — use dict key "not" at runtime (Phase 8 D-105).
+    conditions: list["SignalCondition"]
+    within_bars: NotRequired[int]
+    # Phase 7 SMC named conditions (D-98)
+    smc: str
+    side: str
+    # Phase 9 pattern named conditions
+    pattern: str
 
 
 class StopLossConfig(TypedDict, total=False):
@@ -81,6 +107,7 @@ class SideStrategy(TypedDict, total=False):
 class Strategy(TypedDict, total=False):
     """Long-only strategy with separate entry and exit conditions."""
 
+    schema_version: str
     benchmark: str
     entry_trigger: EntryTrigger
     entry: SignalCondition
@@ -91,6 +118,7 @@ class Strategy(TypedDict, total=False):
 class DualStrategy(TypedDict, total=False):
     """Long and short strategy with per-side risk management."""
 
+    schema_version: str
     benchmark: str
     entry_trigger: EntryTrigger
     long: SideStrategy

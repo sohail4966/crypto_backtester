@@ -187,14 +187,15 @@ def test_edge_trigger_fires_only_on_false_to_true_transition() -> None:
 
 def test_evaluate_signals_edge_trigger_reduces_entry_count_vs_level() -> None:
     """Default edge entry avoids repeated True bars while conditions stay latched."""
-    from signals.evaluator import _evaluate_condition
+    from signals.evaluator import _build_context, _evaluate_condition
 
     strategy: Strategy = {
         "entry": {"indicator": "RSI", "params": {"period": 14}, "op": "<", "value": 100},
         "exit": {"indicator": "RSI", "params": {"period": 14}, "op": ">", "value": 70},
     }
     candles = _sample_candles()
-    raw_entry = _evaluate_condition(candles, strategy["entry"])
+    ctx = _build_context(candles, base_timeframe="1d", frames=None)
+    raw_entry = _evaluate_condition(ctx, strategy["entry"])
     level_entry = apply_entry_trigger(raw_entry, "level")
     edge_entry = apply_entry_trigger(raw_entry, "edge")
     assert edge_entry.sum() <= level_entry.sum()

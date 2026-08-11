@@ -62,6 +62,9 @@ def sma(close: pd.Series, period: int) -> pd.Series:
         ValueError: If period is less than 1 or the series is shorter than period.
     """
     validate_period(period, min_val=1, series=close)
+    # TA-Lib rejects timeperiod=1 on some builds; identity is the correct SMA(1).
+    if period == 1:
+        return close.astype(float).copy()
     result = talib.SMA(_float64_array(close), timeperiod=period)
     return _series_from_talib(close, result)
 
