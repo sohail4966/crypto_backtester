@@ -43,23 +43,38 @@ def hash_password(password: str) -> str:
     return digest.decode("utf-8")
 
 
+# Precomputed dummy bcrypt hash used to normalise login timing when the
+# candidate user is missing / has no password_hash (BE-L2-011). Computed once
+# at import time with the current cost factor; keeps the "unknown email" branch
+# in ``AuthService.login`` doing the same bcrypt work as the "known email"
+# branch, closing the email-enumeration timing side-channel.
+_DUMMY_BCRYPT_HASH: str = bcrypt.hashpw(
+    b"login-timing-normaliser-unused", bcrypt.gensalt()
+).decode("utf-8")
+
+
 def verify_password(password: str, password_hash: str | None) -> bool:
     """
     Verify a plaintext password against a stored bcrypt hash.
+
+    When ``password_hash`` is ``None`` (or empty) the function still runs one
+    bcrypt round against a module-level dummy hash and returns ``False`` — this
+    keeps login latency uniform between "unknown email" and "wrong password"
+    (BE-L2-011).
 
     Args:
         password: Candidate plaintext.
         password_hash: Stored hash, or None if unset.
 
     Returns:
-        True when the password matches.
+        True when the password matches and ``password_hash`` is real.
     """
-    if not password_hash:
-        return False
+    target = password_hash or _DUMMY_BCRYPT_HASH
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        matched = bcrypt.checkpw(password.encode("utf-8"), target.encode("utf-8"))
     except (ValueError, TypeError):
-        return False
+        matched = False
+    return bool(matched and password_hash)
 
 
 def create_access_token(*, user_id: UUID, email: str) -> str:

@@ -7,31 +7,36 @@ from __future__ import annotations
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from api.deps import get_current_user, get_db, require_same_user
 from api.repositories.user_repository import UserRow
 from api.schemas.common import ErrorBody, ErrorResponse
-from api.schemas.users import UserCreate, UserResponse, UserUpdate
+from api.schemas.users import UserResponse, UserUpdate
 from api.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
 _service = UserService()
 
 
-@router.post("", response_model=UserResponse, status_code=201)
-def create_user(
-    body: UserCreate,
-    conn: psycopg.Connection = Depends(get_db),
-) -> UserResponse:
+@router.post("", status_code=status.HTTP_410_GONE)
+async def create_user(_request: Request) -> JSONResponse:
     """
-    Create a user with password and default watchlist.
-
-    Prefer ``POST /auth/register`` which also returns a JWT.
-    Passwordless create is disabled (BE-002).
+    Removed (BE-L2-019). Onboarding lives only in ``POST /auth/register``,
+    which returns a JWT and provisions the default watchlist in one
+    transaction, and is protected by the anonymous-register rate limiter
+    (BE-L2-010).
     """
-    return _service.create(conn, body)
+    return JSONResponse(
+        status_code=status.HTTP_410_GONE,
+        content=ErrorResponse(
+            error=ErrorBody(
+                code="GONE",
+                message="POST /users is disabled; use POST /auth/register",
+            )
+        ).model_dump(),
+    )
 
 
 @router.get("/me", response_model=UserResponse)

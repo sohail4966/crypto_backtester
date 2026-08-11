@@ -7,7 +7,12 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, Depends
 
-from api.deps import get_current_user, get_db
+from api.deps import (
+    get_current_user,
+    get_db,
+    rate_limit_anonymous_ip,
+    rate_limit_register_email,
+)
 from api.repositories.user_repository import UserRow
 from api.schemas.auth import (
     AuthLoginRequest,
@@ -21,12 +26,18 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _service = AuthService()
 
 
-@router.post("/register", response_model=AuthTokenResponse, status_code=201)
+@router.post(
+    "/register",
+    response_model=AuthTokenResponse,
+    status_code=201,
+    dependencies=[Depends(rate_limit_anonymous_ip)],
+)
 def register(
     body: AuthRegisterRequest,
     conn: psycopg.Connection = Depends(get_db),
 ) -> AuthTokenResponse:
-    """Register a new user with password and return a JWT."""
+    """Register a new user with password and return a JWT (rate-limited: BE-L2-010)."""
+    rate_limit_register_email(body.email)
     return _service.register(conn, body)
 
 

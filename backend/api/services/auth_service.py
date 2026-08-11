@@ -4,6 +4,8 @@ Auth service — register and login (claim removed — BE-002/BE-024).
 
 from __future__ import annotations
 
+import logging
+
 import psycopg
 
 from api.auth import (
@@ -22,6 +24,28 @@ from api.schemas.auth import (
 )
 from api.schemas.users import UserResponse
 from api.services.symbol_service import SymbolService
+
+logger = logging.getLogger(__name__)
+
+# Users-email constraints that legitimately map to the anti-enumeration
+# ``REGISTRATION_FAILED`` code. Everything else is a provisioning-side bug
+# (e.g. watchlist default constraint) and gets its own code (BE-L2-008).
+_EMAIL_UNIQUE_CONSTRAINTS = frozenset(
+    {
+        "uq_users_email_lower",
+        "users_email_key",
+        "users_email_lower_key",
+    }
+)
+
+
+def _extract_constraint_name(exc: psycopg.errors.UniqueViolation) -> str:
+    """Return the constraint name from a ``UniqueViolation`` diag, or ''."""
+    diag = getattr(exc, "diag", None)
+    if diag is None:
+        return ""
+    name = getattr(diag, "constraint_name", None)
+    return name or ""
 
 
 class AuthService:
@@ -93,6 +117,18 @@ class AuthService:
             conn.commit()
         except psycopg.errors.UniqueViolation as exc:
             conn.rollback()
+            # BE-L2-008: distinguish the intended email-uniqueness path from a
+            # provisioning-side unique violation (e.g. watchlist default).
+            constraint = _extract_constraint_name(exc)
+            if constraint and constraint not in _EMAIL_UNIQUE_CONSTRAINTS:
+                logger.exception(
+                    "Unexpected unique violation during register (constraint=%s)",
+                    constraint,
+                )
+                raise ValidationError(
+                    "PROVISIONING_CONFLICT",
+                    "Registration failed due to a provisioning conflict",
+                ) from exc
             # Anti-enumeration: generic conflict without confirming other fields (BE-024).
             raise ValidationError(
                 "REGISTRATION_FAILED", "Unable to register with the provided email"
@@ -103,8 +139,16 @@ class AuthService:
         return self._token_response(user)
 
     def login(self, conn: psycopg.Connection, body: AuthLoginRequest) -> AuthTokenResponse:
-        """Authenticate email/password and return a JWT."""
+        """Authenticate email/password and return a JWT.
+
+        Timing side-channel: ``verify_password`` always runs a real bcrypt
+        compare — even when ``user`` is missing — using a precomputed dummy
+        hash (BE-L2-011). This keeps login latency uniform between known and
+        unknown emails and pairs with BE-L2-010's per-IP/per-email limiter.
+        """
         user = self._users.get_by_email(conn, body.email)
-        if user is None or not verify_password(body.password, user.password_hash):
+        candidate_hash = user.password_hash if user is not None else None
+        password_ok = verify_password(body.password, candidate_hash)
+        if user is None or not password_ok:
             raise UnauthorizedError("INVALID_CREDENTIALS", "Invalid email or password")
         return self._token_response(user)

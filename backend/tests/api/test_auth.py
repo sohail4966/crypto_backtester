@@ -190,6 +190,67 @@ def test_register_duplicate_email_uniform_code(
 
 
 @patch("api.deps.connect")
+@patch("api.services.auth_service.UserRepository.get_by_email")
+def test_login_unknown_email_still_runs_bcrypt(
+    mock_get: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """BE-L2-011: unknown-email login path still exercises bcrypt.checkpw."""
+    mock_connect.return_value = MagicMock()
+    mock_get.return_value = None
+
+    with patch("api.auth.bcrypt.checkpw", return_value=False) as mock_checkpw:
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"email": "ghost@example.com", "password": "does-not-matter"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert mock_checkpw.called, "unknown email path must still call bcrypt.checkpw"
+
+
+@patch("api.deps.connect")
+@patch("api.services.auth_service.UserRepository.create_with_password")
+def test_register_provisioning_conflict_maps_to_distinct_code(
+    mock_create: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """BE-L2-008: non-email unique violations surface as PROVISIONING_CONFLICT."""
+    import psycopg
+
+    conn = MagicMock()
+    mock_connect.return_value = conn
+
+    exc = psycopg.errors.UniqueViolation("watchlist default clash")
+    mock_create.side_effect = exc
+
+    with patch(
+        "api.services.auth_service._extract_constraint_name",
+        return_value="watchlists_user_default_key",
+    ):
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"name": "Bob", "email": "b@example.com", "password": "secret-pass"},
+        )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "PROVISIONING_CONFLICT"
+
+
+def test_post_users_returns_410_gone(client: TestClient) -> None:
+    """BE-L2-019: POST /users is retired in favour of /auth/register."""
+    response = client.post(
+        "/api/v1/users",
+        json={"name": "Alice", "email": "a@example.com"},
+    )
+    assert response.status_code == 410
+    body = response.json()
+    assert body["error"]["code"] == "GONE"
+
+
+@patch("api.deps.connect")
 def test_health_stays_public(mock_connect: MagicMock, client: TestClient) -> None:
     conn = MagicMock()
     cursor = MagicMock()

@@ -9,6 +9,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, Query
 
+from api.auth import UnauthorizedError
 from api.deps import get_db, get_optional_user
 from api.repositories.user_repository import UserRow
 from api.schemas.chart_data import ChartDataResponse
@@ -38,6 +39,8 @@ def get_chart_data(
     Candle windows are public. When ``runId`` is set, JWT + ownership are required
     for overlays (G-004).
     """
+    if run_id is not None and current is None:
+        raise UnauthorizedError()
     specs = parse_indicator_specs(indicators)
     return _service.get_chart_data(
         conn,

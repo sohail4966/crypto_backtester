@@ -27,3 +27,10 @@ class ValidationError(ApiError):
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(code, message, status_code=422)
+
+
+class RateLimitError(ApiError):
+    """Rate limit exceeded — mapped to HTTP 429 (BE-L2-009 / BE-L2-010)."""
+
+    def __init__(self, code: str = "RATE_LIMITED", message: str = "Rate limit exceeded") -> None:
+        super().__init__(code, message, status_code=429)

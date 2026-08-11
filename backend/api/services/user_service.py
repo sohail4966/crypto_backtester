@@ -4,6 +4,7 @@ User management service.
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 import psycopg
@@ -14,6 +15,24 @@ from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository
 from api.schemas.users import UserCreate, UserResponse, UserUpdate
 from api.services.symbol_service import SymbolService
+
+logger = logging.getLogger(__name__)
+
+_EMAIL_UNIQUE_CONSTRAINTS = frozenset(
+    {
+        "uq_users_email_lower",
+        "users_email_key",
+        "users_email_lower_key",
+    }
+)
+
+
+def _extract_constraint_name(exc: psycopg.errors.UniqueViolation) -> str:
+    diag = getattr(exc, "diag", None)
+    if diag is None:
+        return ""
+    name = getattr(diag, "constraint_name", None)
+    return name or ""
 
 
 class UserService:
@@ -66,6 +85,16 @@ class UserService:
             conn.commit()
         except psycopg.errors.UniqueViolation as exc:
             conn.rollback()
+            constraint = _extract_constraint_name(exc)
+            if constraint and constraint not in _EMAIL_UNIQUE_CONSTRAINTS:
+                logger.exception(
+                    "Unexpected unique violation during user create (constraint=%s)",
+                    constraint,
+                )
+                raise ValidationError(
+                    "PROVISIONING_CONFLICT",
+                    "User create failed due to a provisioning conflict",
+                ) from exc
             raise ValidationError(
                 "REGISTRATION_FAILED", "Unable to register with the provided email"
             ) from exc
@@ -101,6 +130,16 @@ class UserService:
         try:
             user = self._users.update(conn, user_id, body.name, body.email)
         except psycopg.errors.UniqueViolation as exc:
+            constraint = _extract_constraint_name(exc)
+            if constraint and constraint not in _EMAIL_UNIQUE_CONSTRAINTS:
+                logger.exception(
+                    "Unexpected unique violation during user update (constraint=%s)",
+                    constraint,
+                )
+                raise ValidationError(
+                    "PROVISIONING_CONFLICT",
+                    "User update failed due to a provisioning conflict",
+                ) from exc
             raise ValidationError(
                 "UPDATE_FAILED", "Unable to update with the provided email"
             ) from exc

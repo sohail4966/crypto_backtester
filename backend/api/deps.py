@@ -4,32 +4,20 @@ FastAPI dependencies shared across routers.
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict, deque
 from collections.abc import Generator
-from threading import Lock
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, Header, WebSocket
+from fastapi import Depends, Header, Request, WebSocket
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api import settings
+from api import rate_limiter, settings
 from api.auth import ForbiddenError, UnauthorizedError, decode_access_token
-from api.exceptions import ValidationError
 from api.repositories.user_repository import UserRepository, UserRow
 from data.db import connect
 
 _bearer = HTTPBearer(auto_error=False)
 _users = UserRepository()
-
-# In-process AI rate limiter: user_id -> deque of request timestamps (BE-004).
-_ai_hits: dict[UUID, deque[float]] = defaultdict(deque)
-_ai_lock = Lock()
-
-# In-process WS connection counts per user (BE-004).
-_ws_counts: dict[UUID, int] = defaultdict(int)
-_ws_lock = Lock()
 
 
 def get_db() -> Generator[psycopg.Connection, None, None]:
@@ -85,11 +73,17 @@ def get_optional_user(
     Load the subject user when a Bearer token is present; otherwise ``None``.
 
     Used by chart-data: public candle windows, auth required when ``runId`` is set.
+    A missing or invalid token returns ``None`` — callers that need fail-closed
+    behaviour (e.g. run-scoped overlays) MUST enforce the check explicitly
+    (BE-L2-007).
     """
     token = _extract_bearer_token(credentials, authorization)
     if not token:
         return None
-    return _user_from_token(conn, token)
+    try:
+        return _user_from_token(conn, token)
+    except UnauthorizedError:
+        return None
 
 
 def _user_from_token(conn: psycopg.Connection, token: str) -> UserRow:
@@ -121,39 +115,74 @@ def require_same_user(path_user_id: UUID, current: UserRow) -> None:
 
 
 def rate_limit_ai(current: UserRow = Depends(get_current_user)) -> None:
-    """Simple in-process per-user AI RPM limiter (BE-004)."""
-    limit = settings.ai_max_rpm()
-    now = time.monotonic()
-    window = 60.0
-    with _ai_lock:
-        hits = _ai_hits[current.id]
-        while hits and now - hits[0] > window:
-            hits.popleft()
-        if len(hits) >= limit:
-            raise ValidationError(
-                "RATE_LIMITED",
-                f"AI rate limit exceeded ({limit} requests per minute)",
-            )
-        hits.append(now)
+    """Per-user AI RPM limiter delegated to the shared façade (BE-L2-009)."""
+    rate_limiter.check_ai_rpm(current.id)
 
 
 def acquire_ws_slot(user_id: UUID) -> None:
-    """Reserve a WS connection slot for a user or raise."""
-    max_conn = settings.ws_max_connections_per_user()
-    with _ws_lock:
-        if _ws_counts[user_id] >= max_conn:
-            raise ValidationError(
-                "WS_LIMIT",
-                f"Max {max_conn} concurrent WebSocket connections per user",
-            )
-        _ws_counts[user_id] += 1
+    """Reserve a WS connection slot for a user or raise (BE-L2-009)."""
+    rate_limiter.acquire_ws(user_id)
 
 
 def release_ws_slot(user_id: UUID) -> None:
-    """Release a previously acquired WS slot."""
-    with _ws_lock:
-        if _ws_counts[user_id] > 0:
-            _ws_counts[user_id] -= 1
+    """Release a previously acquired WS slot (BE-L2-009)."""
+    rate_limiter.release_ws(user_id)
+
+
+def _client_ip(request: Request) -> str:
+    """
+    Return best-effort client IP, honouring proxy headers only when trusted
+    (BE-L2-010). Reject spoofed ``X-Forwarded-For`` values by default.
+    """
+    if settings.trust_proxy_headers():
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit_anonymous_ip(request: Request) -> None:
+    """
+    Per-IP anonymous limiter — runs BEFORE Pydantic body validation so a caller
+    hammering ``POST /auth/register`` with malformed payloads still gets throttled
+    (BE-L2-010). The per-email portion of the limiter is enforced inside the
+    router after the body has been parsed (see ``AuthService.register_with_limits``).
+    """
+    ip_limit = settings.auth_register_ip_rpm()
+    try:
+        rate_limiter.get_rate_limiter().check_rpm(
+            "register:ip",
+            _client_ip(request),
+            limit=ip_limit,
+            window_sec=60,
+        )
+    except rate_limiter.RateLimitDeniedError as exc:
+        from api.exceptions import RateLimitError
+
+        raise RateLimitError(
+            "RATE_LIMITED", f"Too many registration attempts (per-IP): {exc.message}"
+        ) from exc
+
+
+def rate_limit_register_email(email: str) -> None:
+    """
+    Enforce the per-email portion of the anonymous-register limiter (BE-L2-010).
+    Called from routers after Pydantic validation extracts the email.
+    """
+    email_limit = settings.auth_register_email_rph()
+    try:
+        rate_limiter.get_rate_limiter().check_rpm(
+            "register:email",
+            email.strip().lower(),
+            limit=email_limit,
+            window_sec=3600,
+        )
+    except rate_limiter.RateLimitDeniedError as exc:
+        from api.exceptions import RateLimitError
+
+        raise RateLimitError(
+            "RATE_LIMITED", f"Too many registration attempts (per-email): {exc.message}"
+        ) from exc
 
 
 def resolve_ws_token(websocket: WebSocket, token: str | None = None) -> str | None:
@@ -173,3 +202,44 @@ def user_from_ws_token(token: str) -> UserRow:
         return _user_from_token(conn, token)
     finally:
         conn.close()
+
+
+def resolve_ws_user(
+    websocket: WebSocket,
+    token: str | None = None,
+    ticket: str | None = None,
+) -> UserRow:
+    """
+    Resolve the WebSocket subject (BE-for-FE-L2-003).
+
+    Consumes a one-shot ticket first (preferred), then falls back to
+    ``?token=`` / ``Authorization: Bearer`` for backwards compatibility.
+    Raises ``UnauthorizedError`` when no credentials are available or the
+    supplied credentials are invalid / expired / already used.
+    """
+    if ticket:
+        from api.services.ws_ticket_service import get_ws_ticket_service
+
+        user_id = get_ws_ticket_service().consume(ticket)
+        if user_id is None:
+            raise UnauthorizedError("INVALID_TICKET", "Ticket missing or already used")
+        conn = connect()
+        try:
+            user = _users.get_by_id(conn, user_id)
+        finally:
+            conn.close()
+        if user is None:
+            raise UnauthorizedError("USER_NOT_FOUND", "Ticket subject unknown")
+        return user
+
+    raw = resolve_ws_token(websocket, token)
+    if not raw:
+        raise UnauthorizedError()
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "ws_bearer_in_url",
+        extra={"ws_path": websocket.url.path if hasattr(websocket, "url") else ""},
+    )
+    return user_from_ws_token(raw)

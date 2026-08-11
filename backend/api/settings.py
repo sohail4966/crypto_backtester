@@ -274,3 +274,41 @@ def jwt_expire_minutes() -> int:
 def live_ws_poll_interval_ms() -> int:
     """Milliseconds between live WS DB-tail polls."""
     return int(os.environ.get("LIVE_WS_POLL_INTERVAL_MS", "2000"))
+
+
+def redis_url() -> str | None:
+    """
+    Optional Redis connection URL for the shared rate limiter (BE-L2-009).
+
+    When unset (dev / single-worker deploys) the API falls back to the
+    in-process rate limiter. Multi-worker deployments SHOULD set this to a
+    reachable Redis instance so per-user AI RPM, WS slot counts, anonymous
+    registration limits, and WS tickets converge across workers.
+    """
+    raw = (os.environ.get("REDIS_URL") or "").strip()
+    return raw or None
+
+
+def auth_register_ip_rpm() -> int:
+    """Per-IP anonymous registration attempts per minute (BE-L2-010)."""
+    return int(os.environ.get("AUTH_REGISTER_IP_RPM", "5"))
+
+
+def auth_register_email_rph() -> int:
+    """Per-email anonymous registration attempts per hour (BE-L2-010)."""
+    return int(os.environ.get("AUTH_REGISTER_EMAIL_RPH", "3"))
+
+
+def trust_proxy_headers() -> bool:
+    """
+    When ``true`` the API trusts ``X-Forwarded-For`` for ``_client_ip`` (BE-L2-010).
+
+    Only enable behind a proxy that scrubs client-supplied XFF; otherwise a
+    caller can spoof their apparent IP and bypass per-IP rate limits.
+    """
+    return os.environ.get("TRUST_PROXY_HEADERS", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def ws_ticket_ttl_seconds() -> int:
+    """One-shot WS ticket TTL (BE-for-FE-L2-003)."""
+    return int(os.environ.get("WS_TICKET_TTL_SECONDS", "60"))

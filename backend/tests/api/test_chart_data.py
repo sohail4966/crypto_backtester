@@ -137,3 +137,64 @@ def test_chart_data_empty_window_no_latest_fallback(
     assert body["candles"] == []
     assert body["empty"] is True
     mock_latest.assert_not_called()
+
+
+@patch("api.deps.connect")
+@patch("api.services.chart_data_service.CandleService.get_candles")
+def test_chart_data_stale_token_public_window_still_ok(
+    mock_candles: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """BE-L2-007: stale JWT on a public candle window falls back to anon."""
+    from api.schemas.candles import CandlesResponse
+
+    mock_connect.return_value = MagicMock()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    symbol_row = SymbolRow("BTC/USDT", "BTC", "USDT", True, 1, now)
+    with (
+        patch(
+            "api.repositories.symbol_repository.SymbolRepository.get_symbol",
+            return_value=symbol_row,
+        ),
+        patch(
+            "api.deps.decode_access_token",
+            side_effect=__import__("api.auth", fromlist=["UnauthorizedError"]).UnauthorizedError(),
+        ),
+    ):
+        mock_candles.return_value = CandlesResponse(symbol="BTC/USDT", timeframe="1h", bars=[])
+        response = client.get(
+            "/api/v1/chart-data",
+            params={
+                "symbolId": "BTC/USDT",
+                "timeframe": "1h",
+                "start": 1704067200,
+                "end": 1704070800,
+            },
+            headers={"Authorization": "Bearer stale-token"},
+        )
+
+    assert response.status_code == 200
+
+
+@patch("api.deps.connect")
+@patch("api.services.chart_data_service.CandleService.get_candles")
+def test_chart_data_run_id_without_auth_fails_closed(
+    mock_candles: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """BE-L2-007: runId scoped overlays MUST require a valid JWT."""
+    mock_connect.return_value = MagicMock()
+    response = client.get(
+        "/api/v1/chart-data",
+        params={
+            "symbolId": "BTC/USDT",
+            "timeframe": "1h",
+            "start": 1704067200,
+            "end": 1704070800,
+            "runId": "00000000-0000-0000-0000-000000000001",
+        },
+    )
+    assert response.status_code == 401
+    mock_candles.assert_not_called()
