@@ -19,6 +19,7 @@
 | BE Phase 10 — AI NL | `be-phase-10-ai/` | READY_WITH_NITS |
 | BE Phase 11 — Auth + Live WS | `be-phase-11-auth-live/` | READY_WITH_NITS (ROADMAP: Partial — FE login UI not overhauled) |
 | Full-stack hardening (A→H loop) | `full-stack-hardening/` | **READY** (G3: NONE remaining) |
+| Full-stack hardening Loop 2 (A→H) | `full-stack-hardening/LOOP2_*` | **READY** (G Loop2: NONE remaining — 31 issues fixed) |
 
 ## Frontend roadmap
 
