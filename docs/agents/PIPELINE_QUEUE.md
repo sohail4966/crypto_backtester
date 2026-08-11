@@ -18,6 +18,7 @@
 | BE Phase 9 — DSL | `be-phase-9-dsl/` | READY_WITH_NITS |
 | BE Phase 10 — AI NL | `be-phase-10-ai/` | READY_WITH_NITS |
 | BE Phase 11 — Auth + Live WS | `be-phase-11-auth-live/` | READY_WITH_NITS (ROADMAP: Partial — FE login UI not overhauled) |
+| Full-stack hardening (A→H loop) | `full-stack-hardening/` | **READY** (G3: NONE remaining) |
 
 ## Frontend roadmap
 
@@ -25,4 +26,4 @@ Phases 0–6: **Complete (v1)**
 
 ## Backend roadmap
 
-Phases 0–10: **Complete** · Phase 11: **Partial** (backend auth+live done; full Visualization UI already covered by FE phases)
+Phases 0–10: **Complete** · Phase 11: **Complete** (auth+live hardened; FE AuthGate + `/auth/me` in full-stack hardening)
