@@ -14,6 +14,7 @@ import {
 import { ChunkManager } from '@/services/chunkManager'
 import type { CandleDataRange, OHLCVBar } from '@/types/candle'
 import type { IndicatorSeriesMap, IndicatorSpec } from '@/types/indicator'
+import { isRangedFallbackResponse } from '@/utils/chartDataWindow'
 import { specsCacheKey } from '@/utils/indicatorId'
 import { chartWindowFromDataRange, shiftUnixByBars, timeframeSeconds } from '@/utils/time'
 
@@ -25,6 +26,7 @@ interface UseChunkManagerResult {
   status: ChunkStatus
   error: Error | null
   onVisibleRangeChange: (range: LogicalRange | null) => void
+  upsertLiveBar: (bar: OHLCVBar) => void
 }
 
 export function useChunkManager(
@@ -37,6 +39,7 @@ export function useChunkManager(
   const generationRef = useRef(0)
   const dataRangeRef = useRef<CandleDataRange | null>(null)
   const prefetchingRef = useRef(false)
+  const reachedEarliestRef = useRef(false)
   const candlesRef = useRef<OHLCVBar[]>([])
   const indicatorsRef = useRef<IndicatorSeriesMap>({})
   const lastVisibleFromRef = useRef<number | null>(null)
@@ -57,6 +60,14 @@ export function useChunkManager(
     setIndicators(nextIndicators)
   }, [])
 
+  const upsertLiveBar = useCallback(
+    (bar: OHLCVBar) => {
+      managerRef.current.upsertLiveBar(bar)
+      syncAssembled()
+    },
+    [syncAssembled],
+  )
+
   useEffect(() => {
     indicatorSpecsRef.current = indicatorSpecs
   }, [indicatorSpecs, indicatorSpecsKey])
@@ -76,6 +87,7 @@ export function useChunkManager(
     const generation = ++generationRef.current
     managerRef.current.reset()
     prefetchingRef.current = false
+    reachedEarliestRef.current = false
     lastVisibleFromRef.current = null
     setStatus('loading')
     setError(null)
@@ -149,7 +161,7 @@ export function useChunkManager(
   }, [indicatorSpecsKey, queryClient, symbolId, syncAssembled, timeframe])
 
   const prefetchPriorChunk = useCallback(async () => {
-    if (!symbolId || prefetchingRef.current) {
+    if (!symbolId || prefetchingRef.current || reachedEarliestRef.current) {
       return
     }
 
@@ -166,12 +178,14 @@ export function useChunkManager(
 
     if (dataRange?.earliest != null) {
       if (earliestTime <= dataRange.earliest) {
+        reachedEarliestRef.current = true
         return
       }
       priorStart = Math.max(priorStart, dataRange.earliest)
     }
 
-    if (managerRef.current.hasChunk(priorStart)) {
+    // FE-010: guard by overlapping coverage, not request-key equality.
+    if (managerRef.current.hasCoverage(priorStart, priorEnd)) {
       return
     }
 
@@ -188,6 +202,12 @@ export function useChunkManager(
       })
 
       if (generation !== generationRef.current) {
+        return
+      }
+
+      // FE-011: empty / latest-fallback / non-overlapping response → stop history walk.
+      if (isRangedFallbackResponse(priorStart, priorEnd, data)) {
+        reachedEarliestRef.current = true
         return
       }
 
@@ -248,5 +268,6 @@ export function useChunkManager(
     status,
     error,
     onVisibleRangeChange,
+    upsertLiveBar,
   }
 }

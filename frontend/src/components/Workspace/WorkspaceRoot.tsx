@@ -8,7 +8,9 @@ import {
   writeThemeBootHint,
   writeWorkspaceCache,
 } from '@/services/workspaceStorage'
+import { readIndicatorCache } from '@/services/indicatorCache'
 import { registerChartWorkspaceBridge, useChartStore } from '@/stores/chartStore'
+import { useIndicatorStore } from '@/stores/indicatorStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { ChartTimeframe } from '@/constants/chart'
 import type { Symbol } from '@/types/symbol'
@@ -56,6 +58,15 @@ export function WorkspaceRoot({ children }: WorkspaceRootProps) {
         useWorkspaceStore.getState().hydrate(cache)
         writeThemeBootHint(cache.theme)
 
+        try {
+          const indicatorCache = await readIndicatorCache()
+          if (!cancelled && indicatorCache) {
+            useIndicatorStore.getState().hydrateFromCache(indicatorCache)
+          }
+        } catch {
+          // Indicator persistence is best-effort
+        }
+
         const layout =
           cache.layouts.find((item) => item.id === cache.activeLayoutId) ??
           cache.layouts[0]
@@ -64,6 +75,7 @@ export function WorkspaceRoot({ children }: WorkspaceRootProps) {
           layout?.panes[0]
         if (pane) {
           useChartStore.getState().applyPaneState(pane.symbol, pane.timeframe)
+          useIndicatorStore.getState().setEditingPaneId(pane.id)
         }
       } catch {
         if (!cancelled) {
@@ -101,6 +113,7 @@ export function WorkspaceRoot({ children }: WorkspaceRootProps) {
     if (!pane) {
       return
     }
+    useIndicatorStore.getState().setEditingPaneId(pane.id)
     const chart = useChartStore.getState()
     if (
       chart.symbol?.id === pane.symbol?.id &&

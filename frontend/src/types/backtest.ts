@@ -21,6 +21,17 @@ export interface BacktestMetrics {
   alphaVsBenchmark?: number | null
 }
 
+export interface EquityPoint {
+  time: number
+  equity: number
+}
+
+export interface BacktestSignal {
+  time: number
+  side: string
+  price?: number
+}
+
 export interface TradeDetail {
   entryTime: number
   exitTime: number
@@ -46,6 +57,9 @@ export interface BacktestRun {
   status: string
   metrics: BacktestMetrics
   createdAt: string
+  equity: EquityPoint[]
+  signals: BacktestSignal[]
+  trades: TradeDetail[]
 }
 
 export interface RunBacktestInput {

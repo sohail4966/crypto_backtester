@@ -18,6 +18,9 @@ interface UseDrawingInteractionOptions {
   chart: IChartApi | null
   candleSeries: ISeriesApi<'Candlestick'> | null
   chartReady: boolean
+  /** Pane-scoped identity (FE-015); falls back to chartStore when omitted. */
+  symbolId?: string | null
+  timeframe?: string
 }
 
 function resolveClickPoint(
@@ -46,10 +49,16 @@ export function useDrawingInteraction({
   chart,
   candleSeries,
   chartReady,
+  symbolId: symbolIdProp,
+  timeframe: timeframeProp,
 }: UseDrawingInteractionOptions): void {
   const { theme } = useTheme()
   const themeRef = useRef(theme)
   themeRef.current = theme
+  const symbolIdRef = useRef(symbolIdProp)
+  const timeframeRef = useRef(timeframeProp)
+  symbolIdRef.current = symbolIdProp
+  timeframeRef.current = timeframeProp
 
   useEffect(() => {
     if (!chart || !candleSeries || !chartReady) {
@@ -62,9 +71,11 @@ export function useDrawingInteraction({
       }
 
       const store = useDrawingStore.getState()
-      const symbol = useChartStore.getState().symbol
-      const timeframe = useChartStore.getState().timeframe
-      if (!symbol) {
+      const symbolId =
+        symbolIdRef.current ?? useChartStore.getState().symbol?.id ?? null
+      const timeframe =
+        timeframeRef.current ?? useChartStore.getState().timeframe
+      if (!symbolId) {
         return
       }
 
@@ -78,7 +89,7 @@ export function useDrawingInteraction({
       const color = defaultColor(themeRef.current)
 
       if (tool == null && draft == null) {
-        const visible = drawingsFor(store.drawings, symbol.id, timeframe)
+        const visible = drawingsFor(store.drawings, symbolId, timeframe)
         const hit = findHitDrawing(visible, {
           x: param.point!.x,
           y: param.point!.y,
@@ -99,7 +110,7 @@ export function useDrawingInteraction({
         const drawing: Drawing = {
           id: createDrawingId(),
           type: 'horizontal_line',
-          symbolId: symbol.id,
+          symbolId,
           timeframe,
           color,
           visible: true,
@@ -121,7 +132,7 @@ export function useDrawingInteraction({
         const drawing: Drawing = {
           id: createDrawingId(),
           type: 'text_note',
-          symbolId: symbol.id,
+          symbolId,
           timeframe,
           color,
           visible: true,
@@ -146,7 +157,7 @@ export function useDrawingInteraction({
         const drawing: Drawing = {
           id: createDrawingId(),
           type: 'trend_line',
-          symbolId: symbol.id,
+          symbolId,
           timeframe,
           color,
           visible: true,
@@ -168,7 +179,7 @@ export function useDrawingInteraction({
         const drawing: Drawing = {
           id: createDrawingId(),
           type: 'rectangle',
-          symbolId: symbol.id,
+          symbolId,
           timeframe,
           color,
           visible: true,
@@ -197,7 +208,7 @@ export function useDrawingInteraction({
         const drawing: Drawing = {
           id: createDrawingId(),
           type: 'price_range',
-          symbolId: symbol.id,
+          symbolId,
           timeframe,
           color,
           visible: true,

@@ -162,9 +162,16 @@ export function useReplaySession(): ReplaySessionApi {
     }
     store.clearExpectImmediateTicks()
     store.setForcePausedUntilPlay(false)
-    store.setPhase('playing')
+    const client = wsClientRef.current
+    const open = client?.readyState === WebSocket.OPEN
+    // Don't claim playing until the socket can accept (or queue) the command.
+    store.setPhase(open ? 'playing' : 'connecting')
     const speed = store.speed
-    wsClientRef.current?.send({ action: 'play', speed })
+    client?.send({ action: 'play', speed })
+    if (!open && client) {
+      // Queued; flip to playing once open flush happens via first server state / onOpen.
+      // Local UX: leave connecting until replay_state or open confirms.
+    }
   }, [])
 
   const pause = useCallback(() => {
@@ -203,19 +210,33 @@ export function useReplaySession(): ReplaySessionApi {
     wsClientRef.current?.send({ action: 'set_indicators', indicators: specs })
   }, [])
 
-  // URL resume on mount / when query appears
+  // URL resume on mount / when query appears — reconnect if WS missing (FE-008)
   useEffect(() => {
     const sessionFromUrl = searchParams.get(REPLAY_SESSION_QUERY)
     if (!sessionFromUrl) {
       resumeAttemptedRef.current = null
       return
     }
-    if (resumeAttemptedRef.current === sessionFromUrl) {
+
+    const store = useReplayStore.getState()
+    const existing = store.sessionId
+    const phase = store.phase
+    const wsOpen = wsClientRef.current?.readyState === WebSocket.OPEN
+
+    // Already owning this session: do not re-fetch (avoids racing create → URL write).
+    // If the socket was torn down (route remount), re-issue beginConnect so useReplayWs reconnects.
+    if (existing === sessionFromUrl && phase !== 'inactive') {
+      resumeAttemptedRef.current = sessionFromUrl
+      if (!wsOpen) {
+        const wsUrl = store.wsUrl ?? `/ws/replay/${sessionFromUrl}`
+        if (store.wsUrl !== wsUrl || store.connection === 'closed' || store.connection === 'red') {
+          useReplayStore.getState().beginConnect(sessionFromUrl, wsUrl)
+        }
+      }
       return
     }
-    const existing = useReplayStore.getState().sessionId
-    if (existing === sessionFromUrl && useReplayStore.getState().phase !== 'inactive') {
-      resumeAttemptedRef.current = sessionFromUrl
+
+    if (resumeAttemptedRef.current === sessionFromUrl) {
       return
     }
 

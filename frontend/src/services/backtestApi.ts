@@ -43,6 +43,9 @@ function normalizeMetrics(raw: unknown): BacktestMetrics {
 
 export function normalizeBacktestRun(raw: unknown): BacktestRun {
   const body = asRecord(raw)
+  const equityRaw = body.equity
+  const signalsRaw = body.signals
+  const tradesRaw = body.trades
   return {
     runId: asString(body.run_id ?? body.runId),
     symbol: asString(body.symbol),
@@ -57,6 +60,29 @@ export function normalizeBacktestRun(raw: unknown): BacktestRun {
     status: asString(body.status, 'completed'),
     metrics: normalizeMetrics(body.metrics),
     createdAt: asString(body.created_at ?? body.createdAt),
+    equity: Array.isArray(equityRaw)
+      ? equityRaw.map((row) => {
+          const r = asRecord(row)
+          return {
+            time: asNumber(r.time ?? r.t),
+            equity: asNumber(r.equity ?? r.value ?? r.v),
+          }
+        })
+      : [],
+    signals: Array.isArray(signalsRaw)
+      ? signalsRaw.map((row) => {
+          const r = asRecord(row)
+          return {
+            time: asNumber(r.time ?? r.t),
+            side: asString(r.side ?? r.signal, 'unknown'),
+            price:
+              r.price == null && r.p == null
+                ? undefined
+                : asNumber(r.price ?? r.p),
+          }
+        })
+      : [],
+    trades: Array.isArray(tradesRaw) ? tradesRaw.map(normalizeTradeDetail) : [],
   }
 }
 

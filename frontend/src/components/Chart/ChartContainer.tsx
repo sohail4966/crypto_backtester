@@ -15,6 +15,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { CandlestickSeries } from '@/components/Chart/CandlestickSeries'
+import { BacktestMarkers } from '@/components/Chart/BacktestMarkers'
 import { ChartContext, type SubChartHandle } from '@/components/Chart/ChartContext'
 import { ChartLegend } from '@/components/Chart/ChartLegend'
 import { DrawingsLayer } from '@/components/Drawings/DrawingsLayer'
@@ -24,6 +25,7 @@ import { ChartZoomControls } from '@/components/Chart/ChartZoomControls'
 import { VolumeSeries } from '@/components/Chart/VolumeSeries'
 import { useOptionalReplaySession } from '@/components/Replay/ReplaySessionContext'
 import { useTheme } from '@/hooks/useTheme'
+import { useLiveCandles } from '@/hooks/useLiveCandles'
 import { useDrawingInteraction } from '@/hooks/useDrawingInteraction'
 import { useDrawingKeyboard } from '@/hooks/useDrawingKeyboard'
 import { useMultiChartSync } from '@/hooks/useMultiChartSync'
@@ -95,7 +97,7 @@ export function ChartContainer({
   const timezone = useChartStore((state) => state.timezone)
   const showGrid = useChartStore((state) => state.showGrid)
   const pulseZoomControls = useChartStore((state) => state.pulseZoomControls)
-  const activeIndicators = useIndicatorStore((state) => state.active)
+  const activeIndicators = useIndicatorStore((state) => state.byPane[paneId] ?? [])
   const trailAuthoritative = useReplayStore((state) => state.trailAuthoritative)
   const trailBars = useReplayStore((state) => state.trailBars)
   const trailIndicators = useReplayStore((state) => state.trailIndicators)
@@ -150,7 +152,10 @@ export function ChartContainer({
     status,
     error,
     onVisibleRangeChange,
+    upsertLiveBar,
   } = useChunkManager(symbolId, timeframe, indicatorSpecs)
+
+  useLiveCandles(symbolId, timeframe, isActive && !useReplayTrail, upsertLiveBar)
 
   const candles = useReplayTrail ? trailBars : liveCandles
   const indicators = useReplayTrail ? trailIndicators : liveIndicators
@@ -188,6 +193,8 @@ export function ChartContainer({
     chart: isActive && chartReady ? chartRef.current : null,
     candleSeries: isActive && chartReady ? candleSeriesRef.current : null,
     chartReady: isActive && chartReady,
+    symbolId: symbol?.id,
+    timeframe,
   })
 
   const multiSync = useMultiChartSync({
@@ -497,6 +504,7 @@ export function ChartContainer({
           {showSeries ? (
             <>
               <CandlestickSeries candles={candles} fitKey={fitKey} />
+              <BacktestMarkers symbolId={symbolId} timeframe={timeframe} />
               <VolumeSeries candles={candles} theme={theme} />
               {activeIndicators
                 .filter((item) => item.pane === 'overlay')
@@ -520,6 +528,8 @@ export function ChartContainer({
                 theme={theme}
                 overlayIndicators={overlayIndicators}
                 indicators={indicators}
+                symbol={symbol}
+                timeframe={timeframe}
               />
               <DrawingsLayer symbolId={symbol?.id} timeframe={timeframe} />
             </>

@@ -74,6 +74,25 @@ export function useMultiChartSync({
         if (!sync.visibleRange) {
           return
         }
+        // FE-013: only apply range sync across panes that share a symbol
+        // (unless symbol sync is also on — then all panes share the same symbol anyway).
+        if (!sync.symbol) {
+          const workspace = useWorkspaceStore.getState()
+          const layout =
+            workspace.layouts.find((l) => l.id === workspace.activeLayoutId) ??
+            workspace.layouts[0]
+          const source = layout?.panes.find((p) => p.id === event.sourcePaneId)
+          const target = layout?.panes.find((p) => p.id === paneId)
+          const sourceSymbol = source?.symbol?.id
+          const targetSymbol = target?.symbol?.id
+          if (
+            sourceSymbol &&
+            targetSymbol &&
+            sourceSymbol !== targetSymbol
+          ) {
+            return
+          }
+        }
         applyingRef.current = true
         try {
           if (event.range == null) {

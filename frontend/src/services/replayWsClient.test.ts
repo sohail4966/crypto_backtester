@@ -46,6 +46,7 @@ class MockWebSocket {
 describe('replayWsClient', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
+    localStorage.clear()
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
 
@@ -77,23 +78,53 @@ describe('replayWsClient', () => {
     expect(JSON.parse(socket.sent[0]!)).toEqual({ action: 'step', count: 1 })
   })
 
-  it('invokes amber close handlers for 4401/4404', () => {
+  it('maps distinct close codes for auth, superseded, and not_found', () => {
     const client = new ReplayWsClient()
     const onClose = vi.fn()
     client.connect('/ws/replay/x', { onClose })
     const socket = MockWebSocket.instances[0]!
     socket.open()
-    socket.close(4401, 'superseded')
+    socket.close(4401, 'UNAUTHORIZED')
     expect(onClose).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 4401, kind: 'superseded' }),
+      expect.objectContaining({ code: 4401, kind: 'unauthorized' }),
     )
 
     const client2 = new ReplayWsClient()
     const onClose2 = vi.fn()
     client2.connect('/ws/replay/y', { onClose: onClose2 })
-    MockWebSocket.instances[1]!.close(4404, 'missing')
+    MockWebSocket.instances[1]!.close(4402, 'SUPERSEDED')
     expect(onClose2).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 4402, kind: 'superseded' }),
+    )
+
+    const client3 = new ReplayWsClient()
+    const onClose3 = vi.fn()
+    client3.connect('/ws/replay/z', { onClose: onClose3 })
+    MockWebSocket.instances[2]!.close(4404, 'missing')
+    expect(onClose3).toHaveBeenCalledWith(
       expect.objectContaining({ code: 4404, kind: 'not_found' }),
     )
+  })
+
+  it('queues commands until socket opens then flushes', () => {
+    const client = new ReplayWsClient()
+    client.connect('/ws/replay/x')
+    const socket = MockWebSocket.instances[0]!
+    client.send({ action: 'play', speed: 1 })
+    expect(socket.sent).toHaveLength(0)
+    expect(client.queuedCount).toBe(1)
+    socket.open()
+    expect(JSON.parse(socket.sent[0]!)).toEqual({ action: 'play', speed: 1 })
+    expect(client.consumePendingPlay()).toBe(true)
+  })
+
+  it('appends token query when auth token present', () => {
+    localStorage.setItem('auth_token', 'abc')
+    expect(
+      resolveReplayWsUrl('/ws/replay/abc', {
+        protocol: 'http:',
+        host: 'localhost:5173',
+      } as Location),
+    ).toBe('ws://localhost:5173/ws/replay/abc?token=abc')
   })
 })

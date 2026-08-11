@@ -6,7 +6,13 @@ import { writeWatchlistCache } from '@/services/watchlistCache'
 import { useWatchlistStore } from '@/stores/watchlistStore'
 
 export function WatchlistPanel() {
-  const { retry, createWatchlist } = useWatchlistSession()
+  const {
+    retry,
+    createWatchlist,
+    renameWatchlist,
+    deleteWatchlist,
+    setDefaultWatchlist,
+  } = useWatchlistSession()
   const { showToast } = useToast()
 
   const watchlists = useWatchlistStore((state) => state.watchlists)
@@ -21,6 +27,9 @@ export function WatchlistPanel() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [creatingBusy, setCreatingBusy] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const [actionBusy, setActionBusy] = useState(false)
 
   const selected = watchlists.find((list) => list.id === selectedWatchlistId) ?? null
   const showHardError = status === 'error' && watchlists.length === 0
@@ -62,6 +71,52 @@ export function WatchlistPanel() {
       showToast(message)
     } finally {
       setCreatingBusy(false)
+    }
+  }
+
+  async function handleRename() {
+    if (!selected || !renameValue.trim() || actionBusy) {
+      return
+    }
+    setActionBusy(true)
+    try {
+      await renameWatchlist(selected.id, renameValue.trim())
+      setRenaming(false)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Rename failed')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!selected || actionBusy) {
+      return
+    }
+    if (!window.confirm(`Delete watchlist “${selected.name}”?`)) {
+      return
+    }
+    setActionBusy(true)
+    try {
+      await deleteWatchlist(selected.id)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Delete failed')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function handleSetDefault() {
+    if (!selected || actionBusy || selected.isDefault) {
+      return
+    }
+    setActionBusy(true)
+    try {
+      await setDefaultWatchlist(selected.id)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to set default')
+    } finally {
+      setActionBusy(false)
     }
   }
 
@@ -132,7 +187,7 @@ export function WatchlistPanel() {
       ) : null}
 
       {watchlists.length > 0 ? (
-        <div className="px-3 pb-2">
+        <div className="space-y-2 px-3 pb-2">
           <label className="sr-only" htmlFor="watchlist-selector">
             Selected watchlist
           </label>
@@ -147,9 +202,69 @@ export function WatchlistPanel() {
             {watchlists.map((list) => (
               <option key={list.id} value={list.id}>
                 {list.name}
+                {list.isDefault ? ' (default)' : ''}
               </option>
             ))}
           </select>
+          {selected ? (
+            renaming ? (
+              <div className="flex flex-col gap-1">
+                <input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-sm text-text"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded px-1.5 py-0.5 text-xs text-accent"
+                    disabled={actionBusy}
+                    onClick={() => void handleRename()}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded px-1.5 py-0.5 text-xs text-text-secondary"
+                    onClick={() => setRenaming(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:text-text"
+                  disabled={actionBusy}
+                  onClick={() => {
+                    setRenameValue(selected.name)
+                    setRenaming(true)
+                  }}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-1.5 py-0.5 text-xs text-text-secondary hover:text-text"
+                  disabled={actionBusy || selected.isDefault}
+                  onClick={() => void handleSetDefault()}
+                >
+                  Set default
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-1.5 py-0.5 text-xs text-red-500/90 hover:text-red-500"
+                  disabled={actionBusy}
+                  onClick={() => void handleDelete()}
+                >
+                  Delete
+                </button>
+              </div>
+            )
+          ) : null}
         </div>
       ) : null}
 

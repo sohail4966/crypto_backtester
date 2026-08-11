@@ -63,7 +63,12 @@ vi.mock('@/hooks/useChunkManager', () => ({
     status: 'ready',
     error: null,
     onVisibleRangeChange: vi.fn(),
+    upsertLiveBar: vi.fn(),
   }),
+}))
+
+vi.mock('@/hooks/useLiveCandles', () => ({
+  useLiveCandles: () => {},
 }))
 
 vi.mock('@/components/Chart/CandlestickSeries', () => ({
@@ -124,6 +129,8 @@ describe('ChartContainer', () => {
       replayMode: false,
     })
     useIndicatorStore.setState({
+      byPane: { main: [] },
+      editingPaneId: 'main',
       active: [],
       settingsInstanceId: null,
     })
@@ -137,18 +144,21 @@ describe('ChartContainer', () => {
     const initialFitKey = capturedFitKeys.at(-1)
 
     act(() => {
+      const active = [
+        {
+          instanceId: 'ema-20',
+          groupInstanceId: 'ema-20-group',
+          key: 'EMA',
+          params: { period: 20 },
+          pane: 'overlay' as const,
+          seriesId: 'EMA_20',
+          visible: true,
+        },
+      ]
       useIndicatorStore.setState({
-        active: [
-          {
-            instanceId: 'ema-20',
-            groupInstanceId: 'ema-20-group',
-            key: 'EMA',
-            params: { period: 20 },
-            pane: 'overlay',
-            seriesId: 'EMA_20',
-            visible: true,
-          },
-        ],
+        byPane: { main: active },
+        editingPaneId: 'main',
+        active,
       })
     })
 

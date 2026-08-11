@@ -9,6 +9,10 @@ import { defaultBundleSeriesColor } from '@/utils/indicatorDisplay'
 import { indicatorSeriesId } from '@/utils/indicatorId'
 import { useChartLayoutStore } from '@/stores/chartLayoutStore'
 import { MAX_SUB_PANES } from '@/constants/chart'
+import {
+  writeIndicatorCache,
+  type IndicatorCacheV1,
+} from '@/services/indicatorCache'
 
 export type UpdateParamsResult = { ok: true } | { ok: false; error: string }
 export type AddIndicatorResult = { ok: true } | { ok: false; error: string }
@@ -24,6 +28,9 @@ export interface IndicatorSettingsPatch {
   /** Per registry key (e.g. BB_UPPER) within the instance group. */
   seriesStyles?: Record<string, IndicatorAppearance>
 }
+
+const DEFAULT_PANE_ID = 'main'
+let persistTimer: ReturnType<typeof setTimeout> | null = null
 
 function countSubchartInstances(active: ActiveIndicator[]): number {
   const ids = new Set<string>()
@@ -78,9 +85,32 @@ function expandCatalogEntry(
   )
 }
 
+function schedulePersist(byPane: Record<string, ActiveIndicator[]>): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+  }
+  persistTimer = setTimeout(() => {
+    const payload: IndicatorCacheV1 = {
+      version: 1,
+      schema: 'byPane',
+      savedAt: new Date().toISOString(),
+      byPane,
+    }
+    void writeIndicatorCache(payload)
+  }, 400)
+}
+
 interface IndicatorState {
+  /** Per workspace-pane indicator sets (FE-014). */
+  byPane: Record<string, ActiveIndicator[]>
+  /** Pane the IndicatorPanel edits (workspace active pane). */
+  editingPaneId: string
+  /** Convenience mirror of byPane[editingPaneId] for existing callers/tests. */
   active: ActiveIndicator[]
   settingsInstanceId: string | null
+  setEditingPaneId: (paneId: string) => void
+  indicatorsForPane: (paneId: string) => ActiveIndicator[]
+  hydrateFromCache: (cache: IndicatorCacheV1) => void
   addFromCatalog: (
     entry: IndicatorCatalogEntry,
     patch?: IndicatorSettingsPatch,
@@ -97,12 +127,56 @@ interface IndicatorState {
   clear: () => void
 }
 
+function withPaneUpdate(
+  state: IndicatorState,
+  paneId: string,
+  nextForPane: ActiveIndicator[],
+): Partial<IndicatorState> {
+  const byPane = { ...state.byPane, [paneId]: nextForPane }
+  schedulePersist(byPane)
+  return {
+    byPane,
+    active: paneId === state.editingPaneId ? nextForPane : state.active,
+  }
+}
+
 export const useIndicatorStore = create<IndicatorState>((set, get) => ({
+  byPane: { [DEFAULT_PANE_ID]: [] },
+  editingPaneId: DEFAULT_PANE_ID,
   active: [],
   settingsInstanceId: null,
 
+  setEditingPaneId: (paneId) => {
+    const state = get()
+    const active = state.byPane[paneId] ?? []
+    set({
+      editingPaneId: paneId,
+      active,
+      byPane: state.byPane[paneId] ? state.byPane : { ...state.byPane, [paneId]: [] },
+    })
+  },
+
+  indicatorsForPane: (paneId) => get().byPane[paneId] ?? [],
+
+  hydrateFromCache: (cache) => {
+    let byPane: Record<string, ActiveIndicator[]> = { [DEFAULT_PANE_ID]: [] }
+    if (cache.schema === 'byPane' && cache.byPane) {
+      byPane = { ...byPane, ...cache.byPane }
+    } else if (cache.active) {
+      byPane = { [DEFAULT_PANE_ID]: cache.active }
+    }
+    const editingPaneId = get().editingPaneId
+    set({
+      byPane,
+      active: byPane[editingPaneId] ?? byPane[DEFAULT_PANE_ID] ?? [],
+    })
+  },
+
   addFromCatalog: (entry, patch) => {
-    if (entry.pane === 'subchart' && countSubchartInstances(get().active) >= MAX_SUB_PANES) {
+    const state = get()
+    const paneId = state.editingPaneId
+    const current = state.byPane[paneId] ?? []
+    if (entry.pane === 'subchart' && countSubchartInstances(current) >= MAX_SUB_PANES) {
       return {
         ok: false,
         error: `Maximum ${MAX_SUB_PANES} sub-chart panes allowed. Remove one to add another.`,
@@ -111,7 +185,8 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
 
     const toAdd = expandCatalogEntry(entry, patch ?? {})
     const groupInstanceId = toAdd[0]?.groupInstanceId
-    set((state) => ({ active: [...state.active, ...toAdd] }))
+    const next = [...current, ...toAdd]
+    set(withPaneUpdate(state, paneId, next))
     if (entry.pane === 'subchart' && groupInstanceId) {
       useChartLayoutStore.getState().initSubPane(groupInstanceId)
     }
@@ -120,34 +195,36 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
 
   remove: (instanceId) => {
     set((state) => {
-      const target = state.active.find((item) => item.instanceId === instanceId)
+      const paneId = state.editingPaneId
+      const current = state.byPane[paneId] ?? []
+      const target = current.find((item) => item.instanceId === instanceId)
       if (!target) {
         return state
       }
 
       const { groupInstanceId } = target
       useChartLayoutStore.getState().removeSubPane(groupInstanceId)
-      return {
-        active: state.active.filter((item) => item.groupInstanceId !== groupInstanceId),
-      }
+      const next = current.filter((item) => item.groupInstanceId !== groupInstanceId)
+      return withPaneUpdate(state, paneId, next)
     })
   },
 
   toggleVisible: (instanceId) => {
     set((state) => {
-      const target = state.active.find((item) => item.instanceId === instanceId)
+      const paneId = state.editingPaneId
+      const current = state.byPane[paneId] ?? []
+      const target = current.find((item) => item.instanceId === instanceId)
       if (!target) {
         return state
       }
       const { groupInstanceId } = target
-      const members = state.active.filter((item) => item.groupInstanceId === groupInstanceId)
+      const members = current.filter((item) => item.groupInstanceId === groupInstanceId)
       const anyVisible = members.some((item) => item.visible !== false)
       const nextVisible = !anyVisible
-      return {
-        active: state.active.map((item) =>
-          item.groupInstanceId === groupInstanceId ? { ...item, visible: nextVisible } : item,
-        ),
-      }
+      const next = current.map((item) =>
+        item.groupInstanceId === groupInstanceId ? { ...item, visible: nextVisible } : item,
+      )
+      return withPaneUpdate(state, paneId, next)
     })
   },
 
@@ -160,7 +237,9 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
 
   updateIndicatorSettings: (instanceId, patch) => {
     const state = get()
-    const target = state.active.find((item) => item.instanceId === instanceId)
+    const paneId = state.editingPaneId
+    const current = state.byPane[paneId] ?? []
+    const target = current.find((item) => item.instanceId === instanceId)
     if (!target) {
       return { ok: false, error: 'Indicator not found' }
     }
@@ -168,27 +247,37 @@ export const useIndicatorStore = create<IndicatorState>((set, get) => ({
     const { groupInstanceId } = target
     const nextParams = patch.params ?? target.params
 
-    set({
-      active: state.active.map((item) => {
-        if (item.groupInstanceId !== groupInstanceId) {
-          return item
-        }
-        const seriesStyle = patch.seriesStyles?.[item.key]
-        return {
-          ...item,
-          params: { ...nextParams },
-          seriesId: indicatorSeriesId(item.key, nextParams),
-          color: seriesStyle?.color !== undefined ? seriesStyle.color : item.color,
-          lineWidth:
-            seriesStyle?.lineWidth !== undefined ? seriesStyle.lineWidth : item.lineWidth,
-          visible:
-            seriesStyle?.visible !== undefined ? seriesStyle.visible : item.visible,
-        }
-      }),
+    const next = current.map((item) => {
+      if (item.groupInstanceId !== groupInstanceId) {
+        return item
+      }
+      const seriesStyle = patch.seriesStyles?.[item.key]
+      return {
+        ...item,
+        params: { ...nextParams },
+        seriesId: indicatorSeriesId(item.key, nextParams),
+        color: seriesStyle?.color !== undefined ? seriesStyle.color : item.color,
+        lineWidth:
+          seriesStyle?.lineWidth !== undefined ? seriesStyle.lineWidth : item.lineWidth,
+        visible:
+          seriesStyle?.visible !== undefined ? seriesStyle.visible : item.visible,
+      }
     })
+    set(withPaneUpdate(state, paneId, next))
 
     return { ok: true }
   },
 
-  clear: () => set({ active: [], settingsInstanceId: null }),
+  clear: () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    set({
+      byPane: { [DEFAULT_PANE_ID]: [] },
+      editingPaneId: DEFAULT_PANE_ID,
+      active: [],
+      settingsInstanceId: null,
+    })
+  },
 }))

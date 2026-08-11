@@ -9,8 +9,8 @@ export interface ChartChunkPayload {
 /**
  * In-memory windowed candle + indicator buffer (D-82).
  *
- * Chunks are keyed by request `start` time. Scroll-back prepends overlap at chunk
- * boundaries, so assembly dedupes by bar timestamp before handing data to lw-charts.
+ * Chunks are keyed by returned data `start` (first bar time). Prefetch guards
+ * use coverage checks so request `priorStart` ≠ response `start` does not thrash.
  */
 export class ChunkManager {
   private readonly candleChunks = new Map<number, OHLCVBar[]>()
@@ -23,6 +23,21 @@ export class ChunkManager {
 
   hasChunk(chunkStart: number): boolean {
     return this.candleChunks.has(chunkStart)
+  }
+
+  /** True if any stored chunk overlaps the requested [start, end] window. */
+  hasCoverage(start: number, end: number): boolean {
+    for (const bars of this.candleChunks.values()) {
+      if (bars.length === 0) {
+        continue
+      }
+      const chunkStart = bars[0]!.time
+      const chunkEnd = bars[bars.length - 1]!.time
+      if (chunkStart <= end && chunkEnd >= start) {
+        return true
+      }
+    }
+    return false
   }
 
   addChunk(chunkStart: number, payload: ChartChunkPayload): void {
@@ -65,6 +80,42 @@ export class ChunkManager {
   getEarliestTime(): number | null {
     const assembled = this.getAssembledCandles()
     return assembled[0]?.time ?? null
+  }
+
+  /** Upsert a live bar into the newest chunk (or create a live chunk). */
+  upsertLiveBar(bar: OHLCVBar): void {
+    let targetStart: number | null = null
+    let latestEnd = -Infinity
+    for (const [chunkStart, bars] of this.candleChunks.entries()) {
+      const end = bars[bars.length - 1]?.time ?? chunkStart
+      if (end >= latestEnd) {
+        latestEnd = end
+        targetStart = chunkStart
+      }
+    }
+
+    if (targetStart == null) {
+      this.candleChunks.set(bar.time, [bar])
+      this.indicatorChunks.set(bar.time, {})
+      return
+    }
+
+    const bars = [...(this.candleChunks.get(targetStart) ?? [])]
+    const last = bars[bars.length - 1]
+    if (last && last.time === bar.time) {
+      bars[bars.length - 1] = bar
+    } else if (!last || bar.time > last.time) {
+      bars.push(bar)
+    } else {
+      const idx = bars.findIndex((b) => b.time === bar.time)
+      if (idx >= 0) {
+        bars[idx] = bar
+      } else {
+        bars.push(bar)
+        bars.sort((a, b) => a.time - b.time)
+      }
+    }
+    this.candleChunks.set(targetStart, bars)
   }
 
   /** Drop chunks that fall outside the look-back window to bound memory use. */

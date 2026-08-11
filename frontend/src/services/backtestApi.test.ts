@@ -35,6 +35,49 @@ describe('backtestApi normalize', () => {
     expect(run.runId).toBe('abc')
     expect(run.metrics.tradeCount).toBe(3)
     expect(run.metrics.totalReturn).toBe(0.1)
+    expect(run.equity).toEqual([])
+    expect(run.signals).toEqual([])
+    expect(run.trades).toEqual([])
+  })
+
+  it('keeps equity/signals/trades from run payloads', () => {
+    const run = normalizeBacktestRun({
+      run_id: 'abc',
+      symbol: 'BTC/USDT',
+      timeframe: '1d',
+      start: 1,
+      end: 2,
+      metrics: {
+        total_return: 0,
+        win_rate: 0,
+        max_drawdown: 0,
+        trade_count: 0,
+        forced_close: false,
+        final_capital: 0,
+        initial_capital: 0,
+      },
+      created_at: '2026-01-01T00:00:00Z',
+      equity: [{ time: 1, equity: 100 }],
+      signals: [{ time: 1, side: 'buy', price: 10 }],
+      trades: [
+        {
+          entry_time: 1,
+          exit_time: 2,
+          entry_price: 10,
+          exit_price: 11,
+          side: 'long',
+          exit_reason: 'signal',
+          forced_close: false,
+          return_pct: 10,
+          size: 1,
+          commission_paid: 0,
+          pnl_quote: 1,
+        },
+      ],
+    })
+    expect(run.equity).toEqual([{ time: 1, equity: 100 }])
+    expect(run.signals[0]?.side).toBe('buy')
+    expect(run.trades).toHaveLength(1)
   })
 
   it('normalizes trade detail rows', () => {

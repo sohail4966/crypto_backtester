@@ -1,4 +1,3 @@
-import { useLocation } from 'react-router-dom'
 import { ReplaySessionProvider } from '@/components/Replay/ReplaySessionContext'
 import { useReplayIndicatorSync } from '@/hooks/useReplayIndicatorSync'
 import { useReplayKeyboard } from '@/hooks/useReplayKeyboard'
@@ -8,7 +7,11 @@ import { useReplayWs } from '@/hooks/useReplayWs'
 import { useReplayStore } from '@/stores/replayStore'
 import type { ReactNode } from 'react'
 
-function ReplayHooks({ children }: { children: ReactNode }) {
+/**
+ * Always-mounted replay session + WS (FE-008). Chart chrome stays route-aware
+ * elsewhere; navigating to /backtest no longer tears down the socket.
+ */
+export function ReplayRoot({ children }: { children: ReactNode }) {
   const session = useReplaySession()
 
   useReplayWs({
@@ -31,13 +34,4 @@ function ReplayHooks({ children }: { children: ReactNode }) {
   return (
     <ReplaySessionProvider value={session}>{children}</ReplaySessionProvider>
   )
-}
-
-/** Provides replay session API + hooks for chart route (topbar toggle + chart page). */
-export function ReplayRoot({ children }: { children: ReactNode }) {
-  const location = useLocation()
-  if (location.pathname !== '/') {
-    return <>{children}</>
-  }
-  return <ReplayHooks>{children}</ReplayHooks>
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import {
   REPLAY_BUFFER_UI_TIMEOUT_MS,
 } from '@/constants/replay'
+import { notifyAuthFailure } from '@/services/authSession'
 import { ReplayWsClient } from '@/services/replayWsClient'
 import { useReplayStore } from '@/stores/replayStore'
 import { useToast } from '@/components/ui/Toast'
@@ -140,19 +141,32 @@ export function useReplayWs({
 
     client.connect(wsUrl, {
       onOpen: () => {
-        useReplayStore.getState().setConnection('open')
+        const store = useReplayStore.getState()
+        store.setConnection('open')
+        if (client.consumePendingPlay()) {
+          store.setPhase('playing')
+        }
       },
       onEvent: handleEvent,
       onClose: ({ kind }) => {
         clearBufferTimer()
         const store = useReplayStore.getState()
         store.clearExpectImmediateTicks()
-        if (kind === 'superseded') {
+        if (kind === 'unauthorized') {
+          client.clearQueue()
+          store.setConnection('red', 'unauthorized')
+          store.setPhase('paused')
+          store.setError('Authentication required')
+          showToast('Session expired — sign in again')
+          notifyAuthFailure('UNAUTHORIZED')
+        } else if (kind === 'superseded') {
+          client.clearQueue()
           store.setConnection('amber', 'superseded')
           store.setPhase('paused')
           showToast('Opened in another tab')
           onSuperseded?.()
         } else if (kind === 'not_found') {
+          client.clearQueue()
           store.setConnection('amber', 'not_found')
           showToast('Replay session not found — pick a bar to start again')
           onNotFound?.()

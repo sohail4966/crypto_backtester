@@ -7,6 +7,7 @@ import { useChartStore } from '@/stores/chartStore'
 import { useIndicatorStore } from '@/stores/indicatorStore'
 import type { ActiveIndicator, IndicatorSeriesMap } from '@/types/indicator'
 import type { OHLCVBar } from '@/types/candle'
+import type { Symbol } from '@/types/symbol'
 import { formatChange, formatPrice, formatVolume } from '@/utils/format'
 import {
   createIndicatorValueLookup,
@@ -25,6 +26,9 @@ interface ChartLegendProps {
   theme: Theme
   overlayIndicators?: ActiveIndicator[]
   indicators?: IndicatorSeriesMap
+  /** Pane-resolved labels (FE-012); falls back to chartStore when omitted. */
+  symbol?: Symbol | null
+  timeframe?: string
 }
 
 function barFromCrosshair(
@@ -44,10 +48,14 @@ export function ChartLegend({
   theme,
   overlayIndicators = [],
   indicators = {},
+  symbol: symbolProp,
+  timeframe: timeframeProp,
 }: ChartLegendProps) {
   const { chart, candleSeries } = useChartContext()
-  const symbol = useChartStore((state) => state.symbol)
-  const timeframe = useChartStore((state) => state.timeframe)
+  const storeSymbol = useChartStore((state) => state.symbol)
+  const storeTimeframe = useChartStore((state) => state.timeframe)
+  const symbol = symbolProp !== undefined ? symbolProp : storeSymbol
+  const timeframe = timeframeProp !== undefined ? timeframeProp : storeTimeframe
   const showVolume = useChartStore((state) => state.showVolume)
   const setShowVolume = useChartStore((state) => state.setShowVolume)
   const toggleVisible = useIndicatorStore((state) => state.toggleVisible)

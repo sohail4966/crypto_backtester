@@ -9,6 +9,9 @@ export interface ChartDataRequest {
   end: number
   limit?: number
   indicators?: IndicatorSpec[]
+  includeSignals?: boolean
+  includeTrades?: boolean
+  runId?: string
 }
 
 export interface ChartDataResponse {
@@ -21,4 +24,7 @@ export interface ChartDataResponse {
   signals: unknown[]
   trades: unknown[]
   nextStart?: number | null
+  /** BE empty-window contract (FE-011): ranged request had no bars. */
+  empty?: boolean
+  filledFromLatest?: boolean
 }

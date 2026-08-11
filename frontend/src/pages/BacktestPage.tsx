@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
+import { EquitySparkline } from '@/components/Backtest/EquitySparkline'
 import {
   dateInputToUnix,
   getBacktestTrades,
@@ -7,9 +9,10 @@ import {
   runBacktest,
 } from '@/services/backtestApi'
 import { ApiError } from '@/services/api'
+import { TIMEFRAME_OPTIONS, type ChartTimeframe } from '@/constants/chart'
+import { useBacktestOverlayStore } from '@/stores/backtestOverlayStore'
+import { useChartStore } from '@/stores/chartStore'
 import type { BacktestRun, StrategyInfo, TradeDetail } from '@/types/backtest'
-
-const TIMEFRAMES = ['1h', '4h', '1d', '5m', '15m'] as const
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(2)}%`
@@ -55,6 +58,7 @@ export function BacktestPage() {
     setLoading(true)
     setRun(null)
     setTrades([])
+    useBacktestOverlayStore.getState().clear()
     try {
       const result = await runBacktest({
         symbol: symbol.trim(),
@@ -65,8 +69,23 @@ export function BacktestPage() {
         strategyName,
       })
       setRun(result)
-      const detail = await getBacktestTrades(result.runId)
+      const detail =
+        result.trades.length > 0
+          ? result.trades
+          : await getBacktestTrades(result.runId)
       setTrades(detail)
+      useBacktestOverlayStore.getState().setFromRun({
+        runId: result.runId,
+        symbol: result.symbol,
+        timeframe: result.timeframe,
+        signals: result.signals,
+        trades: detail,
+      })
+      // Align chart pane with the run so markers show when navigating back.
+      const chart = useChartStore.getState()
+      if (TIMEFRAME_OPTIONS.includes(result.timeframe as ChartTimeframe)) {
+        chart.setTimeframe(result.timeframe as ChartTimeframe)
+      }
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         setError(err.message)
@@ -83,8 +102,9 @@ export function BacktestPage() {
       <header className="space-y-1">
         <h1 className="text-xl font-semibold text-text">Backtest</h1>
         <p className="text-sm text-text-secondary">
-          Run a named strategy via the Phase 4d HTTP API. Chart overlays on the live
-          chart page are deferred — use this page for metrics and trade log.
+          Run a named strategy via the HTTP API. Equity, signals, and trades from the
+          run response are shown below. Selecting a run also places trade/signal
+          markers on the chart when you return to the chart view.
         </p>
       </header>
 
@@ -109,7 +129,7 @@ export function BacktestPage() {
             onChange={(e) => setTimeframe(e.target.value)}
             className="rounded border border-border bg-bg px-2 py-1.5 text-sm text-text outline-none ring-accent focus:ring-1"
           >
-            {TIMEFRAMES.map((tf) => (
+            {TIMEFRAME_OPTIONS.map((tf) => (
               <option key={tf} value={tf}>
                 {tf}
               </option>
@@ -188,6 +208,12 @@ export function BacktestPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
             Results · {run.runId.slice(0, 8)}…
           </h2>
+          <p className="text-xs text-text-secondary">
+            Markers ready for {run.symbol} · {run.timeframe}.{' '}
+            <Link to="/" className="text-accent underline-offset-2 hover:underline">
+              Open chart
+            </Link>
+          </p>
           <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-text-secondary">Trades</dt>
@@ -218,6 +244,19 @@ export function BacktestPage() {
               </dd>
             </div>
           </dl>
+
+          <div className="space-y-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+              Equity
+            </h3>
+            <EquitySparkline points={run.equity} />
+          </div>
+
+          {run.signals.length > 0 ? (
+            <p className="text-xs text-text-secondary">
+              {run.signals.length} signal(s) will appear as markers on the chart.
+            </p>
+          ) : null}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-left text-xs">

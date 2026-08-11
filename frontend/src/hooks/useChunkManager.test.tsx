@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChunkManager } from '@/hooks/useChunkManager'
 import { fetchChartData, resolveCandleDataRange } from '@/services/chartDataAdapter'
+import { ChunkManager } from '@/services/chunkManager'
 import type { ChartDataRequest, ChartDataResponse } from '@/types/chartData'
 import type { OHLCVBar } from '@/types/candle'
 
@@ -141,5 +142,84 @@ describe('useChunkManager', () => {
     })
 
     expect(result.current.candles.map((item) => item.close)).toEqual([200, 201])
+  })
+
+  it('guards prefetch with hasCoverage, not hasChunk (FE-010)', async () => {
+    const hasChunkSpy = vi.spyOn(ChunkManager.prototype, 'hasChunk')
+    const hasCoverageSpy = vi.spyOn(ChunkManager.prototype, 'hasCoverage')
+
+    mockedFetchChartData.mockImplementation((request) =>
+      Promise.resolve(
+        chartResponse(request, [
+          bar(request.start, 100),
+          bar(request.end, 101),
+        ]),
+      ),
+    )
+
+    try {
+      const { result } = renderHook(() => useChunkManager('BTC/USDT', '1m', []), {
+        wrapper,
+      })
+
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      hasChunkSpy.mockClear()
+      hasCoverageSpy.mockClear()
+
+      act(() => {
+        result.current.onVisibleRangeChange(logicalRange(150, 250))
+        result.current.onVisibleRangeChange(logicalRange(50, 150))
+      })
+
+      await waitFor(() => expect(hasCoverageSpy).toHaveBeenCalled())
+      expect(hasChunkSpy).not.toHaveBeenCalled()
+    } finally {
+      hasChunkSpy.mockRestore()
+      hasCoverageSpy.mockRestore()
+    }
+  })
+
+  it('skips ingest and stops prefetch on ranged fallback/empty (FE-011)', async () => {
+    let prefetchCount = 0
+
+    mockedFetchChartData.mockImplementation((request) => {
+      // Prefetch prior window for this fixture requests start=0 (see existing stale test).
+      if (request.start === 0) {
+        prefetchCount += 1
+        return Promise.resolve({
+          ...chartResponse(request, []),
+          empty: true,
+          candles: [],
+        })
+      }
+      return Promise.resolve(
+        chartResponse(request, [
+          bar(request.start, 100),
+          bar(request.end, 101),
+        ]),
+      )
+    })
+
+    const { result } = renderHook(() => useChunkManager('BTC/USDT', '1m', []), {
+      wrapper,
+    })
+
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const before = result.current.candles.map((c) => c.time)
+
+    act(() => {
+      result.current.onVisibleRangeChange(logicalRange(150, 250))
+      result.current.onVisibleRangeChange(logicalRange(50, 150))
+    })
+
+    await waitFor(() => expect(prefetchCount).toBe(1))
+    expect(result.current.candles.map((c) => c.time)).toEqual(before)
+
+    act(() => {
+      result.current.onVisibleRangeChange(logicalRange(40, 140))
+    })
+
+    // reachedEarliest must prevent a second prior fetch
+    expect(prefetchCount).toBe(1)
   })
 })

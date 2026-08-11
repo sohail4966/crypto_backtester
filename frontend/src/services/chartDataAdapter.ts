@@ -28,6 +28,16 @@ function buildChartDataQuery(request: ChartDataRequest): string {
     params.set('indicators', serializeIndicatorSpecs(request.indicators))
   }
 
+  if (request.includeSignals) {
+    params.set('includeSignals', 'true')
+  }
+  if (request.includeTrades) {
+    params.set('includeTrades', 'true')
+  }
+  if (request.runId) {
+    params.set('runId', request.runId)
+  }
+
   return `/chart-data?${params.toString()}`
 }
 

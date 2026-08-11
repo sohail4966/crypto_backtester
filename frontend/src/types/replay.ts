@@ -21,7 +21,12 @@ export type ReplayConnectionStatus =
   | 'red'
   | 'closed'
 
-export type ReplayConnectionReason = 'superseded' | 'not_found' | 'error' | null
+export type ReplayConnectionReason =
+  | 'unauthorized'
+  | 'superseded'
+  | 'not_found'
+  | 'error'
+  | null
 
 export type ReplaySpeed = 0.5 | 1 | 2 | 5 | 10
 

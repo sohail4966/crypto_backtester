@@ -34,6 +34,10 @@ export function SyncConfigPanel() {
           <p className="mb-2 px-1 text-[11px] uppercase tracking-wide text-text-secondary">
             Sync panes
           </p>
+          <p className="mb-2 px-1 text-[10px] leading-snug text-text-secondary">
+            Visible range only applies across panes that share a symbol unless
+            Symbol sync is on.
+          </p>
           <ul className="flex flex-col gap-1">
             {SYNC_LABELS.map(({ key, label }) => (
               <li key={key}>
