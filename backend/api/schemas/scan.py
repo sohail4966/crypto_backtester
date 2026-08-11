@@ -66,3 +66,4 @@ class ScanRunResponse(BaseModel):
     scanned_pairs: int
     errors: list[ScanErrorResponse] = Field(default_factory=list)
     persisted: bool
+    persist_error: str | None = None

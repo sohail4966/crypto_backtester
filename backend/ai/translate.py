@@ -5,6 +5,7 @@ NL → DSL translation with validation gate (D-113, D-114).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from typing import Any
@@ -16,6 +17,8 @@ from ai.prompt import build_system_prompt, build_user_prompt
 from ai.providers import LLMProvider, get_provider
 from ai.providers.openai_compat import ProviderHTTPError
 from ai.sessions import ClarificationSessionStore, get_session_store
+
+logger = logging.getLogger(__name__)
 from ai.types import (
     ClarificationQuestion,
     TranslateNeedsClarification,
@@ -104,7 +107,12 @@ def apply_clarification(
     session_store = store or get_session_store()
     session = session_store.update_answers(session_id, answers, user_id=user_id)
     if session is None:
-        raise AITranslateError("SESSION_NOT_FOUND", f"Unknown or expired session: {session_id}")
+        # BE-L2-017: do NOT echo the caller-supplied session id in the message.
+        # The generic wording aligns with the ownership-404 anti-enumeration
+        # convention used by scan/backtest/replay. Server logs still record
+        # the id for ops debugging.
+        logger.info("Clarification session not found or expired: %s", session_id)
+        raise AITranslateError("SESSION_NOT_FOUND", "Unknown or expired session")
 
     llm = provider or get_provider()
     system = build_system_prompt()
@@ -160,9 +168,13 @@ def _interpret_envelope(
         if reuse_session_id:
             session = store.get(reuse_session_id, user_id=user_id)
             if session is None:
+                logger.info(
+                    "Clarification reuse session not found or expired: %s",
+                    reuse_session_id,
+                )
                 raise AITranslateError(
                     "SESSION_NOT_FOUND",
-                    f"Unknown or expired session: {reuse_session_id}",
+                    "Unknown or expired session",
                 )
             session.questions = question_dicts
             session.updated_at = time.time()

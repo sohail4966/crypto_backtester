@@ -84,6 +84,9 @@ def test_empty_text_raises(provider: MockLLMProvider, store: ClarificationSessio
 
 def test_unknown_session_raises(provider: MockLLMProvider, store: ClarificationSessionStore) -> None:
     """Clarify on a missing session returns SESSION_NOT_FOUND."""
+    caller_supplied = "definitely-not-a-real-session-id-abc123"
     with pytest.raises(AITranslateError) as exc_info:
-        apply_clarification("missing", {"a": "b"}, provider=provider, store=store)
+        apply_clarification(caller_supplied, {"a": "b"}, provider=provider, store=store)
     assert exc_info.value.code == "SESSION_NOT_FOUND"
+    # BE-L2-017: caller-supplied id must not leak back through the message.
+    assert caller_supplied not in exc_info.value.message

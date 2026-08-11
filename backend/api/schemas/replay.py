@@ -14,10 +14,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.schemas.indicators import IndicatorSpec
 
+__all__ = [
+    "ReplaySessionCreate",
+    "ReplaySessionResponse",
+    "ReplayStateResponse",
+    "ReplayWsCommand",
+    "ReplayTickPayload",
+    "ReplayTickBatchEvent",
+]
+
 
 class ReplaySessionCreate(BaseModel):
     """
     Request body for ``POST /api/v1/replay/sessions``.
+
+    Ownership is always derived from the JWT subject (BE-006 / G-004). Clients
+    must NOT pass a ``user_id``; the previous compatibility field was removed
+    in BE-L2-006 to close the attribution-forgery gap.
 
     Attributes:
         symbol: Trading pair (must exist in ``app.symbols``).
@@ -27,8 +40,9 @@ class ReplaySessionCreate(BaseModel):
         step_timeframe: Bar step resolution; defaults to ``timeframe``.
         speed: Initial playback speed (1× = 1 bar/sec on client).
         autoplay: Send first ``tick_batch`` on WebSocket connect.
-        user_id: Optional; logging only until auth (Phase 11).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     symbol: str
     timeframe: str
@@ -37,7 +51,6 @@ class ReplaySessionCreate(BaseModel):
     step_timeframe: str | None = None
     speed: float = Field(default=1.0, gt=0)
     autoplay: bool = False
-    user_id: UUID | None = None
 
 
 class ReplaySessionResponse(BaseModel):

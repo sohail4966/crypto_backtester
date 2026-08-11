@@ -4,6 +4,7 @@ Screener HTTP orchestration (Phase 8).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -11,6 +12,8 @@ import psycopg
 
 from api import settings
 from api.exceptions import NotFoundError, ValidationError
+
+logger = logging.getLogger(__name__)
 from api.repositories.scan_repository import ScanRepository, ScanRunRow
 from api.repositories.symbol_repository import SymbolRepository
 from api.schemas.scan import (
@@ -148,6 +151,7 @@ class ScanService:
 
         scan_id = None
         persisted = False
+        persist_error: str | None = None
         if body.persist:
             candidate_id = uuid4()
             try:
@@ -169,9 +173,16 @@ class ScanService:
                 scan_id = candidate_id
                 persisted = True
             except Exception:
-                # Honest persistence flag (BE-001) — still return compute results.
+                # Honest persistence flag (BE-001) — still return compute
+                # results, but surface the failure in logs + envelope so ops
+                # can distinguish infra failure from ``persist=False``
+                # (BE-L2-014).
+                logger.exception(
+                    "Scan persist failed for candidate_id=%s", candidate_id
+                )
                 scan_id = None
                 persisted = False
+                persist_error = "PERSIST_FAILED"
 
         return ScanRunResponse(
             scan_id=scan_id,
@@ -186,4 +197,5 @@ class ScanService:
             scanned_pairs=result.scanned_pairs,
             errors=errors,
             persisted=persisted,
+            persist_error=persist_error,
         )

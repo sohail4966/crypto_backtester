@@ -9,11 +9,18 @@ info:
 
     **Base path (REST):** `/api/v1`
 
-    **Authentication (Phase 11):** Bearer JWT for user/watchlist ownership.
-    Public: health, symbols, candles, chart-data, indicators, scan, backtest,
-    replay, live WS, `POST /users`, `GET /users/{id}`, `/auth/*`, `/ai/*`.
-    Protected: `GET /users` (list), user PATCH/DELETE, all watchlist routes
-    (`Authorization: Bearer <token>`; JWT `sub` must match path `user_id`).
+    **Authentication (Phase 11):** Bearer JWT enforced on every ownership-scoped
+    route; `Authorization: Bearer <token>` (JWT `sub` must match the path `user_id`
+    where applicable).
+
+    Public: `meta/health`, `meta/timeframes`, `symbols/*`, `candles/*`, `indicators*`,
+    `chart-data` (candle window; JWT still required when `runId` is set, see
+    G-004 / BE-L2-007), and `auth/register` + `auth/login`.
+
+    Protected (`security: [{ bearerAuth: [] }]`): `auth/me`, `users/*` (list is
+    410 Gone; create is 410 Gone — use `/auth/register`), watchlists, `replay/*`,
+    `backtest/*`, `scan` (POST + GET), `ai/*`, `ws/tickets`, and both WebSocket
+    handshakes (`/ws/replay/{session_id}`, `/ws/live`).
 
     **Timestamps:** Candle `time`, replay `start`/`end`/`cursor`, backtest
     windows, scan windows, and indicator `from`/`to` use **Unix seconds UTC**.
@@ -54,9 +61,11 @@ tags:
   - name: scan
     description: Multi-symbol / multi-TF screener scans (Phase 8)
   - name: ai
-    description: Natural language → Trading DSL translation (Phase 10; public)
-  - name: ai
-    description: NL → DSL translate / clarify / explain (Phase 10; public in v1)
+    description: >
+      NL → DSL translate / clarify / explain (Phase 10; JWT required —
+      per-user AI RPM limiter enforced via BE-004 / BE-L2-009).
+  - name: ws-tickets
+    description: Short-lived one-shot WebSocket ticket issuance (BE-for-FE-L2-003).
 
 paths:
   /api/v1/meta/health:
@@ -189,7 +198,16 @@ paths:
         Default limit 500 bars (max 5000). Signals/trades are populated when
         `runId` references a persisted backtest run and include flags are true;
         otherwise empty arrays.
+
+
+        Candle windows are public. When `runId` is set the caller MUST send a
+        valid JWT — the resolved subject must own the run (G-004 / BE-L2-007).
+        A missing or invalid token with `runId` present returns 401. A stale or
+        invalid token WITHOUT `runId` is silently ignored (public window).
       operationId: getChartData
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - name: symbolId
           in: query
@@ -252,6 +270,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ChartDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -346,6 +368,8 @@ paths:
     post:
       tags: [auth]
       summary: Register with password
+      description: >
+        Public endpoint; per-IP and per-email limiter enforced (BE-L2-010).
       operationId: authRegister
       requestBody:
         required: true
@@ -362,6 +386,8 @@ paths:
                 $ref: "#/components/schemas/AuthTokenResponse"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /api/v1/auth/login:
     post:
@@ -388,61 +414,81 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Current authenticated user (JWT bootstrap)
+      operationId: authMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Authenticated user (no password hash)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/users:
     post:
       tags: [users]
-      summary: Create user
+      summary: Create user (removed)
+      description: >
+        Removed (BE-L2-019). Use `POST /auth/register` which returns a JWT and
+        provisions the default watchlist in the same transaction.
       operationId: createUser
+      deprecated: true
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/UserCreate"
       responses:
-        "201":
-          description: Created user (includes default watchlist)
+        "410":
+          description: Endpoint removed; use `POST /auth/register`
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
-        "422":
-          $ref: "#/components/responses/ValidationError"
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                gone:
+                  value:
+                    error:
+                      code: GONE
+                      message: "POST /users is disabled; use POST /auth/register"
     get:
       tags: [users]
-      summary: List users
+      summary: List users (removed)
+      description: >
+        Removed (BE-016). Use `GET /auth/me` for the authenticated user.
       operationId: listUsers
+      deprecated: true
       security:
         - bearerAuth: []
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-            default: 100
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
       responses:
-        "200":
-          description: User list
+        "410":
+          description: Enumeration removed; use `GET /auth/me`
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                gone:
+                  value:
+                    error:
+                      code: GONE
+                      message: "GET /users enumeration is disabled; use GET /auth/me"
 
   /api/v1/users/{user_id}:
     get:
       tags: [users]
-      summary: Get user
+      summary: Get user (owner-only)
       operationId: getUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
@@ -452,12 +498,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     patch:
       tags: [users]
-      summary: Update user
+      summary: Update user (owner-only)
       operationId: updateUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       requestBody:
@@ -473,19 +525,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
     delete:
       tags: [users]
-      summary: Delete user
+      summary: Delete user (owner-only)
       operationId: deleteUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
         "204":
-          description: User and watchlists deleted
+          description: User and cascaded rows deleted (BE-L2-001)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -542,8 +604,10 @@ paths:
   /api/v1/users/{user_id}/watchlists/{watchlist_id}:
     get:
       tags: [watchlists]
-      summary: Get watchlist
+      summary: Get watchlist (owner-only)
       operationId: getWatchlist
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/WatchlistId"
@@ -554,12 +618,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WatchlistResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     patch:
       tags: [watchlists]
-      summary: Update watchlist metadata
+      summary: Update watchlist metadata (owner-only)
       operationId: updateWatchlist
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/WatchlistId"
@@ -576,26 +646,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WatchlistResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       tags: [watchlists]
-      summary: Delete watchlist
+      summary: Delete watchlist (owner-only)
       operationId: deleteWatchlist
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/WatchlistId"
       responses:
         "204":
           description: Watchlist deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
   /api/v1/users/{user_id}/watchlists/{watchlist_id}/symbols:
     put:
       tags: [watchlists]
-      summary: Replace watchlist symbols
+      summary: Replace watchlist symbols (owner-only)
       operationId: replaceWatchlistSymbols
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/WatchlistId"
@@ -612,6 +694,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WatchlistResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -636,10 +722,12 @@ paths:
       tags: [backtest]
       summary: Run a backtest
       description: >
-        Synchronously execute the Phase 3 backtest engine and persist the run.
-        Provide exactly one of `strategy_name` or inline `strategy`. Does not
-        write equity PNG or trades CSV.
+        Synchronously execute the Phase 3 backtest engine and persist the run
+        against the JWT subject. Provide exactly one of `strategy_name` or
+        inline `strategy`. Does not write equity PNG or trades CSV.
       operationId: createBacktest
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -653,6 +741,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BacktestRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -661,8 +751,10 @@ paths:
   /api/v1/backtest/{run_id}:
     get:
       tags: [backtest]
-      summary: Get backtest run
+      summary: Get backtest run (owner-only)
       operationId: getBacktest
+      security:
+        - bearerAuth: []
       parameters:
         - name: run_id
           in: path
@@ -677,14 +769,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BacktestRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
 
   /api/v1/backtest/{run_id}/trades:
     get:
       tags: [backtest]
-      summary: Get backtest trade log
+      summary: Get backtest trade log (owner-only)
       operationId: getBacktestTrades
+      security:
+        - bearerAuth: []
       parameters:
         - name: run_id
           in: path
@@ -699,6 +795,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BacktestTradesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -712,6 +810,8 @@ paths:
         to `app.scan_runs` when `persist` is true (default). Alert delivery is
         console/log only (email/webhook deferred).
       operationId: createScan
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -725,8 +825,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/ValidationError"
+
+  /api/v1/scan/{scan_id}:
+    get:
+      tags: [scan]
+      summary: Get persisted scan run (owner-only)
+      operationId: getScan
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scan_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Persisted scan run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/ai/translate:
     post:
@@ -734,8 +862,11 @@ paths:
       summary: Translate natural language into a Trading DSL strategy
       description: >
         LLM returns a validated Phase 9 strategy JSON, or `needs_clarification`
-        with questions when the request is ambiguous (D-112–D-114). Public in v1.
+        with questions when the request is ambiguous (D-112–D-114). Per-user
+        AI RPM limiter enforced.
       operationId: aiTranslate
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -751,8 +882,12 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/AiTranslateOkResponse"
                   - $ref: "#/components/schemas/AiTranslateClarifyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "502":
           description: Upstream LLM provider failure
           content:
@@ -765,6 +900,8 @@ paths:
       tags: [ai]
       summary: Answer clarification questions and continue translation
       operationId: aiClarify
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -780,10 +917,14 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/AiTranslateOkResponse"
                   - $ref: "#/components/schemas/AiTranslateClarifyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /api/v1/ai/explain:
     post:
@@ -791,6 +932,8 @@ paths:
       summary: Explain a DSL strategy in plain English
       description: Template walk of the condition tree (no LLM required).
       operationId: aiExplain
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -804,6 +947,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiExplainResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/ValidationError"
 
@@ -812,6 +957,8 @@ paths:
       tags: [replay]
       summary: Create replay session
       operationId: createReplaySession
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -825,6 +972,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReplaySessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -833,8 +982,10 @@ paths:
   /api/v1/replay/sessions/{session_id}:
     get:
       tags: [replay]
-      summary: Get replay session state
+      summary: Get replay session state (owner-only)
       operationId: getReplaySession
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
@@ -844,27 +995,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReplayStateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       tags: [replay]
-      summary: Delete replay session
+      summary: Delete replay session (owner-only)
       operationId: deleteReplaySession
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
         "204":
           description: Session torn down
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/ws/tickets:
+    post:
+      tags: [ws-tickets]
+      summary: Issue a short-lived WebSocket ticket (BE-for-FE-L2-003)
+      description: >
+        Trade a long-lived JWT for a one-shot opaque ticket usable as the
+        `?ticket=<value>` query on `/ws/replay/{session_id}` or `/ws/live`.
+
+
+        Tickets are single-use, per-user, and expire after `expires_in` seconds
+        (default 60). This keeps JWTs out of WebSocket URLs (which leak into
+        DevTools/HAR/history) and shrinks the exposure window on `localStorage`
+        residue. Legacy `?token=<jwt>` handshake support remains until FE-L2-003
+        rollout completes (see WebSocket sections below).
+      operationId: createWsTicket
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: One-shot WebSocket ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WsTicketResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
 # WebSocket APIs (OpenAPI has no native WS paths — documented here)
 x-websocket:
   replay:
     path: /ws/replay/{session_id}
+    security:
+      - bearerAuth: []
     description: |
       WebSocket v2 bar replay. Create an open-ended session via `POST /api/v1/replay/sessions`,
       then connect to the returned `ws_url`.
+
+      **Handshake auth (BE-for-FE-L2-003):**
+        - Preferred: `?ticket=<opaque>` — one-shot ticket from `POST /api/v1/ws/tickets`.
+        - Legacy: `?token=<jwt>` **or** `Authorization: Bearer <jwt>` header
+          (kept for one release window; emits a `logger.warning("ws_bearer_in_url", …)`
+          on use). The JWT `sub` must own the target replay session (G-004 / BE-006).
 
       On connect the server sends `replay_state` then `snapshot`. Client owns the playback
       clock (`intervalMs = max(50, 1000 / speed)`). Server pre-slices `tick_batch` messages;
@@ -872,8 +1066,14 @@ x-websocket:
 
       Sessions persist metadata in Postgres; in-memory buffer rebuilds on reconnect.
 
-      Unknown `session_id` closes the socket with application code **4404** (`REPLAY_NOT_FOUND`)
-      before any replay events. A superseded concurrent connection closes with **4401**.
+      **Application close codes (BE-L2-004):**
+
+      | Code | Reason              | Meaning                                                              | Expected FE action                              |
+      |------|---------------------|----------------------------------------------------------------------|-------------------------------------------------|
+      | 4401 | `UNAUTHORIZED`      | Missing or invalid JWT / ticket                                      | Clear session, show AuthGate                    |
+      | 4402 | `SUPERSEDED`        | The same `session_id` was opened in another tab                      | Amber banner, keep auth                         |
+      | 4404 | `REPLAY_NOT_FOUND`  | Session id unknown, or JWT subject does not own the session          | Route the user to session picker                |
+      | 4429 | `WS_LIMIT`          | Per-user WS concurrency cap reached (BE-L2-009)                      | Distinct "too many connections" toast           |
     parameters:
       - name: session_id
         in: path
@@ -906,11 +1106,28 @@ x-websocket:
 
   live:
     path: /ws/live
+    security:
+      - bearerAuth: []
     description: |
       Live candle tail (Phase 11). Polls TimescaleDB for the latest **closed** candle
       per subscription and pushes a `candle` event when the bar `time` changes.
-      Public in v1 (same trust model as historical candles). Poll interval:
-      `LIVE_WS_POLL_INTERVAL_MS` (default 2000).
+
+      **Handshake auth (BE-004 / BE-L2-005):** JWT required — either
+      `?ticket=<opaque>` from `POST /api/v1/ws/tickets` (preferred; BE-for-FE-L2-003)
+      **or** legacy `?token=<jwt>` / `Authorization: Bearer <jwt>` header. Missing
+      or invalid credentials close the socket immediately with code **4401**.
+
+      **Application close codes:**
+
+      | Code | Reason         | Meaning                                                  | Expected FE action                    |
+      |------|----------------|----------------------------------------------------------|---------------------------------------|
+      | 4401 | `UNAUTHORIZED` | Missing or invalid JWT / ticket                          | Clear session, show AuthGate          |
+      | 4429 | `WS_LIMIT`     | Per-user WS concurrency cap reached (BE-L2-009)          | Distinct "too many connections" toast |
+
+      Poll interval: `LIVE_WS_POLL_INTERVAL_MS` (default 2000ms). The server
+      emits a one-shot `error` frame with code `INVALID_SYMBOL` when a
+      subscribed symbol is unknown to the catalog (BE-L2-002); the DB
+      connection stays healthy (autocommit).
     clientMessages:
       description: JSON text frames sent by the client
       oneOf:
@@ -973,6 +1190,52 @@ components:
         format: uuid
 
   responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missing:
+              value:
+                error:
+                  code: UNAUTHORIZED
+                  message: "Unauthorized"
+            invalid:
+              value:
+                error:
+                  code: INVALID_TOKEN
+                  message: "Invalid or expired token"
+    Forbidden:
+      description: Authenticated user is not the owner of the target resource
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            not_owner:
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: "Cannot access another user's resources"
+    RateLimited:
+      description: Rate limit exceeded (per-user or anonymous limiter)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            ai_rpm:
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: "AI rate limit exceeded (30 requests per minute)"
+            register:
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: "Too many registration attempts"
     NotFound:
       description: Resource not found
       content:
@@ -995,6 +1258,21 @@ components:
                 error:
                   code: REPLAY_NOT_FOUND
                   message: "Unknown replay session: ..."
+            scan:
+              value:
+                error:
+                  code: SCAN_NOT_FOUND
+                  message: "Scan not found"
+            backtest:
+              value:
+                error:
+                  code: BACKTEST_NOT_FOUND
+                  message: "Backtest run not found"
+            ai_session:
+              value:
+                error:
+                  code: SESSION_NOT_FOUND
+                  message: "Unknown or expired session"
     ValidationError:
       description: Validation or business rule failure
       content:
@@ -1444,6 +1722,17 @@ components:
           type: string
         bar:
           $ref: "#/components/schemas/Bar"
+      example:
+        type: candle
+        symbol: BTC/USDT
+        timeframe: 1m
+        bar:
+          time: 1_700_000_000
+          open: 43_500.0
+          high: 43_580.0
+          low: 43_490.0
+          close: 43_560.0
+          volume: 12.5
 
     LiveWsPongEvent:
       type: object
@@ -1592,11 +1881,10 @@ components:
         autoplay:
           type: boolean
           default: false
-        user_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Optional logging only (no auth)
+      description: >
+        `user_id` was removed in BE-L2-006 — the JWT subject owns every
+        session. Sending it is ignored today and may return 422 in a future
+        release.
 
     ReplaySessionResponse:
       type: object
@@ -2031,6 +2319,27 @@ components:
             $ref: "#/components/schemas/ScanErrorResponse"
         persisted:
           type: boolean
+        persist_error:
+          type: string
+          nullable: true
+          description: >
+            Non-null when `persist=true` and the persist step failed
+            (BE-L2-014). Compute results are still returned; caller can
+            distinguish infra failure from an intentional `persist=false`.
+          example: PERSIST_FAILED
+
+    WsTicketResponse:
+      type: object
+      required: [ticket, expires_in]
+      properties:
+        ticket:
+          type: string
+          description: Opaque single-use ticket (128 hex chars from `secrets.token_hex(32)`).
+          example: "3a5f8c7e0b9d2c1a8f4e6d5b3a9c7e0b8f2d1c4a5b6e7f8c9d0a1b2c3d4e5f6a"
+        expires_in:
+          type: integer
+          description: Seconds until the ticket expires (default 60).
+          example: 60
 
     BacktestParamsBody:
       type: object

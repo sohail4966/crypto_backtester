@@ -283,6 +283,58 @@ def test_scan_repository_insert_commits() -> None:
     conn.commit.assert_called_once()
 
 
+@patch("api.services.scan_service.run_scan")
+@patch("api.deps.connect")
+def test_post_scan_persist_failure_reports_persist_error(
+    mock_connect: MagicMock,
+    mock_run_scan: MagicMock,
+    authed_client: TestClient,
+) -> None:
+    """BE-L2-014: repository failure keeps compute results but sets persist_error."""
+    mock_connect.return_value = MagicMock()
+    mock_run_scan.return_value = ScanResult(
+        matches=[
+            ScanMatch(
+                symbol="BTC/USDT",
+                timeframe="1d",
+                bar_ts="2024-01-30T00:00:00+00:00",
+                triggered=True,
+                close=100.0,
+            )
+        ],
+        alert_count=1,
+        duration_ms=3,
+        scanned_pairs=1,
+        condition=CONDITION,
+        alert_trigger="edge",
+        errors=[],
+    )
+
+    with patch(
+        "api.services.scan_service.ScanRepository.insert",
+        side_effect=RuntimeError("db down"),
+    ) as insert_mock:
+        response = authed_client.post(
+            "/api/v1/scan",
+            json={
+                "timeframes": ["1d"],
+                "start": 1704067200,
+                "end": 1706745600,
+                "symbols": ["BTC/USDT"],
+                "condition": CONDITION,
+                "persist": True,
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["persisted"] is False
+    assert body["persist_error"] == "PERSIST_FAILED"
+    assert body["scan_id"] is None
+    assert body["alert_count"] == 1
+    insert_mock.assert_called_once()
+
+
 def test_passwordless_user_create_hard_fails() -> None:
     """G-011: UserRepository.create must not insert null-hash users."""
     from api.repositories.user_repository import UserRepository
