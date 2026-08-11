@@ -1,0 +1,174 @@
+"""Tests for JWT auth (Phase 11)."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+from api.auth import create_access_token, hash_password, verify_password
+from api.repositories.user_repository import UserRow
+from api.repositories.watchlist_repository import WatchlistRow
+
+
+def _user(
+    *,
+    password_hash: str | None = None,
+    email: str = "a@example.com",
+) -> UserRow:
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    return UserRow(
+        id=uuid4(),
+        name="Alice",
+        email=email,
+        password_hash=password_hash,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def test_hash_and_verify_password_roundtrip() -> None:
+    digest = hash_password("secret-pass")
+    assert verify_password("secret-pass", digest)
+    assert not verify_password("wrong", digest)
+    assert not verify_password("secret-pass", None)
+
+
+@patch("api.deps.connect")
+@patch("api.services.auth_service.SymbolService.list_symbols", return_value=[])
+@patch("api.services.auth_service.WatchlistRepository.create")
+@patch("api.services.auth_service.UserRepository.create_with_password")
+def test_register_returns_jwt(
+    mock_create: MagicMock,
+    mock_wl_create: MagicMock,
+    _mock_symbols: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    user = _user(password_hash="x")
+    mock_create.return_value = user
+    mock_wl_create.return_value = WatchlistRow(
+        id=uuid4(),
+        user_id=user.id,
+        name="Default",
+        is_default=True,
+        sort_order=0,
+        created_at=user.created_at,
+    )
+    mock_connect.return_value = MagicMock()
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"name": "Alice", "email": "a@example.com", "password": "secret-pass"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
+    assert body["user_id"] == str(user.id)
+
+
+@patch("api.deps.connect")
+@patch("api.services.auth_service.UserRepository.get_by_email")
+def test_login_ok_and_bad_password(
+    mock_get: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    digest = hash_password("secret-pass")
+    user = _user(password_hash=digest)
+    mock_get.return_value = user
+    mock_connect.return_value = MagicMock()
+
+    ok = client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": "secret-pass"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["access_token"]
+
+    bad = client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": "nope"},
+    )
+    assert bad.status_code == 401
+    assert bad.json()["error"]["code"] == "INVALID_CREDENTIALS"
+
+
+@patch("api.deps.connect")
+@patch("api.services.auth_service.UserRepository.set_password_hash_if_null")
+@patch("api.services.auth_service.UserRepository.get_by_email")
+def test_claim_sets_password_once(
+    mock_get: MagicMock,
+    mock_set: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    user = _user(password_hash=None)
+    claimed = _user(password_hash="hashed", email=user.email)
+    claimed.id = user.id
+    mock_get.return_value = user
+    mock_set.return_value = claimed
+    mock_connect.return_value = MagicMock()
+
+    response = client.post(
+        "/api/v1/auth/claim",
+        json={"email": user.email, "password": "secret-pass"},
+    )
+    assert response.status_code == 200
+    assert response.json()["user_id"] == str(user.id)
+
+    user.password_hash = "already"
+    mock_get.return_value = user
+    again = client.post(
+        "/api/v1/auth/claim",
+        json={"email": user.email, "password": "secret-pass"},
+    )
+    assert again.status_code == 422
+    assert again.json()["error"]["code"] == "PASSWORD_ALREADY_SET"
+
+
+@patch("api.deps.connect")
+@patch("api.deps.UserRepository.get_by_id")
+@patch("api.services.watchlist_service.WatchlistService.list_watchlists", return_value=[])
+def test_watchlist_requires_matching_jwt(
+    _mock_list: MagicMock,
+    mock_get_user: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    owner = _user()
+    other = _user(email="b@example.com")
+    mock_get_user.return_value = owner
+    mock_connect.return_value = MagicMock()
+
+    unauth = client.get(f"/api/v1/users/{owner.id}/watchlists")
+    assert unauth.status_code == 401
+
+    token = create_access_token(user_id=owner.id, email=owner.email)
+    ok = client.get(
+        f"/api/v1/users/{owner.id}/watchlists",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert ok.status_code == 200
+
+    mock_get_user.return_value = other
+    other_token = create_access_token(user_id=other.id, email=other.email)
+    forbidden = client.get(
+        f"/api/v1/users/{owner.id}/watchlists",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert forbidden.status_code == 403
+
+
+@patch("api.deps.connect")
+def test_health_stays_public(mock_connect: MagicMock, client: TestClient) -> None:
+    conn = MagicMock()
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (1,)
+    conn.cursor.return_value.__enter__.return_value = cursor
+    mock_connect.return_value = conn
+    response = client.get("/api/v1/meta/health")
+    assert response.status_code == 200

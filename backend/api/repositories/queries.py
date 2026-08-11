@@ -29,20 +29,32 @@ WHERE symbol = %s
 INSERT_USER = """
 INSERT INTO app.users (name, email)
 VALUES (%s, %s)
-RETURNING id, name, email, created_at, updated_at
+RETURNING id, name, email, password_hash, created_at, updated_at
+"""
+
+INSERT_USER_WITH_PASSWORD = """
+INSERT INTO app.users (name, email, password_hash)
+VALUES (%s, %s, %s)
+RETURNING id, name, email, password_hash, created_at, updated_at
 """
 
 SELECT_USERS = """
-SELECT id, name, email, created_at, updated_at
+SELECT id, name, email, password_hash, created_at, updated_at
 FROM app.users
 ORDER BY created_at ASC
 LIMIT %s OFFSET %s
 """
 
 SELECT_USER_BY_ID = """
-SELECT id, name, email, created_at, updated_at
+SELECT id, name, email, password_hash, created_at, updated_at
 FROM app.users
 WHERE id = %s
+"""
+
+SELECT_USER_BY_EMAIL = """
+SELECT id, name, email, password_hash, created_at, updated_at
+FROM app.users
+WHERE email = %s
 """
 
 UPDATE_USER = """
@@ -51,7 +63,16 @@ SET name = COALESCE(%s, name),
     email = COALESCE(%s, email),
     updated_at = NOW()
 WHERE id = %s
-RETURNING id, name, email, created_at, updated_at
+RETURNING id, name, email, password_hash, created_at, updated_at
+"""
+
+UPDATE_USER_PASSWORD_HASH = """
+UPDATE app.users
+SET password_hash = %s,
+    updated_at = NOW()
+WHERE id = %s
+  AND password_hash IS NULL
+RETURNING id, name, email, password_hash, created_at, updated_at
 """
 
 DELETE_USER = """
@@ -153,4 +174,52 @@ RETURNING session_id, symbol, timeframe, step_timeframe,
 
 DELETE_REPLAY_SESSION = """
 DELETE FROM app.replay_sessions WHERE session_id = %s
+"""
+
+INSERT_BACKTEST_RUN = """
+INSERT INTO app.backtest_runs (
+    run_id, symbol, timeframe, start_ts, end_ts, initial_capital,
+    strategy_name, strategy_config, backtest_config, metrics,
+    trades, signals, equity, status, error_message, user_id
+)
+VALUES (
+    %s, %s, %s, %s, %s, %s,
+    %s, %s::jsonb, %s::jsonb, %s::jsonb,
+    %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s
+)
+RETURNING run_id, symbol, timeframe, start_ts, end_ts, initial_capital,
+          strategy_name, strategy_config, backtest_config, metrics,
+          trades, signals, equity, status, error_message, user_id, created_at
+"""
+
+SELECT_BACKTEST_RUN = """
+SELECT run_id, symbol, timeframe, start_ts, end_ts, initial_capital,
+       strategy_name, strategy_config, backtest_config, metrics,
+       trades, signals, equity, status, error_message, user_id, created_at
+FROM app.backtest_runs
+WHERE run_id = %s
+"""
+
+INSERT_SCAN_RUN = """
+INSERT INTO app.scan_runs (
+    scan_id, timeframes, symbols, start_ts, end_ts,
+    condition_config, alert_trigger, matches, alert_count, duration_ms,
+    status, error_message
+)
+VALUES (
+    %s, %s, %s, %s, %s,
+    %s::jsonb, %s, %s::jsonb, %s, %s,
+    %s, %s
+)
+RETURNING scan_id, timeframes, symbols, start_ts, end_ts,
+          condition_config, alert_trigger, matches, alert_count, duration_ms,
+          status, error_message, created_at
+"""
+
+SELECT_SCAN_RUN = """
+SELECT scan_id, timeframes, symbols, start_ts, end_ts,
+       condition_config, alert_trigger, matches, alert_count, duration_ms,
+       status, error_message, created_at
+FROM app.scan_runs
+WHERE scan_id = %s
 """

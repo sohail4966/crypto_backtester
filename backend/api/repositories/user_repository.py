@@ -23,10 +23,12 @@ class UserRow:
         email: str,
         created_at: datetime,
         updated_at: datetime,
+        password_hash: str | None = None,
     ) -> None:
         self.id = id
         self.name = name
         self.email = email
+        self.password_hash = password_hash
         self.created_at = created_at
         self.updated_at = updated_at
 
@@ -37,8 +39,9 @@ def _row_to_user(row: tuple[Any, ...]) -> UserRow:
         id=row[0],
         name=row[1],
         email=row[2],
-        created_at=row[3],
-        updated_at=row[4],
+        password_hash=row[3],
+        created_at=row[4],
+        updated_at=row[5],
     )
 
 
@@ -46,9 +49,24 @@ class UserRepository:
     """CRUD operations on app.users."""
 
     def create(self, conn: psycopg.Connection, name: str, email: str) -> UserRow:
-        """Insert a user and return the new row."""
+        """Insert a passwordless user and return the new row."""
         with conn.cursor() as cur:
             cur.execute(queries.INSERT_USER, (name, email))
+            row = cur.fetchone()
+            conn.commit()
+            assert row is not None
+            return _row_to_user(row)
+
+    def create_with_password(
+        self,
+        conn: psycopg.Connection,
+        name: str,
+        email: str,
+        password_hash: str,
+    ) -> UserRow:
+        """Insert a user with a password hash."""
+        with conn.cursor() as cur:
+            cur.execute(queries.INSERT_USER_WITH_PASSWORD, (name, email, password_hash))
             row = cur.fetchone()
             conn.commit()
             assert row is not None
@@ -74,6 +92,15 @@ class UserRepository:
                 return None
             return _row_to_user(row)
 
+    def get_by_email(self, conn: psycopg.Connection, email: str) -> UserRow | None:
+        """Fetch user by email."""
+        with conn.cursor() as cur:
+            cur.execute(queries.SELECT_USER_BY_EMAIL, (email,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return _row_to_user(row)
+
     def update(
         self,
         conn: psycopg.Connection,
@@ -84,6 +111,21 @@ class UserRepository:
         """Patch user fields."""
         with conn.cursor() as cur:
             cur.execute(queries.UPDATE_USER, (name, email, user_id))
+            row = cur.fetchone()
+            conn.commit()
+            if row is None:
+                return None
+            return _row_to_user(row)
+
+    def set_password_hash_if_null(
+        self,
+        conn: psycopg.Connection,
+        user_id: UUID,
+        password_hash: str,
+    ) -> UserRow | None:
+        """Set password hash only when currently null (claim)."""
+        with conn.cursor() as cur:
+            cur.execute(queries.UPDATE_USER_PASSWORD_HASH, (password_hash, user_id))
             row = cur.fetchone()
             conn.commit()
             if row is None:

@@ -104,3 +104,60 @@ def replay_min_interval_ms() -> int:
 def replay_checkpoint_interval_sec() -> int:
     """Seconds between automatic cursor checkpoints to ``app.replay_sessions``."""
     return int(os.environ.get("REPLAY_CHECKPOINT_INTERVAL_SEC", "30"))
+
+
+def ai_llm_provider() -> str | None:
+    """Optional explicit LLM provider name (``mock`` | ``openai_compat``)."""
+    raw = os.environ.get("AI_LLM_PROVIDER", "").strip()
+    return raw or None
+
+
+def ai_llm_api_key() -> str | None:
+    """LLM API key from environment (never commit secrets)."""
+    raw = os.environ.get("AI_LLM_API_KEY", "").strip()
+    return raw or None
+
+
+def ai_llm_base_url() -> str:
+    """OpenAI-compatible API base URL."""
+    return os.environ.get("AI_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+
+
+def ai_llm_model() -> str:
+    """Model id for chat completions."""
+    return os.environ.get("AI_LLM_MODEL", "gpt-4o-mini")
+
+
+def ai_llm_timeout_sec() -> float:
+    """HTTP timeout for LLM calls."""
+    return float(os.environ.get("AI_LLM_TIMEOUT_SEC", "60"))
+
+
+def ai_clarify_ttl_minutes() -> float:
+    """Idle TTL for in-memory clarification sessions."""
+    return float(os.environ.get("AI_CLARIFY_TTL_MINUTES", "30"))
+
+
+def jwt_secret() -> str:
+    """
+    HS256 signing secret for access tokens.
+
+    Local default is intentional for offline dev; set ``JWT_SECRET`` in any
+    shared or production environment.
+    """
+    return os.environ.get("JWT_SECRET", "dev-only-change-me-crypto-backtester")
+
+
+def jwt_algorithm() -> str:
+    """JWT signing algorithm (HS256)."""
+    return os.environ.get("JWT_ALGORITHM", "HS256")
+
+
+def jwt_expire_minutes() -> int:
+    """Access token lifetime in minutes (default 7 days)."""
+    return int(os.environ.get("JWT_EXPIRE_MINUTES", str(60 * 24 * 7)))
+
+
+def live_ws_poll_interval_ms() -> int:
+    """Milliseconds between live WS DB-tail polls."""
+    return int(os.environ.get("LIVE_WS_POLL_INTERVAL_MS", "2000"))

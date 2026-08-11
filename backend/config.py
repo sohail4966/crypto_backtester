@@ -135,6 +135,11 @@ def _validate_strategy(name: str, strategy: Strategy | DualStrategy) -> None:
         raise ValueError(f"{name}: risk_pct sizing on long-only strategies is not supported yet")
 
 
+def validate_strategy(name: str, strategy: Strategy | DualStrategy) -> None:
+    """Public wrapper for strategy validation (API + CLI)."""
+    _validate_strategy(name, strategy)
+
+
 def _resolve_active_strategy(raw: dict[str, Any]) -> tuple[str, Strategy | DualStrategy]:
     """
     Resolve the active strategy from config.yaml.
@@ -161,6 +166,76 @@ def _resolve_active_strategy(raw: dict[str, Any]) -> tuple[str, Strategy | DualS
     return "legacy", strategy
 
 
+def _load_raw_config(path: Path | None = None) -> dict[str, Any]:
+    """Load and return the raw config.yaml mapping."""
+    load_dotenv()
+    config_path = path or DEFAULT_CONFIG_PATH
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    with config_path.open(encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle)
+    if not isinstance(raw, dict):
+        raise ValueError("config.yaml must contain a mapping at the top level")
+    return raw
+
+
+def list_named_strategies(path: Path | None = None) -> list[dict[str, str]]:
+    """
+    List strategies defined under ``strategies`` in config.yaml.
+
+    Returns:
+        List of ``{name, kind}`` where kind is ``dual`` or ``long_only``.
+    """
+    raw = _load_raw_config(path)
+    strategies = raw.get("strategies") or {}
+    result: list[dict[str, str]] = []
+    for name, strategy in strategies.items():
+        kind = "dual" if is_dual_strategy(strategy) else "long_only"
+        result.append({"name": str(name), "kind": kind})
+    return result
+
+
+def load_named_strategy(
+    name: str,
+    path: Path | None = None,
+) -> Strategy | DualStrategy:
+    """
+    Load and validate one named strategy from config.yaml.
+
+    Raises:
+        KeyError: When the strategy name is unknown.
+        ValueError: When the strategy fails validation.
+    """
+    raw = _load_raw_config(path)
+    strategies = raw.get("strategies") or {}
+    if name not in strategies:
+        known = ", ".join(sorted(strategies)) or "(none)"
+        raise KeyError(f"Unknown strategy '{name}'. Known strategies: {known}")
+    strategy = strategies[name]
+    _validate_strategy(name, strategy)
+    return strategy
+
+
+def load_default_backtest_config(path: Path | None = None) -> BacktestConfig:
+    """Load the global ``backtest`` block from config.yaml (API-safe defaults)."""
+    raw = _load_raw_config(path)
+    output_dir = Path(str(raw.get("output_dir", "output")))
+    config = _parse_backtest(raw.get("backtest"), output_dir)
+    return BacktestConfig(
+        slippage_bps=config.slippage_bps,
+        commission=config.commission,
+        sizing=config.sizing,
+        export_trades=False,
+        trades_csv=config.trades_csv,
+    )
+
+
+def load_default_initial_capital(path: Path | None = None) -> float:
+    """Return ``initial_capital`` from config.yaml (default 10000)."""
+    raw = _load_raw_config(path)
+    return float(raw.get("initial_capital", 10000.0))
+
+
 def load_config(path: Path | None = None) -> AppConfig:
     """
     Load configuration from YAML and apply environment overrides.
@@ -175,14 +250,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         FileNotFoundError: If the config file does not exist.
         ValueError: If required keys are missing or invalid.
     """
-    # .env loads before YAML so DATABASE_URL is available to data.db on import paths.
-    load_dotenv()
-    config_path = path or DEFAULT_CONFIG_PATH
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    with config_path.open(encoding="utf-8") as handle:
-        raw: dict[str, Any] = yaml.safe_load(handle)
+    raw = _load_raw_config(path)
 
     active_strategy, strategy = _resolve_active_strategy(raw)
     output_dir = Path(str(raw.get("output_dir", "output")))
