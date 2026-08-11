@@ -1,44 +1,51 @@
-import { getAuthToken } from '@/services/authToken'
+import { getWsConnectUrl } from '@/services/wsTicketClient'
+import { classifyWsCloseKind, type WsCloseKind } from '@/services/wsCloseCode'
 import type { OHLCVBar } from '@/types/candle'
 
 export type LiveWsHandlers = {
   onCandle?: (payload: {
     symbol: string
     timeframe: string
-    candle: OHLCVBar
-    incomplete?: boolean
+    bar: OHLCVBar
   }) => void
   onOpen?: () => void
-  onClose?: () => void
+  onClose?: (info: { code: number; reason: string; kind: WsCloseKind }) => void
   onError?: (error: Event) => void
 }
 
-function resolveLiveWsUrl(location = window.location): string {
+export function resolveLiveWsBase(location = window.location): string {
   const configured = import.meta.env.VITE_LIVE_WS_URL as string | undefined
-  const base =
-    configured ??
-    `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/live`
-  const token = getAuthToken()
-  if (!token) {
-    return base
+  if (configured) {
+    if (configured.startsWith('ws://') || configured.startsWith('wss://')) {
+      const parsed = new URL(configured)
+      if (parsed.host !== location.host) {
+        throw new Error(
+          `Refusing to open live WS on foreign host: ${parsed.host}`,
+        )
+      }
+      return configured
+    }
+    const path = configured.startsWith('/') ? configured : `/${configured}`
+    return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`
   }
-  const sep = base.includes('?') ? '&' : '?'
-  return `${base}${sep}token=${encodeURIComponent(token)}`
+  return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/live`
 }
 
 /**
  * Live candle WebSocket client (FE-005). Feature-gated by VITE_LIVE_WS.
- * Mirrors ReplayWsClient patterns; auth via ?token= (BE-004/006 style).
+ * Mirrors ReplayWsClient patterns. Auth via short-lived ?ticket= (or legacy ?token=).
  */
 export class LiveWsClient {
   private socket: WebSocket | null = null
   private handlers: LiveWsHandlers = {}
   private subscriptions = new Map<string, { symbol: string; timeframe: string }>()
 
-  connect(handlers: LiveWsHandlers = {}): void {
+  async connect(handlers: LiveWsHandlers = {}): Promise<void> {
     this.close()
     this.handlers = handlers
-    const socket = new WebSocket(resolveLiveWsUrl())
+    const base = resolveLiveWsBase()
+    const url = await getWsConnectUrl(base)
+    const socket = new WebSocket(url)
     this.socket = socket
 
     socket.onopen = () => {
@@ -58,24 +65,23 @@ export class LiveWsClient {
         if (row.type !== 'candle') {
           return
         }
-        const candleRaw = row.candle
-        if (!candleRaw || typeof candleRaw !== 'object') {
+        const barRaw = row.bar
+        if (!barRaw || typeof barRaw !== 'object') {
           return
         }
-        const c = candleRaw as Record<string, unknown>
-        const candle: OHLCVBar = {
-          time: Number(c.time ?? c.t),
-          open: Number(c.open ?? c.o),
-          high: Number(c.high ?? c.h),
-          low: Number(c.low ?? c.l),
-          close: Number(c.close ?? c.c),
-          volume: Number(c.volume ?? c.v ?? 0),
+        const b = barRaw as Record<string, unknown>
+        const bar: OHLCVBar = {
+          time: Number(b.time),
+          open: Number(b.open),
+          high: Number(b.high),
+          low: Number(b.low),
+          close: Number(b.close),
+          volume: Number(b.volume ?? 0),
         }
         this.handlers.onCandle?.({
           symbol: String(row.symbol ?? ''),
           timeframe: String(row.timeframe ?? ''),
-          candle,
-          incomplete: Boolean(row.incomplete),
+          bar,
         })
       } catch {
         // ignore malformed
@@ -83,11 +89,15 @@ export class LiveWsClient {
     }
 
     socket.onerror = (error) => this.handlers.onError?.(error)
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (this.socket === socket) {
         this.socket = null
       }
-      this.handlers.onClose?.()
+      this.handlers.onClose?.({
+        code: event.code,
+        reason: event.reason,
+        kind: classifyWsCloseKind(event.code),
+      })
     }
   }
 

@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import { useToast } from '@/components/ui/Toast'
+import { notifyAuthFailure } from '@/services/authSession'
 import { isLiveWsEnabled, LiveWsClient } from '@/services/liveWsClient'
 import type { OHLCVBar } from '@/types/candle'
 
@@ -12,6 +14,7 @@ export function useLiveCandles(
   enabled: boolean,
   onCandle: (bar: OHLCVBar) => void,
 ): void {
+  const { showToast } = useToast()
   const onCandleRef = useRef(onCandle)
   onCandleRef.current = onCandle
 
@@ -21,22 +24,40 @@ export function useLiveCandles(
     }
 
     const client = new LiveWsClient()
-    client.connect({
-      onCandle: (payload) => {
-        if (payload.incomplete) {
+    let cancelled = false
+
+    void client
+      .connect({
+        onCandle: (payload) => {
+          if (payload.symbol !== symbolId || payload.timeframe !== timeframe) {
+            return
+          }
+          onCandleRef.current(payload.bar)
+        },
+        onClose: ({ kind }) => {
+          if (kind === 'unauthorized') {
+            notifyAuthFailure('UNAUTHORIZED')
+            showToast('Session expired — sign in again')
+          } else if (kind === 'rate_limited') {
+            showToast('Too many concurrent WebSocket connections')
+          }
+        },
+      })
+      .then(() => {
+        if (cancelled) {
+          client.close()
           return
         }
-        if (payload.symbol !== symbolId || payload.timeframe !== timeframe) {
-          return
-        }
-        onCandleRef.current(payload.candle)
-      },
-    })
-    client.subscribe(symbolId, timeframe)
+        client.subscribe(symbolId, timeframe)
+      })
+      .catch(() => {
+        // Ticket mint / connect failed — leave live WS silent, REST fallback covers.
+      })
 
     return () => {
+      cancelled = true
       client.unsubscribe(symbolId, timeframe)
       client.close()
     }
-  }, [enabled, symbolId, timeframe])
+  }, [enabled, symbolId, timeframe, showToast])
 }

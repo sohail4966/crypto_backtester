@@ -26,6 +26,7 @@ export interface ReplaySessionApi {
   sendSetIndicators: () => void
   getWsClient: () => ReplayWsClient | null
   registerWsClient: (client: ReplayWsClient | null) => void
+  onUnauthorized: () => void
 }
 
 /**
@@ -67,6 +68,13 @@ export function useReplaySession(): ReplaySessionApi {
   }, [])
 
   const getWsClient = useCallback(() => wsClientRef.current, [])
+
+  const onUnauthorized = useCallback(() => {
+    resumeAttemptedRef.current = null
+    writeSessionParam(null)
+    useReplayStore.getState().reset()
+    setReplayMode(false)
+  }, [setReplayMode, writeSessionParam])
 
   const closeWs = useCallback(() => {
     wsClientRef.current?.close()
@@ -337,5 +345,6 @@ export function useReplaySession(): ReplaySessionApi {
     sendSetIndicators,
     getWsClient,
     registerWsClient,
+    onUnauthorized,
   }
 }

@@ -12,12 +12,14 @@ interface UseReplayWsOptions {
   registerWsClient: (client: ReplayWsClient | null) => void
   onSuperseded?: () => void
   onNotFound?: () => void
+  onUnauthorized?: () => void
 }
 
 export function useReplayWs({
   registerWsClient,
   onSuperseded,
   onNotFound,
+  onUnauthorized,
 }: UseReplayWsOptions): void {
   const { showToast } = useToast()
   const clientRef = useRef<ReplayWsClient | null>(null)
@@ -47,6 +49,8 @@ export function useReplayWs({
     const client = new ReplayWsClient()
     clientRef.current = client
     registerWsClient(client)
+
+    let cancelled = false
 
     const clearBufferTimer = () => {
       if (bufferTimerRef.current != null) {
@@ -139,56 +143,71 @@ export function useReplayWs({
       }
     }
 
-    client.connect(wsUrl, {
-      onOpen: () => {
-        const store = useReplayStore.getState()
-        store.setConnection('open')
-        if (client.consumePendingPlay()) {
-          store.setPhase('playing')
-        }
-      },
-      onEvent: handleEvent,
-      onClose: ({ kind }) => {
-        clearBufferTimer()
-        const store = useReplayStore.getState()
-        store.clearExpectImmediateTicks()
-        if (kind === 'unauthorized') {
-          client.clearQueue()
-          store.setConnection('red', 'unauthorized')
-          store.setPhase('paused')
-          store.setError('Authentication required')
-          showToast('Session expired — sign in again')
-          notifyAuthFailure('UNAUTHORIZED')
-        } else if (kind === 'superseded') {
-          client.clearQueue()
-          store.setConnection('amber', 'superseded')
-          store.setPhase('paused')
-          showToast('Opened in another tab')
-          onSuperseded?.()
-        } else if (kind === 'not_found') {
-          client.clearQueue()
-          store.setConnection('amber', 'not_found')
-          showToast('Replay session not found — pick a bar to start again')
-          onNotFound?.()
-        } else if (kind === 'error') {
-          store.setConnection('red', 'error')
-          if (store.phase !== 'inactive' && store.phase !== 'pick_anchor') {
-            showToast('Replay connection lost')
+    void client
+      .connect(wsUrl, {
+        onOpen: () => {
+          const store = useReplayStore.getState()
+          store.setConnection('open')
+          if (client.consumePendingPlay()) {
+            store.setPhase('playing')
           }
-        } else {
-          store.setConnection('closed')
+        },
+        onEvent: handleEvent,
+        onClose: ({ kind }) => {
+          clearBufferTimer()
+          const store = useReplayStore.getState()
+          store.clearExpectImmediateTicks()
+          if (kind === 'unauthorized') {
+            client.clearQueue()
+            store.setConnection('red', 'unauthorized')
+            store.setPhase('paused')
+            store.setError('Authentication required')
+            showToast('Session expired — sign in again')
+            notifyAuthFailure('UNAUTHORIZED')
+            onUnauthorized?.()
+          } else if (kind === 'superseded') {
+            client.clearQueue()
+            store.setConnection('amber', 'superseded')
+            store.setPhase('paused')
+            showToast('Opened in another tab')
+            onSuperseded?.()
+          } else if (kind === 'not_found') {
+            client.clearQueue()
+            store.setConnection('amber', 'not_found')
+            showToast('Replay session not found — pick a bar to start again')
+            onNotFound?.()
+          } else if (kind === 'rate_limited') {
+            client.clearQueue()
+            store.setConnection('red', 'rate_limited')
+            store.setPhase('paused')
+            showToast('Too many concurrent WebSocket connections')
+          } else if (kind === 'error') {
+            store.setConnection('red', 'error')
+            if (store.phase !== 'inactive' && store.phase !== 'pick_anchor') {
+              showToast('Replay connection lost')
+            }
+          } else {
+            store.setConnection('closed')
+          }
+          if (clientRef.current === client) {
+            clientRef.current = null
+            registerWsClient(null)
+          }
+        },
+        onError: () => {
+          useReplayStore.getState().setConnection('red', 'error')
+        },
+      })
+      .catch(() => {
+        // Ticket mint / initial connect setup failed — surface as connection error.
+        if (cancelled) {
+          return
         }
-        if (clientRef.current === client) {
-          clientRef.current = null
-          registerWsClient(null)
-        }
-      },
-      onError: () => {
         useReplayStore.getState().setConnection('red', 'error')
-      },
-    })
+      })
 
     return () => {
+      cancelled = true
       clearBufferTimer()
       client.close()
       if (clientRef.current === client) {
@@ -196,5 +215,13 @@ export function useReplayWs({
         registerWsClient(null)
       }
     }
-  }, [sessionId, wsUrl, registerWsClient, showToast, onSuperseded, onNotFound])
+  }, [
+    sessionId,
+    wsUrl,
+    registerWsClient,
+    showToast,
+    onSuperseded,
+    onNotFound,
+    onUnauthorized,
+  ])
 }

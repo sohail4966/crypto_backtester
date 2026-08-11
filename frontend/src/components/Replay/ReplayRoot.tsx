@@ -22,6 +22,7 @@ export function ReplayRoot({ children }: { children: ReactNode }) {
         useReplayStore.getState().setConnection('amber', 'not_found')
       })
     },
+    onUnauthorized: session.onUnauthorized,
   })
   useReplayTick({ getWsClient: session.getWsClient })
   useReplayKeyboard({

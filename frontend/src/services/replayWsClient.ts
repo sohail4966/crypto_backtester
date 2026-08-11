@@ -1,18 +1,9 @@
-import {
-  REPLAY_CLOSE_NOT_FOUND,
-  REPLAY_CLOSE_SUPERSEDED,
-  REPLAY_CLOSE_UNAUTHORIZED,
-} from '@/constants/replay'
-import { getAuthToken } from '@/services/authToken'
+import { classifyWsCloseKind, type WsCloseKind } from '@/services/wsCloseCode'
+import { getWsConnectUrl } from '@/services/wsTicketClient'
 import type { ReplayWsInbound, ReplayWsOutbound } from '@/types/replay'
 import { normalizeWsInbound } from '@/utils/replayNormalize'
 
-export type ReplayWsCloseReason =
-  | 'unauthorized'
-  | 'superseded'
-  | 'not_found'
-  | 'closed'
-  | 'error'
+export type ReplayWsCloseReason = WsCloseKind
 
 export interface ReplayWsHandlers {
   onEvent?: (event: ReplayWsInbound) => void
@@ -27,38 +18,36 @@ export interface ReplayWsHandlers {
 
 const MAX_QUEUE = 32
 
-export function resolveReplayWsUrl(wsUrl: string, location = window.location): string {
+/**
+ * Resolve a replay-WS URL. Accepts either a relative path (BE default) or an
+ * absolute ws(s):// URL — the latter is only permitted when it points at the
+ * same host as the current window (defense-in-depth against a compromised
+ * ``ws_url`` value leaking the auth token / ticket to a foreign origin).
+ */
+export function resolveReplayWsBase(
+  wsUrl: string,
+  location = window.location,
+): string {
   if (wsUrl.startsWith('ws://') || wsUrl.startsWith('wss://')) {
-    return appendToken(wsUrl)
+    const parsed = new URL(wsUrl)
+    if (parsed.host !== location.host) {
+      throw new Error(
+        `Refusing to open replay WS on foreign host: ${parsed.host}`,
+      )
+    }
+    return wsUrl
   }
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const path = wsUrl.startsWith('/') ? wsUrl : `/${wsUrl}`
-  return appendToken(`${protocol}//${location.host}${path}`)
+  return `${protocol}//${location.host}${path}`
 }
 
-function appendToken(url: string): string {
-  const token = getAuthToken()
-  if (!token) {
-    return url
-  }
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}token=${encodeURIComponent(token)}`
-}
-
-function closeKind(code: number): ReplayWsCloseReason {
-  if (code === REPLAY_CLOSE_UNAUTHORIZED) {
-    return 'unauthorized'
-  }
-  if (code === REPLAY_CLOSE_SUPERSEDED) {
-    return 'superseded'
-  }
-  if (code === REPLAY_CLOSE_NOT_FOUND) {
-    return 'not_found'
-  }
-  if (code === 1000 || code === 1001) {
-    return 'closed'
-  }
-  return 'error'
+export async function resolveReplayWsUrl(
+  wsUrl: string,
+  location = window.location,
+): Promise<string> {
+  const base = resolveReplayWsBase(wsUrl, location)
+  return getWsConnectUrl(base)
 }
 
 function coalesceQueue(
@@ -101,10 +90,10 @@ export class ReplayWsClient {
   private outboundQueue: ReplayWsOutbound[] = []
   private pendingPlay = false
 
-  connect(wsUrl: string, handlers: ReplayWsHandlers = {}): void {
+  async connect(wsUrl: string, handlers: ReplayWsHandlers = {}): Promise<void> {
     this.close({ clearQueue: false })
     this.handlers = handlers
-    const url = resolveReplayWsUrl(wsUrl)
+    const url = await resolveReplayWsUrl(wsUrl)
     const socket = new WebSocket(url)
     this.socket = socket
 
@@ -130,7 +119,7 @@ export class ReplayWsClient {
     }
 
     socket.onclose = (event) => {
-      const kind = closeKind(event.code)
+      const kind = classifyWsCloseKind(event.code)
       this.handlers.onClose?.({
         code: event.code,
         reason: event.reason,

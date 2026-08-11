@@ -16,3 +16,5 @@ export const REPLAY_CLOSE_UNAUTHORIZED = 4401
 /** Another tab/connection took over this session. */
 export const REPLAY_CLOSE_SUPERSEDED = 4402
 export const REPLAY_CLOSE_NOT_FOUND = 4404
+/** Per-user concurrent WebSocket connection cap (BE: WS_LIMIT). */
+export const REPLAY_CLOSE_LIMIT = 4429

@@ -25,6 +25,7 @@ export type ReplayConnectionReason =
   | 'unauthorized'
   | 'superseded'
   | 'not_found'
+  | 'rate_limited'
   | 'error'
   | null
 
