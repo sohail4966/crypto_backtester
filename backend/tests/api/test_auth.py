@@ -1,4 +1,4 @@
-"""Tests for JWT auth (Phase 11)."""
+"""Tests for JWT auth (Phase 11) and hardening (BE-002/016/024)."""
 
 from __future__ import annotations
 
@@ -39,9 +39,11 @@ def test_hash_and_verify_password_roundtrip() -> None:
 @patch("api.deps.connect")
 @patch("api.services.auth_service.SymbolService.list_symbols", return_value=[])
 @patch("api.services.auth_service.WatchlistRepository.create")
+@patch("api.services.auth_service.WatchlistRepository.set_symbols")
 @patch("api.services.auth_service.UserRepository.create_with_password")
 def test_register_returns_jwt(
     mock_create: MagicMock,
+    _mock_set_symbols: MagicMock,
     mock_wl_create: MagicMock,
     _mock_symbols: MagicMock,
     mock_connect: MagicMock,
@@ -57,7 +59,8 @@ def test_register_returns_jwt(
         sort_order=0,
         created_at=user.created_at,
     )
-    mock_connect.return_value = MagicMock()
+    conn = MagicMock()
+    mock_connect.return_value = conn
 
     response = client.post(
         "/api/v1/auth/register",
@@ -68,6 +71,7 @@ def test_register_returns_jwt(
     assert body["token_type"] == "bearer"
     assert body["access_token"]
     assert body["user_id"] == str(user.id)
+    conn.commit.assert_called()
 
 
 @patch("api.deps.connect")
@@ -97,37 +101,36 @@ def test_login_ok_and_bad_password(
     assert bad.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
 
+def test_claim_endpoint_removed(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/claim",
+        json={"email": "a@example.com", "password": "secret-pass"},
+    )
+    assert response.status_code == 404
+
+
 @patch("api.deps.connect")
-@patch("api.services.auth_service.UserRepository.set_password_hash_if_null")
-@patch("api.services.auth_service.UserRepository.get_by_email")
-def test_claim_sets_password_once(
-    mock_get: MagicMock,
-    mock_set: MagicMock,
+@patch("api.deps.UserRepository.get_by_id")
+def test_auth_me_requires_jwt(
+    mock_get_user: MagicMock,
     mock_connect: MagicMock,
     client: TestClient,
 ) -> None:
-    user = _user(password_hash=None)
-    claimed = _user(password_hash="hashed", email=user.email)
-    claimed.id = user.id
-    mock_get.return_value = user
-    mock_set.return_value = claimed
+    user = _user(password_hash="x")
+    mock_get_user.return_value = user
     mock_connect.return_value = MagicMock()
 
-    response = client.post(
-        "/api/v1/auth/claim",
-        json={"email": user.email, "password": "secret-pass"},
-    )
-    assert response.status_code == 200
-    assert response.json()["user_id"] == str(user.id)
+    unauth = client.get("/api/v1/auth/me")
+    assert unauth.status_code == 401
 
-    user.password_hash = "already"
-    mock_get.return_value = user
-    again = client.post(
-        "/api/v1/auth/claim",
-        json={"email": user.email, "password": "secret-pass"},
+    token = create_access_token(user_id=user.id, email=user.email)
+    ok = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
     )
-    assert again.status_code == 422
-    assert again.json()["error"]["code"] == "PASSWORD_ALREADY_SET"
+    assert ok.status_code == 200
+    assert ok.json()["email"] == user.email
+    assert "password_hash" not in ok.json()
 
 
 @patch("api.deps.connect")
@@ -161,6 +164,29 @@ def test_watchlist_requires_matching_jwt(
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert forbidden.status_code == 403
+
+
+@patch("api.deps.connect")
+@patch("api.services.auth_service.UserRepository.create_with_password")
+def test_register_duplicate_email_uniform_code(
+    mock_create: MagicMock,
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """Register conflict uses REGISTRATION_FAILED, not EMAIL_EXISTS (G-008)."""
+    import psycopg
+
+    conn = MagicMock()
+    mock_connect.return_value = conn
+    mock_create.side_effect = psycopg.errors.UniqueViolation("users_email")
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"name": "Alice", "email": "a@example.com", "password": "secret-pass"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "REGISTRATION_FAILED"
+    assert "EMAIL_EXISTS" not in response.text
 
 
 @patch("api.deps.connect")

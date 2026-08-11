@@ -1,5 +1,5 @@
 """
-Auth service — register, login, claim.
+Auth service — register and login (claim removed — BE-002/BE-024).
 """
 
 from __future__ import annotations
@@ -12,15 +12,15 @@ from api.auth import (
     hash_password,
     verify_password,
 )
-from api.exceptions import NotFoundError, ValidationError
+from api.exceptions import ValidationError
 from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository
 from api.schemas.auth import (
-    AuthClaimRequest,
     AuthLoginRequest,
     AuthRegisterRequest,
     AuthTokenResponse,
 )
+from api.schemas.users import UserResponse
 from api.services.symbol_service import SymbolService
 
 
@@ -48,7 +48,23 @@ class AuthService:
             updated_at=user.updated_at,
         )
 
-    def _provision_default_watchlist(self, conn: psycopg.Connection, user_id) -> None:
+    def me(self, user: UserRow) -> UserResponse:
+        """Return the authenticated user DTO (no password hash)."""
+        return UserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
+
+    def _provision_default_watchlist(
+        self,
+        conn: psycopg.Connection,
+        user_id,
+        *,
+        commit: bool = False,
+    ) -> None:
         """Create default watchlist with active symbols (same as UserService.create)."""
         symbols = [s.symbol for s in self._symbols.list_symbols(conn, active_only=True)]
         watchlist = self._watchlists.create(
@@ -57,22 +73,33 @@ class AuthService:
             name="Default",
             is_default=True,
             sort_order=0,
+            commit=commit,
         )
         if symbols:
-            self._watchlists.set_symbols(conn, watchlist.id, symbols)
+            self._watchlists.set_symbols(conn, watchlist.id, symbols, commit=commit)
 
     def register(self, conn: psycopg.Connection, body: AuthRegisterRequest) -> AuthTokenResponse:
-        """Create a user with password hash and return a JWT."""
+        """
+        Create a user with password hash + default watchlist in one transaction.
+
+        Commits once at the end (BE-012).
+        """
         password_hash = hash_password(body.password)
         try:
             user = self._users.create_with_password(
-                conn, body.name, body.email, password_hash
+                conn, body.name, body.email, password_hash, commit=False
             )
+            self._provision_default_watchlist(conn, user.id, commit=False)
+            conn.commit()
         except psycopg.errors.UniqueViolation as exc:
+            conn.rollback()
+            # Anti-enumeration: generic conflict without confirming other fields (BE-024).
             raise ValidationError(
-                "EMAIL_EXISTS", f"Email already registered: {body.email}"
+                "REGISTRATION_FAILED", "Unable to register with the provided email"
             ) from exc
-        self._provision_default_watchlist(conn, user.id)
+        except Exception:
+            conn.rollback()
+            raise
         return self._token_response(user)
 
     def login(self, conn: psycopg.Connection, body: AuthLoginRequest) -> AuthTokenResponse:
@@ -81,30 +108,3 @@ class AuthService:
         if user is None or not verify_password(body.password, user.password_hash):
             raise UnauthorizedError("INVALID_CREDENTIALS", "Invalid email or password")
         return self._token_response(user)
-
-    def claim(self, conn: psycopg.Connection, body: AuthClaimRequest) -> AuthTokenResponse:
-        """
-        Set a password on a legacy passwordless account once.
-
-        Raises:
-            NotFoundError: Unknown email.
-            ValidationError: Password already set.
-        """
-        user = self._users.get_by_email(conn, body.email)
-        if user is None:
-            raise NotFoundError("USER_NOT_FOUND", f"Unknown email: {body.email}")
-        if user.password_hash:
-            raise ValidationError(
-                "PASSWORD_ALREADY_SET",
-                "Password already set; use /auth/login",
-            )
-        updated = self._users.set_password_hash_if_null(
-            conn, user.id, hash_password(body.password)
-        )
-        if updated is None:
-            # Race: another claim won
-            raise ValidationError(
-                "PASSWORD_ALREADY_SET",
-                "Password already set; use /auth/login",
-            )
-        return self._token_response(updated)

@@ -34,7 +34,7 @@ tags:
   - name: meta
     description: Health and supported timeframes
   - name: auth
-    description: Register / login / claim password + JWT issue
+    description: Register / login + JWT issue (`GET /auth/me`)
   - name: symbols
     description: Tradable symbol catalog (`app.symbols`)
   - name: candles
@@ -42,7 +42,7 @@ tags:
   - name: indicators
     description: Registry catalog and batch compute
   - name: users
-    description: User CRUD (list/mutations require JWT; GET by id public)
+    description: User CRUD (JWT; `GET /users/{id}` same-user only; prefer `GET /auth/me`)
   - name: watchlists
     description: Per-user symbol watchlists (JWT ownership required)
   - name: chart-data
@@ -387,32 +387,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-  /api/v1/auth/claim:
-    post:
-      tags: [auth]
-      summary: Claim legacy passwordless account
-      description: |
-        Sets a password once when `password_hash` is null, then returns a JWT.
-        If a password is already set, returns `PASSWORD_ALREADY_SET` — use `/auth/login`.
-      operationId: authClaim
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AuthClaimRequest"
-      responses:
-        "200":
-          description: Password set and JWT issued
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AuthTokenResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          $ref: "#/components/responses/ValidationError"
 
   /api/v1/users:
     post:
@@ -957,7 +931,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token from `/auth/register`, `/auth/login`, or `/auth/claim`.
+      description: Access token from `/auth/register` or `/auth/login`.
 
   parameters:
     SymbolPath:
@@ -1382,19 +1356,6 @@ components:
         password:
           type: string
           minLength: 1
-          maxLength: 200
-
-    AuthClaimRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          minLength: 3
-          maxLength: 320
-        password:
-          type: string
-          minLength: 8
           maxLength: 200
 
     AuthTokenResponse:

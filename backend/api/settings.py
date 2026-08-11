@@ -6,6 +6,45 @@ from __future__ import annotations
 
 import os
 
+# Known insecure placeholders — rejected even when explicitly set in non-dev.
+_INSECURE_JWT_SECRETS = frozenset(
+    {
+        "dev-only-change-me-crypto-backtester",
+        "change-me",
+        "secret",
+        "jwt-secret",
+    }
+)
+_DEV_JWT_DEFAULT = "dev-only-change-me-crypto-backtester"
+
+
+def app_env() -> str:
+    """
+    Application environment: ``dev`` | ``local`` | ``staging`` | ``prod``.
+
+    Reads ``APP_ENV`` then ``ENV``. Missing/unknown values default to ``prod``
+    (fail-closed). Local insecure defaults require an explicit ``APP_ENV=dev``
+    or ``APP_ENV=local`` (G-001).
+    """
+    raw = (os.environ.get("APP_ENV") or os.environ.get("ENV") or "").strip().lower()
+    if not raw:
+        return "prod"
+    if raw in ("development", "dev"):
+        return "dev"
+    if raw == "local":
+        return "local"
+    if raw in ("staging", "stage"):
+        return "staging"
+    if raw in ("prod", "production"):
+        return "prod"
+    # Unknown labels are treated as non-dev (fail-closed).
+    return "prod"
+
+
+def is_dev_env() -> bool:
+    """True only when APP_ENV/ENV is explicitly ``dev`` or ``local``."""
+    return app_env() in ("dev", "local")
+
 
 def api_host() -> str:
     """Return the bind host for uvicorn."""
@@ -19,19 +58,37 @@ def api_port() -> int:
 
 
 def cors_origins() -> list[str]:
-    """Return allowed CORS origins for the chart client."""
-    raw = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    """
+    Return allowed CORS origins for the chart client.
+
+    Dev/local: defaults to Vite/CRA localhost when ``CORS_ORIGINS`` is unset.
+    Staging/prod: ``CORS_ORIGINS`` must be set explicitly (G-006); empty list
+    only when the variable is present but blank (API-only / no browser CORS).
+    """
+    if "CORS_ORIGINS" in os.environ:
+        raw = os.environ.get("CORS_ORIGINS", "")
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    if is_dev_env():
+        return ["http://localhost:5173", "http://localhost:3000"]
+    raise RuntimeError(
+        "CORS_ORIGINS must be set when APP_ENV/ENV is not explicitly dev/local. "
+        "Refusing to default to localhost origins outside development."
+    )
 
 
 def cors_allow_localhost_regex() -> str | None:
     """
     Optional regex for local SPA dev (Vite may use 5173, 5174, … when ports are taken).
 
-    Set ``CORS_ALLOW_LOCALHOST=false`` to disable (production lock-down).
+    Default: enabled only when ``APP_ENV``/``ENV`` is ``dev``/``local``.
+    Override with ``CORS_ALLOW_LOCALHOST=true|false``.
     """
-    enabled = os.environ.get("CORS_ALLOW_LOCALHOST", "true").lower()
-    if enabled in ("0", "false", "no", "off"):
+    raw = os.environ.get("CORS_ALLOW_LOCALHOST")
+    if raw is not None:
+        enabled = raw.lower() in ("1", "true", "yes", "on")
+    else:
+        enabled = is_dev_env()
+    if not enabled:
         return None
     return r"http://(localhost|127\.0\.0\.1)(:\d+)?"
 
@@ -49,6 +106,26 @@ def chart_data_default_limit() -> int:
 def candle_max_limit() -> int:
     """Maximum candles per historical request."""
     return int(os.environ.get("CANDLE_MAX_LIMIT", "5000"))
+
+
+def scan_max_symbols() -> int:
+    """Maximum symbols allowed per scan request."""
+    return int(os.environ.get("SCAN_MAX_SYMBOLS", "50"))
+
+
+def backtest_max_window_sec() -> int:
+    """Maximum inclusive backtest window length in seconds."""
+    return int(os.environ.get("BACKTEST_MAX_WINDOW_SEC", str(365 * 24 * 3600)))
+
+
+def ai_max_rpm() -> int:
+    """Max AI requests per minute per user (in-process limiter)."""
+    return int(os.environ.get("AI_MAX_RPM", "30"))
+
+
+def ws_max_connections_per_user() -> int:
+    """Max concurrent live/replay WS connections per authenticated user."""
+    return int(os.environ.get("WS_MAX_CONNECTIONS_PER_USER", "5"))
 
 
 def replay_max_window_bars() -> int:
@@ -134,7 +211,7 @@ def ai_llm_timeout_sec() -> float:
 
 
 def ai_clarify_ttl_minutes() -> float:
-    """Idle TTL for in-memory clarification sessions."""
+    """Idle TTL for clarification sessions."""
     return float(os.environ.get("AI_CLARIFY_TTL_MINUTES", "30"))
 
 
@@ -142,10 +219,46 @@ def jwt_secret() -> str:
     """
     HS256 signing secret for access tokens.
 
-    Local default is intentional for offline dev; set ``JWT_SECRET`` in any
-    shared or production environment.
+    In ``dev``/``local``: allows a clearly labeled default when unset.
+    In staging/prod: ``JWT_SECRET`` is required and must not be a known placeholder.
     """
-    return os.environ.get("JWT_SECRET", "dev-only-change-me-crypto-backtester")
+    raw = os.environ.get("JWT_SECRET")
+    if raw is not None:
+        secret = raw.strip()
+    else:
+        secret = ""
+
+    if is_dev_env():
+        if not secret:
+            return _DEV_JWT_DEFAULT
+        return secret
+
+    if not secret:
+        raise RuntimeError(
+            "JWT_SECRET must be set when APP_ENV/ENV is not dev/local. "
+            "Refusing to start with a forgeable default."
+        )
+    if secret in _INSECURE_JWT_SECRETS or secret.startswith("dev-only-"):
+        raise RuntimeError(
+            "JWT_SECRET is a known insecure placeholder; set a strong unique secret."
+        )
+    if len(secret) < 32:
+        raise RuntimeError("JWT_SECRET must be at least 32 characters in non-dev environments.")
+    return secret
+
+
+def validate_security_settings() -> None:
+    """
+    Fail closed at startup for non-dev misconfiguration.
+
+    Call from application lifespan / factory so workers refuse to serve.
+    Outside explicit ``dev``/``local``: strong ``JWT_SECRET`` and explicit
+    ``CORS_ORIGINS`` are required (G-001 / G-006).
+    """
+    # Force evaluation (raises on bad config).
+    jwt_secret()
+    if not is_dev_env():
+        cors_origins()
 
 
 def jwt_algorithm() -> str:

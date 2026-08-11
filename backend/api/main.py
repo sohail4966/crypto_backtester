@@ -35,7 +35,8 @@ from data.storage import run_migrations_on_startup
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Apply DB migrations on API startup."""
+    """Validate security settings and apply DB migrations on API startup."""
+    settings.validate_security_settings()
     run_migrations_on_startup()
     yield
 
@@ -47,6 +48,9 @@ def create_app() -> FastAPI:
     Returns:
         Configured FastAPI app with routers and exception handlers.
     """
+    # Fail closed before accepting traffic when JWT_SECRET is missing in non-dev.
+    settings.validate_security_settings()
+
     app = FastAPI(
         title="Crypto Backtester API",
         version="0.8.0",
@@ -86,7 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(replay.router, prefix=api_prefix)
     app.include_router(backtest.router, prefix=api_prefix)
     app.include_router(scan.router, prefix=api_prefix)
-    # Phase 10 AI — keep mounted; JWT optional (public in v1, see PHASE_11_HLD).
+    # Phase 10 AI — JWT required (BE-004).
     app.include_router(ai.router, prefix=api_prefix)
     app.include_router(replay_ws.router)
     app.include_router(live_ws.router)

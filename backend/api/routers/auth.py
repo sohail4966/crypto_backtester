@@ -1,5 +1,5 @@
 """
-Auth endpoints — register, login, claim.
+Auth endpoints — register, login, me (claim removed — BE-002).
 """
 
 from __future__ import annotations
@@ -7,13 +7,14 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, Depends
 
-from api.deps import get_db
+from api.deps import get_current_user, get_db
+from api.repositories.user_repository import UserRow
 from api.schemas.auth import (
-    AuthClaimRequest,
     AuthLoginRequest,
     AuthRegisterRequest,
     AuthTokenResponse,
 )
+from api.schemas.users import UserResponse
 from api.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,10 +39,7 @@ def login(
     return _service.login(conn, body)
 
 
-@router.post("/claim", response_model=AuthTokenResponse)
-def claim(
-    body: AuthClaimRequest,
-    conn: psycopg.Connection = Depends(get_db),
-) -> AuthTokenResponse:
-    """Claim a legacy passwordless account by setting a password once."""
-    return _service.claim(conn, body)
+@router.get("/me", response_model=UserResponse)
+def me(current: UserRow = Depends(get_current_user)) -> UserResponse:
+    """Return the authenticated user (JWT proof for FE bootstrap)."""
+    return _service.me(current)

@@ -48,14 +48,23 @@ def _row_to_user(row: tuple[Any, ...]) -> UserRow:
 class UserRepository:
     """CRUD operations on app.users."""
 
-    def create(self, conn: psycopg.Connection, name: str, email: str) -> UserRow:
-        """Insert a passwordless user and return the new row."""
-        with conn.cursor() as cur:
-            cur.execute(queries.INSERT_USER, (name, email))
-            row = cur.fetchone()
-            conn.commit()
-            assert row is not None
-            return _row_to_user(row)
+    def create(
+        self,
+        conn: psycopg.Connection,
+        name: str,
+        email: str,
+        *,
+        commit: bool = True,
+    ) -> UserRow:
+        """
+        Passwordless create is permanently disabled (G-011 / BE-002).
+
+        Raises:
+            RuntimeError: Always — use :meth:`create_with_password`.
+        """
+        raise RuntimeError(
+            "Passwordless UserRepository.create is disabled; use create_with_password"
+        )
 
     def create_with_password(
         self,
@@ -63,12 +72,17 @@ class UserRepository:
         name: str,
         email: str,
         password_hash: str,
+        *,
+        commit: bool = True,
     ) -> UserRow:
         """Insert a user with a password hash."""
+        if not password_hash:
+            raise ValueError("password_hash must not be null or empty")
         with conn.cursor() as cur:
             cur.execute(queries.INSERT_USER_WITH_PASSWORD, (name, email, password_hash))
             row = cur.fetchone()
-            conn.commit()
+            if commit:
+                conn.commit()
             assert row is not None
             return _row_to_user(row)
 
@@ -93,9 +107,9 @@ class UserRepository:
             return _row_to_user(row)
 
     def get_by_email(self, conn: psycopg.Connection, email: str) -> UserRow | None:
-        """Fetch user by email."""
+        """Fetch user by normalized email (case-insensitive)."""
         with conn.cursor() as cur:
-            cur.execute(queries.SELECT_USER_BY_EMAIL, (email,))
+            cur.execute(queries.SELECT_USER_BY_EMAIL, (email.strip().lower(),))
             row = cur.fetchone()
             if row is None:
                 return None
@@ -107,12 +121,16 @@ class UserRepository:
         user_id: UUID,
         name: str | None,
         email: str | None,
+        *,
+        commit: bool = True,
     ) -> UserRow | None:
         """Patch user fields."""
+        normalized_email = email.strip().lower() if email is not None else None
         with conn.cursor() as cur:
-            cur.execute(queries.UPDATE_USER, (name, email, user_id))
+            cur.execute(queries.UPDATE_USER, (name, normalized_email, user_id))
             row = cur.fetchone()
-            conn.commit()
+            if commit:
+                conn.commit()
             if row is None:
                 return None
             return _row_to_user(row)
@@ -122,19 +140,29 @@ class UserRepository:
         conn: psycopg.Connection,
         user_id: UUID,
         password_hash: str,
+        *,
+        commit: bool = True,
     ) -> UserRow | None:
-        """Set password hash only when currently null (claim)."""
+        """Set password hash only when currently null (ops / migration tooling)."""
         with conn.cursor() as cur:
             cur.execute(queries.UPDATE_USER_PASSWORD_HASH, (password_hash, user_id))
             row = cur.fetchone()
-            conn.commit()
+            if commit:
+                conn.commit()
             if row is None:
                 return None
             return _row_to_user(row)
 
-    def delete(self, conn: psycopg.Connection, user_id: UUID) -> bool:
+    def delete(
+        self,
+        conn: psycopg.Connection,
+        user_id: UUID,
+        *,
+        commit: bool = True,
+    ) -> bool:
         """Delete user; cascades watchlists."""
         with conn.cursor() as cur:
             cur.execute(queries.DELETE_USER, (user_id,))
-            conn.commit()
+            if commit:
+                conn.commit()
             return cur.rowcount > 0

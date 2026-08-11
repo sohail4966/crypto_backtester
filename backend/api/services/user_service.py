@@ -8,8 +8,9 @@ from uuid import UUID
 
 import psycopg
 
+from api.auth import hash_password
 from api.exceptions import NotFoundError, ValidationError
-from api.repositories.user_repository import UserRepository
+from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository
 from api.schemas.users import UserCreate, UserResponse, UserUpdate
 from api.services.symbol_service import SymbolService
@@ -28,7 +29,7 @@ class UserService:
         self._watchlists = watchlist_repository or WatchlistRepository()
         self._symbols = symbol_service or SymbolService()
 
-    def _to_response(self, row: object) -> UserResponse:
+    def _to_response(self, row: UserRow) -> UserResponse:
         """Map UserRow to API response."""
         return UserResponse(
             id=row.id,
@@ -38,23 +39,39 @@ class UserService:
             updated_at=row.updated_at,
         )
 
-    def create(self, conn: psycopg.Connection, body: UserCreate) -> UserResponse:
-        """Create user and default watchlist with all active symbols."""
-        try:
-            user = self._users.create(conn, body.name, body.email)
-        except psycopg.errors.UniqueViolation as exc:
-            raise ValidationError("EMAIL_EXISTS", f"Email already registered: {body.email}") from exc
+    def get_user_row(self, user: UserRow) -> UserResponse:
+        """Map an already-loaded user row."""
+        return self._to_response(user)
 
-        symbols = [s.symbol for s in self._symbols.list_symbols(conn, active_only=True)]
-        watchlist = self._watchlists.create(
-            conn,
-            user_id=user.id,
-            name="Default",
-            is_default=True,
-            sort_order=0,
-        )
-        if symbols:
-            self._watchlists.set_symbols(conn, watchlist.id, symbols)
+    def create(self, conn: psycopg.Connection, body: UserCreate) -> UserResponse:
+        """
+        Create user with password and default watchlist in one transaction (BE-002/BE-012).
+        """
+        password_hash = hash_password(body.password)
+        try:
+            user = self._users.create_with_password(
+                conn, body.name, body.email, password_hash, commit=False
+            )
+            symbols = [s.symbol for s in self._symbols.list_symbols(conn, active_only=True)]
+            watchlist = self._watchlists.create(
+                conn,
+                user_id=user.id,
+                name="Default",
+                is_default=True,
+                sort_order=0,
+                commit=False,
+            )
+            if symbols:
+                self._watchlists.set_symbols(conn, watchlist.id, symbols, commit=False)
+            conn.commit()
+        except psycopg.errors.UniqueViolation as exc:
+            conn.rollback()
+            raise ValidationError(
+                "REGISTRATION_FAILED", "Unable to register with the provided email"
+            ) from exc
+        except Exception:
+            conn.rollback()
+            raise
 
         return self._to_response(user)
 
@@ -64,7 +81,7 @@ class UserService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[UserResponse]:
-        """List users."""
+        """List users (internal / admin — HTTP enumeration removed)."""
         return [self._to_response(row) for row in self._users.list_users(conn, limit, offset)]
 
     def get_user(self, conn: psycopg.Connection, user_id: UUID) -> UserResponse:
@@ -84,7 +101,9 @@ class UserService:
         try:
             user = self._users.update(conn, user_id, body.name, body.email)
         except psycopg.errors.UniqueViolation as exc:
-            raise ValidationError("EMAIL_EXISTS", "Email already registered") from exc
+            raise ValidationError(
+                "UPDATE_FAILED", "Unable to update with the provided email"
+            ) from exc
         if user is None:
             raise NotFoundError("USER_NOT_FOUND", f"Unknown user: {user_id}")
         return self._to_response(user)
