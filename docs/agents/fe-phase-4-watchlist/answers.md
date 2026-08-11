@@ -1,0 +1,16 @@
+# Answers — FE Phase 4: Watchlist + Symbol Search
+
+1. A valid cached `selectedWatchlistId` takes precedence on returning launches if that ID is still present after canonical reconciliation. Use the backend default only when there is no valid prior selection, including first launch.
+2. Yes. A `404 USER_NOT_FOUND` from watchlist listing runs the same stale-user recovery as failed user validation: delete `user_id`, delete only `watchlists:${staleUserId}:v1`, bootstrap once, and reload once. Any second stale-user result is a hard error.
+3. Paginate `GET /users` in pages of 500 until the exact `dev@local` email is found or a page contains fewer than 500 users. If no exact match exists, fail bootstrap visibly; do not create another identity or choose a partial/case-insensitive match.
+4. Send `{ "name": "Default", "symbols": [] }`. Normalize and use the successful create response directly as the sole canonical list; do not issue a redundant list GET.
+5. Validate the cache record atomically, including every nested `Symbol`. If any required field or symbol is malformed, delete/ignore the entire record. Never partially hydrate or silently drop cached symbols.
+6. Resolve catalog misses concurrently with a maximum of four single-symbol requests. Deduplicate repeated IDs before fallback lookup, then reconstruct each list in backend order. One unresolved ID fails the entire canonical refresh and preserves the last confirmed cache.
+7. Trim search input before building the query. Whitespace-only input is empty input: omit `q` and request the active catalog.
+8. TanStack Query may reuse fresh cached catalog data when search reopens. Opening/focusing does not force a refetch solely because focus changed; normal query staleness controls refresh.
+9. Serialize Add mutations per target watchlist, not globally. Capture the target watchlist ID and confirmed snapshot when Add starts. That list's Add controls are disabled while its replacement is pending; another selected list may mutate independently.
+10. Apply the canonical response to the captured target watchlist by ID. Do not change the user's current selection when the request settles; if they switched lists meanwhile, the newly selected list remains selected.
+11. Duplicate watchlist names are allowed because the live backend has no uniqueness constraint. The create prompt closes only after success. On failure it stays open with the entered name, preserves the previous selection, and shows visible error feedback through the existing toast.
+12. Yes. `frontend/src/components/ui/Toast.tsx` exposes `useToast().showToast`, and `App` already mounts `ToastProvider` outside `AppShell`. Use it for create/add failures; keep load, stale, and retry states inline.
+13. Confirmed cache has no age-based expiry in Phase 4. It remains usable indefinitely, is marked stale/refreshing while reconciliation runs, and is replaced only by a successful canonical response.
+14. Yes; Agent D is a no-op. Code verification confirms nested user/watchlist routes, ordered `symbols: string[]` replacement, `201` user creation with default-list provisioning, `422 EMAIL_EXISTS`, `404 USER_NOT_FOUND`, active catalog search, and single-symbol lookup that can return inactive entities. No backend code, schema, migration, or test change is required.
