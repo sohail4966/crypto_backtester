@@ -22,8 +22,12 @@ logger = logging.getLogger(__name__)
 MIGRATION_FILENAME_PATTERN = re.compile(r"^V(\d+)__(.+)\.sql$")
 DEFAULT_MIGRATIONS_DIR = Path(__file__).parent / "sql"
 
-# Session-level advisory lock key for concurrent startup safety (BE-011).
-MIGRATION_ADVISORY_LOCK_KEY = 0xC8B7_AC75_E57E_0001
+# Second int of the two-int session-level advisory lock (BE-011 + BE-L2-020).
+# We pair this with ``hashtext(current_database())`` so multiple databases on
+# the same cluster no longer serialise on migrations. Keeping a fixed second
+# int also avoids collisions with any other subsystem that keys advisory
+# locks by DB name (BE-L2-020 recommended solution 2).
+MIGRATION_ADVISORY_LOCK_KEY = 0x0000_A1C9
 
 
 def _parse_migration_path(path: Path) -> tuple[str, str]:
@@ -104,7 +108,12 @@ def run_migrations(
     locked = False
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT pg_advisory_lock(%s)", (MIGRATION_ADVISORY_LOCK_KEY,))
+            # BE-L2-020: scope the migration advisory lock by database name so
+            # cross-DB migrations on the same cluster no longer serialise.
+            cur.execute(
+                "SELECT pg_advisory_lock(hashtext(current_database()), %s)",
+                (MIGRATION_ADVISORY_LOCK_KEY,),
+            )
         locked = True
 
         applied_versions = _load_applied_versions(conn)
@@ -137,7 +146,7 @@ def run_migrations(
             try:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT pg_advisory_unlock(%s)",
+                        "SELECT pg_advisory_unlock(hashtext(current_database()), %s)",
                         (MIGRATION_ADVISORY_LOCK_KEY,),
                     )
             except Exception:  # noqa: BLE001 — unlock best-effort on teardown

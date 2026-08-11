@@ -47,3 +47,32 @@ def test_list_pending_migrations_skips_applied() -> None:
     assert "002" not in versions
     if versions:
         assert versions[0] >= "003"
+
+
+def test_v018_backtest_runs_fk_uses_on_delete_cascade() -> None:
+    """BE-L2-001: V018 must rewire the backtest_runs FK to ON DELETE CASCADE."""
+    sql = (DEFAULT_MIGRATIONS_DIR / "V018__backtest_runs_fk_cascade.sql").read_text()
+    lower = sql.lower()
+    assert "backtest_runs_user_id_fkey" in lower
+    assert "on delete cascade" in lower
+    assert "drop constraint" in lower
+
+
+def test_v019_data_gaps_no_overlap_uses_exclude_gist() -> None:
+    """BE-L2-015: V019 must add an EXCLUDE USING gist range constraint."""
+    sql = (DEFAULT_MIGRATIONS_DIR / "V019__data_gaps_no_overlap.sql").read_text()
+    lower = sql.lower()
+    assert "exclude using gist" in lower
+    assert "btree_gist" in lower
+    assert "tstzrange" in lower
+
+
+def test_migrator_advisory_lock_is_scoped_per_database() -> None:
+    """BE-L2-020: advisory lock must be keyed by ``hashtext(current_database())``."""
+    from data.migrations import migrator
+
+    source = __import__("inspect").getsource(migrator)
+    assert "hashtext(current_database())" in source
+    # And explicitly used for both lock and unlock.
+    assert "pg_advisory_lock(hashtext(current_database())" in source
+    assert "pg_advisory_unlock(hashtext(current_database())" in source

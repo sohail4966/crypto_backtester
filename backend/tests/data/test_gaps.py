@@ -137,3 +137,21 @@ def test_reconcile_gaps_ignores_gap_outside_window() -> None:
 
     assert summary.resolved == 0
     gap_repo.mark_gap_resolved.assert_not_called()
+
+
+def test_reconcile_gaps_tolerates_exclusion_violation_race() -> None:
+    """BE-L2-015: an ExclusionViolation on create_gap is a benign race, not a 500."""
+    import psycopg
+
+    candle_repo = MagicMock()
+    candle_repo.find_timestamps.return_value = [_minute(0), _minute(2)]
+    gap_repo = MagicMock()
+    gap_repo.find_open_gaps.return_value = []
+    gap_repo.create_gap.side_effect = psycopg.errors.ExclusionViolation("overlap")
+
+    summary = reconcile_gaps(
+        "BTC/USDT", "1m", _minute(0), _minute(2), candle_repo=candle_repo, gap_repo=gap_repo
+    )
+
+    assert summary.created == 0
+    gap_repo.create_gap.assert_called_once()

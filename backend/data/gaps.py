@@ -17,6 +17,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import psycopg
+
 from data.fetcher import timeframe_to_ms
 from data.repository import CandleRepository, GapRepository
 
@@ -200,8 +202,20 @@ def reconcile_gaps(
             for g in open_gaps
         ):
             continue
-        gap_repo.create_gap(symbol, timeframe, gap_range.start_ts, gap_range.end_ts)
-        created += 1
+        try:
+            gap_repo.create_gap(symbol, timeframe, gap_range.start_ts, gap_range.end_ts)
+            created += 1
+        except psycopg.errors.ExclusionViolation:
+            # BE-L2-015: a concurrent reconciler inserted an overlapping row
+            # between our SELECT and INSERT. The DB constraint enforced the
+            # invariant we wanted; treat as a no-op and move on.
+            logger.debug(
+                "data_gaps_no_open_overlap raced on (%s, %s, %s..%s); skipping insert",
+                symbol,
+                timeframe,
+                gap_range.start_ts,
+                gap_range.end_ts,
+            )
 
     resolved = 0
     for gap in open_gaps:
