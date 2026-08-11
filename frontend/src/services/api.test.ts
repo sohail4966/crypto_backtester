@@ -47,7 +47,12 @@ describe('apiRequest auth failure', () => {
   })
 
   it('notifies auth session on 401 when token present', async () => {
-    localStorage.setItem('auth_token', 'tok')
+    const { setAuthToken, getAuthToken, resetAuthTokenForTests } = await import(
+      '@/services/authToken'
+    )
+    resetAuthTokenForTests()
+    setAuthToken('tok')
+
     const notify = vi.fn()
     vi.doMock('@/services/authSession', () => ({
       notifyAuthFailure: notify,
@@ -77,7 +82,7 @@ describe('apiRequest auth failure', () => {
       code: 'UNAUTHORIZED',
       message: 'Not authorized',
     })
-    expect(localStorage.getItem('auth_token')).toBeNull()
+    expect(getAuthToken()).toBeNull()
     expect(useAuthStore.getState().session).toBe('expired')
   })
 })
