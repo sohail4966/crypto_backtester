@@ -9,6 +9,8 @@ import re
 import time
 from typing import Any
 
+from uuid import UUID
+
 from ai.explain import explain_strategy
 from ai.prompt import build_system_prompt, build_user_prompt
 from ai.providers import LLMProvider, get_provider
@@ -38,6 +40,7 @@ def translate_nl(
     *,
     provider: LLMProvider | None = None,
     store: ClarificationSessionStore | None = None,
+    user_id: UUID | None = None,
 ) -> TranslateOutcome:
     """
     Translate natural language into a validated DSL strategy or clarification.
@@ -46,6 +49,7 @@ def translate_nl(
         text: Free-text strategy description.
         provider: Optional provider override (defaults to ``get_provider()``).
         store: Optional session store override.
+        user_id: Owning user for clarification sessions (BE-020).
 
     Returns:
         ``TranslateOk`` or ``TranslateNeedsClarification``.
@@ -62,7 +66,12 @@ def translate_nl(
     system = build_system_prompt()
     user = build_user_prompt(cleaned)
     raw = _call_provider(llm, system, user)
-    return _interpret_envelope(raw, original_text=cleaned, store=session_store)
+    return _interpret_envelope(
+        raw,
+        original_text=cleaned,
+        store=session_store,
+        user_id=user_id,
+    )
 
 
 def apply_clarification(
@@ -71,6 +80,7 @@ def apply_clarification(
     *,
     provider: LLMProvider | None = None,
     store: ClarificationSessionStore | None = None,
+    user_id: UUID | None = None,
 ) -> TranslateOutcome:
     """
     Apply clarification answers and re-run translation for a session.
@@ -80,6 +90,7 @@ def apply_clarification(
         answers: Map of question id → answer text.
         provider: Optional provider override.
         store: Optional session store override.
+        user_id: Owning user — must match session owner (BE-020).
 
     Returns:
         ``TranslateOk`` or another ``TranslateNeedsClarification``.
@@ -91,7 +102,7 @@ def apply_clarification(
         raise AITranslateError("EMPTY_ANSWERS", "Clarification answers must not be empty")
 
     session_store = store or get_session_store()
-    session = session_store.update_answers(session_id, answers)
+    session = session_store.update_answers(session_id, answers, user_id=user_id)
     if session is None:
         raise AITranslateError("SESSION_NOT_FOUND", f"Unknown or expired session: {session_id}")
 
@@ -108,6 +119,7 @@ def apply_clarification(
         original_text=session.text,
         store=session_store,
         reuse_session_id=session.session_id,
+        user_id=user_id,
     )
     if isinstance(outcome, TranslateOk):
         session_store.delete(session_id)
@@ -128,6 +140,7 @@ def _interpret_envelope(
     original_text: str,
     store: ClarificationSessionStore,
     reuse_session_id: str | None = None,
+    user_id: UUID | None = None,
 ) -> TranslateOutcome:
     """Parse provider JSON, validate strategy, or create a clarification session."""
     payload = _parse_json_envelope(raw)
@@ -145,7 +158,7 @@ def _interpret_envelope(
             {"id": q.id, "prompt": q.prompt, "options": list(q.options)} for q in questions
         ]
         if reuse_session_id:
-            session = store.get(reuse_session_id)
+            session = store.get(reuse_session_id, user_id=user_id)
             if session is None:
                 raise AITranslateError(
                     "SESSION_NOT_FOUND",
@@ -155,7 +168,7 @@ def _interpret_envelope(
             session.updated_at = time.time()
             session_id = reuse_session_id
         else:
-            session = store.create(original_text, question_dicts)
+            session = store.create(original_text, question_dicts, user_id=user_id)
             session_id = session.session_id
         return TranslateNeedsClarification(session_id=session_id, questions=questions)
 

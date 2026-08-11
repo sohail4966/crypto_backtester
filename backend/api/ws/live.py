@@ -7,6 +7,7 @@ Protocol:
     Server → client: subscribed, candle, pong, error
 
 v1 polls TimescaleDB for the latest closed candle per subscription; no exchange stream.
+Requires JWT via ``?token=`` or ``Authorization: Bearer`` (BE-004).
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
+from api.auth import UnauthorizedError
+from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_token, user_from_ws_token
 from api.exceptions import ValidationError
 from api.schemas.candles import Bar
 from api.services.candle_service import CandleService
@@ -38,63 +41,89 @@ async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
     await websocket.send_text(json.dumps(payload, default=str))
 
 
-def _latest_bar(symbol: str, timeframe: str) -> Bar | None:
+def _latest_bars(
+    conn,
+    subscriptions: list[tuple[str, str]],
+) -> dict[tuple[str, str], Bar | None]:
     """
-    Load the latest closed candle for symbol+timeframe.
+    Load latest closed bars for all subscriptions on one shared connection.
 
-    Returns:
-        Bar or None when empty / invalid.
+    Groups by timeframe and uses ``WHERE symbol = ANY(%)`` for ``1m`` (G-009).
     """
-    conn = connect()
-    try:
+    results: dict[tuple[str, str], Bar | None] = {}
+    by_tf: dict[str, list[str]] = {}
+    for symbol, timeframe in subscriptions:
         try:
             validate_timeframe(timeframe)
         except ValueError as exc:
             raise ValidationError("INVALID_TIMEFRAME", str(exc)) from exc
-        response = _candles.get_latest_candles(conn, symbol, timeframe, limit=1)
-        if not response.bars:
-            return None
-        return response.bars[-1]
-    finally:
-        conn.close()
+        by_tf.setdefault(timeframe, []).append(symbol)
+
+    for timeframe, symbols in by_tf.items():
+        batch = _candles.get_latest_candles_batch(conn, symbols, timeframe)
+        for symbol, bar in batch.items():
+            results[(symbol, timeframe)] = bar
+    return results
 
 
 @router.websocket("/ws/live")
-async def live_candles_ws(websocket: WebSocket) -> None:
+async def live_candles_ws(websocket: WebSocket, token: str | None = None) -> None:
     """
     Subscribe to latest closed candle updates for one or more symbols.
 
     Polls the DB on ``LIVE_WS_POLL_INTERVAL_MS`` and pushes ``candle`` when
-    the latest bar ``time`` changes.
+    the latest bar ``time`` changes. Auth required (BE-004).
     """
+    raw_token = resolve_ws_token(websocket, token)
+    if not raw_token:
+        await websocket.close(code=4401, reason="UNAUTHORIZED")
+        return
+    try:
+        user = user_from_ws_token(raw_token)
+    except UnauthorizedError:
+        await websocket.close(code=4401, reason="UNAUTHORIZED")
+        return
+
+    try:
+        acquire_ws_slot(user.id)
+    except ValidationError as exc:
+        await websocket.close(code=4429, reason=exc.code)
+        return
+
     await websocket.accept()
 
     # (symbol, timeframe) → last pushed bar time
     last_times: dict[tuple[str, str], int | None] = {}
     timeframe = "1m"
     poll_s = max(0.25, settings.live_ws_poll_interval_ms() / 1000.0)
+    # One shared DB connection for the socket lifetime (BE-019).
+    db_conn = connect()
 
     async def poll_once() -> None:
         """Poll all subscriptions and push changed candles."""
-        for key in list(last_times.keys()):
-            symbol, tf = key
-            try:
-                bar = await asyncio.to_thread(_latest_bar, symbol, tf)
-            except ValidationError as exc:
-                await _send_json(websocket, _error_event(exc.code, exc.message))
-                continue
-            except Exception as exc:  # noqa: BLE001 — surface to client, keep loop
-                await _send_json(
-                    websocket,
-                    _error_event("LIVE_POLL_FAILED", str(exc)),
-                )
-                continue
+        keys = list(last_times.keys())
+        if not keys:
+            return
+        try:
+            bars = await asyncio.to_thread(_latest_bars, db_conn, keys)
+        except ValidationError as exc:
+            await _send_json(websocket, _error_event(exc.code, exc.message))
+            return
+        except Exception as exc:  # noqa: BLE001 — surface to client, keep loop
+            await _send_json(
+                websocket,
+                _error_event("LIVE_POLL_FAILED", str(exc)),
+            )
+            return
+
+        for key, bar in bars.items():
             if bar is None:
                 continue
             prev = last_times.get(key)
             if prev == bar.time:
                 continue
             last_times[key] = bar.time
+            symbol, tf = key
             await _send_json(
                 websocket,
                 {
@@ -152,7 +181,6 @@ async def live_candles_ws(websocket: WebSocket) -> None:
                         "timeframe": timeframe,
                     },
                 )
-                # Push current latest immediately
                 await poll_once()
                 continue
 
@@ -178,3 +206,9 @@ async def live_candles_ws(websocket: WebSocket) -> None:
             )
     except WebSocketDisconnect:
         return
+    finally:
+        try:
+            db_conn.close()
+        except Exception:
+            pass
+        release_ws_slot(user.id)

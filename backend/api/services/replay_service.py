@@ -32,6 +32,8 @@ class ReplayService:
         self,
         conn: psycopg.Connection,
         body: ReplaySessionCreate,
+        *,
+        user_id: UUID,
     ) -> ReplayEngine:
         """
         Create a DB-backed replay session with initial buffer.
@@ -39,48 +41,57 @@ class ReplayService:
         Args:
             conn: Database connection.
             body: Open-ended session configuration.
+            user_id: Owning user from JWT (BE-006).
 
         Returns:
             Engine with buffer loaded; connect WS at returned ``ws_url``.
         """
-        return self._store.create(conn, body)
+        return self._store.create(conn, body, user_id=user_id)
 
-    def require_session(self, conn: psycopg.Connection, session_id: UUID) -> None:
+    def require_session(
+        self,
+        conn: psycopg.Connection,
+        session_id: UUID,
+        *,
+        user_id: UUID | None = None,
+    ) -> None:
         """
-        Ensure a replay session row exists in the database.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
+        Ensure a replay session row exists (and optionally is owned by ``user_id``).
 
         Raises:
-            NotFoundError: When the session does not exist.
+            NotFoundError: When the session does not exist or ownership mismatches
+                (404 to avoid existence leak — BE-006).
         """
-        self._store.get_row(conn, session_id)
+        row = self._store.get_row(conn, session_id)
+        if user_id is not None and row.user_id != user_id:
+            raise NotFoundError("REPLAY_NOT_FOUND", f"Unknown replay session: {session_id}")
 
-    def get_engine(self, conn: psycopg.Connection, session_id: UUID) -> ReplayEngine:
+    def get_engine(
+        self,
+        conn: psycopg.Connection,
+        session_id: UUID,
+        *,
+        user_id: UUID | None = None,
+    ) -> ReplayEngine:
         """
         Return the replay engine for a session.
 
         Rebuilds buffer from DB when cache was evicted.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-
-        Returns:
-            Live engine for stepping and state queries.
         """
+        if user_id is not None:
+            self.require_session(conn, session_id, user_id=user_id)
         return self._store.get_engine(conn, session_id)
 
-    def delete_session(self, conn: psycopg.Connection, session_id: UUID) -> None:
-        """
-        Tear down a session (database row + memory cache).
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-        """
+    def delete_session(
+        self,
+        conn: psycopg.Connection,
+        session_id: UUID,
+        *,
+        user_id: UUID | None = None,
+    ) -> None:
+        """Tear down a session (database row + memory cache)."""
+        if user_id is not None:
+            self.require_session(conn, session_id, user_id=user_id)
         self._store.delete(conn, session_id)
 
     def to_state_response(self, engine: ReplayEngine) -> ReplayStateResponse:

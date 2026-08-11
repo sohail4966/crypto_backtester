@@ -4,22 +4,24 @@ Tests for replay engine tick batches and indicator precompute.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pandas as pd
+import pytest
 
-from api.repositories.replay_repository import ReplaySessionRow
+from api.exceptions import ValidationError
+from api.repositories.replay_repository import ReplaySessionRow, _row_to_session
 from api.schemas.indicators import IndicatorSpec
 from api.schemas.replay import ReplaySessionCreate
 from api.services.replay_session_store import ReplaySessionStore
 
 
 def _row(session_id) -> ReplaySessionRow:
-    from datetime import UTC, datetime
-
     return ReplaySessionRow(
         session_id=session_id,
+        user_id=uuid4(),
         symbol="BTC/USDT",
         timeframe="1d",
         step_timeframe="1d",
@@ -45,21 +47,22 @@ def test_replay_step_emits_tick_batch_indicators(
     sample_candles_df: pd.DataFrame,
 ) -> None:
     """Tick batch indicators come from precomputed buffer, not prefix recompute."""
-    session_id = uuid4()
-    from api.repositories.replay_repository import _row_to_session
     import json
-    from datetime import UTC, datetime
 
+    session_id = uuid4()
+    user_id = uuid4()
     now = datetime(2024, 1, 1, tzinfo=UTC)
     indicators = json.dumps([{"key": "SMA", "params": {"period": 2}}])
+    start = int(sample_candles_df["ts"].iloc[0].timestamp())
     mock_insert.return_value = _row_to_session(
         (
             session_id,
+            user_id,
             "BTC/USDT",
             "1d",
             "1d",
-            int(sample_candles_df["ts"].iloc[0].timestamp()),
-            int(sample_candles_df["ts"].iloc[0].timestamp()) - 86400,
+            start,
+            start - 86400,
             indicators,
             1.0,
             "paused",
@@ -69,7 +72,7 @@ def test_replay_step_emits_tick_batch_indicators(
     )
     mock_load.return_value = sample_candles_df
     latest = int(sample_candles_df["ts"].iloc[-1].timestamp())
-    mock_range.return_value = (int(sample_candles_df["ts"].iloc[0].timestamp()), latest, 5)
+    mock_range.return_value = (start, latest, 5)
 
     store = ReplaySessionStore()
     conn = MagicMock()
@@ -78,10 +81,11 @@ def test_replay_step_emits_tick_batch_indicators(
         ReplaySessionCreate(
             symbol="BTC/USDT",
             timeframe="1d",
-            start=int(sample_candles_df["ts"].iloc[0].timestamp()),
+            start=start,
             indicators=[IndicatorSpec(key="SMA", params={"period": 2})],
             step_timeframe="1d",
         ),
+        user_id=user_id,
     )
 
     ticks, _ = engine.step_batch(conn, count=2)
@@ -103,16 +107,27 @@ def test_replay_seek_out_of_range(
 ) -> None:
     """Seek before start anchor raises validation error."""
     import json
-    from datetime import UTC, datetime
-
-    from api.repositories.replay_repository import _row_to_session
 
     session_id = uuid4()
+    user_id = uuid4()
     now = datetime(2024, 1, 1, tzinfo=UTC)
     start = int(sample_candles_df["ts"].iloc[0].timestamp())
     indicators = json.dumps([])
     mock_insert.return_value = _row_to_session(
-        (session_id, "BTC/USDT", "1d", "1d", start, start - 86400, indicators, 1.0, "paused", now, now)
+        (
+            session_id,
+            user_id,
+            "BTC/USDT",
+            "1d",
+            "1d",
+            start,
+            start - 86400,
+            indicators,
+            1.0,
+            "paused",
+            now,
+            now,
+        )
     )
     mock_load.return_value = sample_candles_df
     latest = int(sample_candles_df["ts"].iloc[-1].timestamp())
@@ -123,11 +138,8 @@ def test_replay_seek_out_of_range(
     engine = store.create(
         conn,
         ReplaySessionCreate(symbol="BTC/USDT", timeframe="1d", start=start, step_timeframe="1d"),
+        user_id=user_id,
     )
-
-    import pytest
-
-    from api.exceptions import ValidationError
 
     with pytest.raises(ValidationError):
         engine.seek(conn, 1)

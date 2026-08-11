@@ -28,13 +28,13 @@ WHERE symbol = %s
 
 INSERT_USER = """
 INSERT INTO app.users (name, email)
-VALUES (%s, %s)
+VALUES (%s, lower(%s))
 RETURNING id, name, email, password_hash, created_at, updated_at
 """
 
 INSERT_USER_WITH_PASSWORD = """
 INSERT INTO app.users (name, email, password_hash)
-VALUES (%s, %s, %s)
+VALUES (%s, lower(%s), %s)
 RETURNING id, name, email, password_hash, created_at, updated_at
 """
 
@@ -54,7 +54,7 @@ WHERE id = %s
 SELECT_USER_BY_EMAIL = """
 SELECT id, name, email, password_hash, created_at, updated_at
 FROM app.users
-WHERE email = %s
+WHERE lower(email) = lower(%s)
 """
 
 UPDATE_USER = """
@@ -115,6 +115,45 @@ CLEAR_DEFAULT_WATCHLISTS = """
 UPDATE app.watchlists SET is_default = FALSE WHERE user_id = %s
 """
 
+# Atomic set-default: update target first, clear other defaults only if target matched (BE-013).
+SET_DEFAULT_WATCHLIST = """
+WITH target AS (
+    UPDATE app.watchlists
+    SET name = COALESCE(%s, name),
+        is_default = TRUE,
+        sort_order = COALESCE(%s, sort_order)
+    WHERE id = %s AND user_id = %s
+    RETURNING id, user_id, name, is_default, sort_order, created_at
+), cleared AS (
+    UPDATE app.watchlists w
+    SET is_default = FALSE
+    FROM target t
+    WHERE w.user_id = t.user_id
+      AND w.id <> t.id
+      AND w.is_default = TRUE
+)
+SELECT id, user_id, name, is_default, sort_order, created_at FROM target
+"""
+
+INSERT_REPLAY_SESSION_V2 = """
+INSERT INTO app.replay_sessions (
+    session_id, user_id, symbol, timeframe, step_timeframe,
+    start_anchor, cursor_ts, indicators, speed, state
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+RETURNING session_id, user_id, symbol, timeframe, step_timeframe,
+          start_anchor, cursor_ts, indicators, speed, state,
+          created_at, updated_at
+"""
+
+SELECT_REPLAY_SESSION_V2 = """
+SELECT session_id, user_id, symbol, timeframe, step_timeframe,
+       start_anchor, cursor_ts, indicators, speed, state,
+       created_at, updated_at
+FROM app.replay_sessions
+WHERE session_id = %s
+"""
+
 SELECT_WATCHLIST_SYMBOLS = """
 SELECT symbol
 FROM app.watchlist_symbols
@@ -133,17 +172,17 @@ VALUES (%s, %s, %s)
 
 INSERT_REPLAY_SESSION = """
 INSERT INTO app.replay_sessions (
-    session_id, symbol, timeframe, step_timeframe,
+    session_id, user_id, symbol, timeframe, step_timeframe,
     start_anchor, cursor_ts, indicators, speed, state
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-RETURNING session_id, symbol, timeframe, step_timeframe,
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+RETURNING session_id, user_id, symbol, timeframe, step_timeframe,
           start_anchor, cursor_ts, indicators, speed, state,
           created_at, updated_at
 """
 
 SELECT_REPLAY_SESSION = """
-SELECT session_id, symbol, timeframe, step_timeframe,
+SELECT session_id, user_id, symbol, timeframe, step_timeframe,
        start_anchor, cursor_ts, indicators, speed, state,
        created_at, updated_at
 FROM app.replay_sessions
@@ -157,7 +196,7 @@ SET cursor_ts = %s,
     state = %s,
     updated_at = NOW()
 WHERE session_id = %s
-RETURNING session_id, symbol, timeframe, step_timeframe,
+RETURNING session_id, user_id, symbol, timeframe, step_timeframe,
           start_anchor, cursor_ts, indicators, speed, state,
           created_at, updated_at
 """
@@ -167,7 +206,7 @@ UPDATE app.replay_sessions
 SET indicators = %s::jsonb,
     updated_at = NOW()
 WHERE session_id = %s
-RETURNING session_id, symbol, timeframe, step_timeframe,
+RETURNING session_id, user_id, symbol, timeframe, step_timeframe,
           start_anchor, cursor_ts, indicators, speed, state,
           created_at, updated_at
 """
@@ -204,22 +243,22 @@ INSERT_SCAN_RUN = """
 INSERT INTO app.scan_runs (
     scan_id, timeframes, symbols, start_ts, end_ts,
     condition_config, alert_trigger, matches, alert_count, duration_ms,
-    status, error_message
+    status, error_message, user_id
 )
 VALUES (
     %s, %s, %s, %s, %s,
     %s::jsonb, %s, %s::jsonb, %s, %s,
-    %s, %s
+    %s, %s, %s
 )
 RETURNING scan_id, timeframes, symbols, start_ts, end_ts,
           condition_config, alert_trigger, matches, alert_count, duration_ms,
-          status, error_message, created_at
+          status, error_message, user_id, created_at
 """
 
 SELECT_SCAN_RUN = """
 SELECT scan_id, timeframes, symbols, start_ts, end_ts,
        condition_config, alert_trigger, matches, alert_count, duration_ms,
-       status, error_message, created_at
+       status, error_message, user_id, created_at
 FROM app.scan_runs
 WHERE scan_id = %s
 """

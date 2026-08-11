@@ -18,9 +18,9 @@ def _force_mock_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     reset_ai_service()
 
 
-def test_post_translate_ok(client: TestClient) -> None:
+def test_post_translate_ok(authed_client: TestClient) -> None:
     """POST /ai/translate returns a validated strategy."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/ai/translate",
         json={"text": "buy when daily RSI is oversold and price above 200 SMA"},
     )
@@ -31,16 +31,16 @@ def test_post_translate_ok(client: TestClient) -> None:
     assert "explanation" in body
 
 
-def test_post_translate_clarify_then_clarify(client: TestClient) -> None:
+def test_post_translate_clarify_then_clarify(authed_client: TestClient) -> None:
     """Ambiguous translate → clarify → ok."""
-    first = client.post("/api/v1/ai/translate", json={"text": "buy when RSI is low"})
+    first = authed_client.post("/api/v1/ai/translate", json={"text": "buy when RSI is low"})
     assert first.status_code == 200
     payload = first.json()
     assert payload["status"] == "needs_clarification"
     session_id = payload["session_id"]
     assert payload["questions"]
 
-    second = client.post(
+    second = authed_client.post(
         "/api/v1/ai/clarify",
         json={
             "session_id": session_id,
@@ -53,16 +53,16 @@ def test_post_translate_clarify_then_clarify(client: TestClient) -> None:
     assert done["strategy"]["entry"]["value"] == 30.0
 
 
-def test_post_translate_invalid_dsl(client: TestClient) -> None:
+def test_post_translate_invalid_dsl(authed_client: TestClient) -> None:
     """Mock INVALID: path returns 422 INVALID_DSL."""
-    response = client.post("/api/v1/ai/translate", json={"text": "INVALID: broken"})
+    response = authed_client.post("/api/v1/ai/translate", json={"text": "INVALID: broken"})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "INVALID_DSL"
 
 
-def test_post_clarify_unknown_session(client: TestClient) -> None:
+def test_post_clarify_unknown_session(authed_client: TestClient) -> None:
     """Unknown session → 404."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/ai/clarify",
         json={"session_id": "does-not-exist", "answers": {"a": "1"}},
     )
@@ -70,9 +70,9 @@ def test_post_clarify_unknown_session(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
 
 
-def test_post_explain(client: TestClient) -> None:
+def test_post_explain(authed_client: TestClient) -> None:
     """POST /ai/explain returns English for a valid strategy."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/ai/explain",
         json={
             "strategy": {
@@ -96,9 +96,9 @@ def test_post_explain(client: TestClient) -> None:
     assert "RSI" in response.json()["explanation"]
 
 
-def test_post_explain_invalid(client: TestClient) -> None:
+def test_post_explain_invalid(authed_client: TestClient) -> None:
     """Invalid strategy on explain → 422."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/ai/explain",
         json={"strategy": {"entry": {"not_a_valid_leaf": True}}},
     )

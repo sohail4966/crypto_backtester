@@ -55,12 +55,15 @@ class WatchlistRepository:
         name: str,
         is_default: bool = False,
         sort_order: int = 0,
+        *,
+        commit: bool = True,
     ) -> WatchlistRow:
         """Insert a watchlist header row."""
         with conn.cursor() as cur:
             cur.execute(queries.INSERT_WATCHLIST, (user_id, name, is_default, sort_order))
             row = cur.fetchone()
-            conn.commit()
+            if commit:
+                conn.commit()
             assert row is not None
             return _row_to_watchlist(row)
 
@@ -92,27 +95,49 @@ class WatchlistRepository:
         name: str | None,
         is_default: bool | None,
         sort_order: int | None,
+        *,
+        commit: bool = True,
     ) -> WatchlistRow | None:
-        """Patch watchlist metadata."""
-        if is_default:
-            with conn.cursor() as cur:
-                cur.execute(queries.CLEAR_DEFAULT_WATCHLISTS, (user_id,))
+        """
+        Patch watchlist metadata.
+
+        When setting ``is_default=True``, uses an atomic CTE so a missed update
+        cannot clear all defaults (BE-013).
+        """
         with conn.cursor() as cur:
-            cur.execute(
-                queries.UPDATE_WATCHLIST,
-                (name, is_default, sort_order, watchlist_id, user_id),
-            )
+            if is_default:
+                cur.execute(
+                    queries.SET_DEFAULT_WATCHLIST,
+                    (name, sort_order, watchlist_id, user_id),
+                )
+            else:
+                cur.execute(
+                    queries.UPDATE_WATCHLIST,
+                    (name, is_default, sort_order, watchlist_id, user_id),
+                )
             row = cur.fetchone()
-            conn.commit()
+            if commit:
+                if row is None:
+                    conn.rollback()
+                else:
+                    conn.commit()
             if row is None:
                 return None
             return _row_to_watchlist(row)
 
-    def delete(self, conn: psycopg.Connection, user_id: UUID, watchlist_id: UUID) -> bool:
+    def delete(
+        self,
+        conn: psycopg.Connection,
+        user_id: UUID,
+        watchlist_id: UUID,
+        *,
+        commit: bool = True,
+    ) -> bool:
         """Delete a watchlist."""
         with conn.cursor() as cur:
             cur.execute(queries.DELETE_WATCHLIST, (watchlist_id, user_id))
-            conn.commit()
+            if commit:
+                conn.commit()
             return cur.rowcount > 0
 
     def get_symbols(self, conn: psycopg.Connection, watchlist_id: UUID) -> list[str]:
@@ -126,10 +151,13 @@ class WatchlistRepository:
         conn: psycopg.Connection,
         watchlist_id: UUID,
         symbols: list[str],
+        *,
+        commit: bool = True,
     ) -> None:
         """Replace all symbols in a watchlist."""
         with conn.cursor() as cur:
             cur.execute(queries.DELETE_WATCHLIST_SYMBOLS, (watchlist_id,))
             for index, symbol in enumerate(symbols):
                 cur.execute(queries.INSERT_WATCHLIST_SYMBOL, (watchlist_id, symbol, index))
-            conn.commit()
+            if commit:
+                conn.commit()

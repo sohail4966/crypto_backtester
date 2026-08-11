@@ -1,17 +1,9 @@
 """
 Bar replay WebSocket handler (v2 — client-owned playback clock).
 
-Protocol summary:
-
-    Client → server: play, pause, step, seek, set_speed, set_indicators,
-                     get_state, refill
-
-    Server → client: replay_state, snapshot, tick_batch, buffer_loading,
-                     buffer_ready, buffer_reset, replay_completed, error
-
-The client owns playback timing (``intervalMs = max(50, 1000 / speed)``).
-The server pre-slices ``tick_batch`` messages; ``refill`` requests more ticks
-when the client queue drops below ``REPLAY_TICK_REFILL_THRESHOLD``.
+Requires JWT via ``?token=`` or Authorization header; session must be owned by
+the subject (BE-006). DB connections are opened per critical section, not for
+the full socket lifetime (BE-018).
 """
 
 from __future__ import annotations
@@ -23,6 +15,8 @@ from uuid import UUID
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
+from api.auth import UnauthorizedError
+from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_token, user_from_ws_token
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.schemas.indicators import IndicatorSpec
 from api.services.replay_engine import ReplayEngine
@@ -31,24 +25,19 @@ from data.db import connect
 
 router = APIRouter()
 
-# Application-defined close code when ``session_id`` is unknown (see PHASE_4C_HLD).
+# Distinct application close codes (G-002) — document for FE:
+#   4401 UNAUTHORIZED — missing/invalid JWT (clear session / AuthGate)
+#   4402 SUPERSEDED   — same session opened in another tab (amber path, keep auth)
+#   4404 NOT_FOUND    — session missing or not owned
+WS_UNAUTHORIZED = 4401
+WS_SUPERSEDED = 4402
 WS_REPLAY_NOT_FOUND = 4404
 
-# Last connection per session wins; prior socket receives SUPERSEDED + close.
 _active_connections: dict[UUID, WebSocket] = {}
 
 
 def _error_event(code: str, message: str) -> dict[str, Any]:
-    """
-    Build a WS ``error`` event payload.
-
-    Args:
-        code: Machine-readable error code.
-        message: Human-readable description.
-
-    Returns:
-        JSON-serializable error event.
-    """
+    """Build a WS ``error`` event payload."""
     return {"type": "error", "code": code, "message": message}
 
 
@@ -58,16 +47,7 @@ async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
 
 
 def _replay_state_payload(service: ReplayService, engine: ReplayEngine) -> dict[str, Any]:
-    """
-    Build a ``replay_state`` event with camelCase field names.
-
-    Args:
-        service: Replay service for state serialization.
-        engine: Live replay engine.
-
-    Returns:
-        JSON-serializable state event.
-    """
+    """Build a ``replay_state`` event with camelCase field names."""
     return {
         "type": "replay_state",
         **service.to_state_response(engine).model_dump(by_alias=True, mode="json"),
@@ -79,14 +59,7 @@ async def _emit_extend_events(
     engine: ReplayEngine,
     extend_status: str,
 ) -> None:
-    """
-    Emit buffer lifecycle events after a step batch.
-
-    Args:
-        websocket: Client connection.
-        engine: Engine after ``step_batch``.
-        extend_status: Result from extend logic (``ready``, ``completed``, etc.).
-    """
+    """Emit buffer lifecycle events after a step batch."""
     if extend_status == "ready":
         await _send_json(
             websocket,
@@ -106,20 +79,7 @@ async def _send_tick_batch(
     conn,
     count: int | None = None,
 ) -> str:
-    """
-    Advance the engine and emit a ``tick_batch`` (and extend events).
-
-    Emits ``buffer_loading`` before extend when cursor nears prefetch edge.
-
-    Args:
-        websocket: Client connection.
-        engine: Live replay engine.
-        conn: Database connection for forward extend.
-        count: Max ticks to slice (default: ``REPLAY_TICK_BATCH_SIZE``).
-
-    Returns:
-        Extend status after the batch (``ready``, ``completed``, ``none``, ...).
-    """
+    """Advance the engine and emit a ``tick_batch`` (and extend events)."""
     if engine.buffer.needs_extend(settings.replay_extend_threshold()):
         await _send_json(websocket, {"type": "buffer_loading"})
     ticks, extend_status = engine.step_batch(conn, count=count)
@@ -129,42 +89,45 @@ async def _send_tick_batch(
 
 
 @router.websocket("/ws/replay/{session_id}")
-async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
+async def replay_websocket(
+    websocket: WebSocket,
+    session_id: UUID,
+    token: str | None = None,
+) -> None:
     """
     WebSocket v2 replay control plane for one session.
 
-    On connect: sends ``replay_state`` then ``snapshot``. If session was
-    created with ``autoplay``, also sends the first ``tick_batch``.
-
-    Client actions:
-        - ``play`` — set playing; send initial ``tick_batch``
-        - ``pause`` — pause and checkpoint cursor
-        - ``step`` — manual advance (optional ``count``)
-        - ``refill`` — top up client tick queue during playback (full batch)
-        - ``seek`` — jump to ``to`` unix timestamp
-        - ``set_speed`` — update speed multiplier
-        - ``set_indicators`` — reload buffer with new overlays
-        - ``get_state`` — return current ``replay_state``
-
-    Concurrent connections: last connection wins; prior gets ``SUPERSEDED``.
-
-    Args:
-        websocket: Client WebSocket.
-        session_id: Replay session UUID from ``POST /replay/sessions``.
+    Auth: ``?token=`` or ``Authorization: Bearer``; ownership enforced (BE-006).
     """
     service = get_replay_service()
+    raw_token = resolve_ws_token(websocket, token)
+    if not raw_token:
+        await websocket.close(code=WS_UNAUTHORIZED, reason="UNAUTHORIZED")
+        return
+    try:
+        user = user_from_ws_token(raw_token)
+    except UnauthorizedError:
+        await websocket.close(code=WS_UNAUTHORIZED, reason="UNAUTHORIZED")
+        return
+
     try:
         with connect() as conn:
-            service.require_session(conn, session_id)
+            service.require_session(conn, session_id, user_id=user.id)
     except NotFoundError:
         await websocket.close(code=WS_REPLAY_NOT_FOUND, reason="REPLAY_NOT_FOUND")
+        return
+
+    try:
+        acquire_ws_slot(user.id)
+    except ValidationError as exc:
+        await websocket.close(code=4429, reason=exc.code)
         return
 
     prior = _active_connections.get(session_id)
     if prior is not None:
         try:
             await _send_json(prior, _error_event("SUPERSEDED", "A newer connection replaced this session"))
-            await prior.close(code=4401)
+            await prior.close(code=WS_SUPERSEDED, reason="SUPERSEDED")
         except Exception:
             pass
 
@@ -173,7 +136,7 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
 
     try:
         with connect() as conn:
-            engine = service.get_engine(conn, session_id)
+            engine = service.get_engine(conn, session_id, user_id=user.id)
             await _send_json(websocket, _replay_state_payload(service, engine))
             await _send_json(websocket, engine.snapshot_payload())
             if service.consume_autoplay(session_id):
@@ -182,11 +145,18 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
                 await _send_tick_batch(websocket, engine, conn)
                 service.checkpoint(conn, session_id)
 
-            while True:
-                raw = await websocket.receive_text()
+        while True:
+            raw = await websocket.receive_text()
+            try:
                 payload = json.loads(raw)
-                action = payload.get("action")
-                engine = service.get_engine(conn, session_id)
+            except json.JSONDecodeError:
+                await _send_json(websocket, _error_event("INVALID_JSON", "Expected JSON"))
+                continue
+
+            action = payload.get("action")
+
+            with connect() as conn:
+                engine = service.get_engine(conn, session_id, user_id=user.id)
 
                 if action == "play":
                     speed = payload.get("speed")
@@ -265,7 +235,7 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
                     await _send_json(websocket, _replay_state_payload(service, engine))
                     continue
 
-                await _send_json(websocket, _error_event("INVALID_ACTION", f"Unknown action: {action}"))
+            await _send_json(websocket, _error_event("INVALID_ACTION", f"Unknown action: {action}"))
 
     except WebSocketDisconnect:
         pass
@@ -279,6 +249,7 @@ async def replay_websocket(websocket: WebSocket, session_id: UUID) -> None:
     finally:
         if _active_connections.get(session_id) is websocket:
             del _active_connections[session_id]
+        release_ws_slot(user.id)
         try:
             with connect() as conn:
                 service.checkpoint(conn, session_id, force=True)

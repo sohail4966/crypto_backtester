@@ -60,10 +60,10 @@ def test_list_strategies(client: TestClient) -> None:
 
 
 @patch("api.deps.connect")
-def test_post_backtest_xor_both_rejected(mock_connect: MagicMock, client: TestClient) -> None:
+def test_post_backtest_xor_both_rejected(mock_connect: MagicMock, authed_client: TestClient) -> None:
     """Both strategy_name and strategy → 422."""
     mock_connect.return_value = MagicMock()
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/backtest",
         json={
             "symbol": "BTC/USDT",
@@ -78,10 +78,10 @@ def test_post_backtest_xor_both_rejected(mock_connect: MagicMock, client: TestCl
 
 
 @patch("api.deps.connect")
-def test_post_backtest_xor_neither_rejected(mock_connect: MagicMock, client: TestClient) -> None:
+def test_post_backtest_xor_neither_rejected(mock_connect: MagicMock, authed_client: TestClient) -> None:
     """Neither strategy field → 422."""
     mock_connect.return_value = MagicMock()
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/backtest",
         json={
             "symbol": "BTC/USDT",
@@ -98,7 +98,7 @@ def test_post_backtest_xor_neither_rejected(mock_connect: MagicMock, client: Tes
 def test_post_backtest_no_candles(
     mock_connect: MagicMock,
     mock_get_candles: MagicMock,
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     """Empty candle window → 422 NO_CANDLES."""
     mock_connect.return_value = MagicMock()
@@ -109,7 +109,7 @@ def test_post_backtest_no_candles(
         "api.repositories.symbol_repository.SymbolRepository.get_symbol",
         return_value=symbol_row,
     ):
-        response = client.post(
+        response = authed_client.post(
             "/api/v1/backtest",
             json={
                 "symbol": "BTC/USDT",
@@ -130,7 +130,7 @@ def test_post_backtest_inline_strategy(
     mock_connect: MagicMock,
     mock_get_candles: MagicMock,
     mock_insert: MagicMock,
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     """POST /backtest with inline strategy runs engine and persists."""
     mock_connect.return_value = MagicMock()
@@ -167,7 +167,7 @@ def test_post_backtest_inline_strategy(
         "api.repositories.symbol_repository.SymbolRepository.get_symbol",
         return_value=symbol_row,
     ):
-        response = client.post(
+        response = authed_client.post(
             "/api/v1/backtest",
             json={
                 "symbol": "BTC/USDT",
@@ -200,11 +200,11 @@ def test_post_backtest_inline_strategy(
 
 @patch("api.services.backtest_service.BacktestRepository.get")
 @patch("api.deps.connect")
-def test_get_backtest_404(mock_connect: MagicMock, mock_get: MagicMock, client: TestClient) -> None:
+def test_get_backtest_404(mock_connect: MagicMock, mock_get: MagicMock, authed_client: TestClient) -> None:
     """Unknown run → 404 RUN_NOT_FOUND."""
     mock_connect.return_value = MagicMock()
     mock_get.return_value = None
-    response = client.get(f"/api/v1/backtest/{uuid4()}")
+    response = authed_client.get(f"/api/v1/backtest/{uuid4()}")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
 
@@ -214,9 +214,9 @@ def test_get_backtest_404(mock_connect: MagicMock, mock_get: MagicMock, client: 
 def test_get_backtest_trades(
     mock_connect: MagicMock,
     mock_get: MagicMock,
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
-    """GET /backtest/{id}/trades returns detail log."""
+    """Null-owner run is treated as not found (G-004)."""
     mock_connect.return_value = MagicMock()
     run_id = uuid4()
     now = datetime(2024, 1, 1, tzinfo=UTC)
@@ -261,12 +261,113 @@ def test_get_backtest_trades(
         user_id=None,
         created_at=now,
     )
-    response = client.get(f"/api/v1/backtest/{run_id}/trades")
+    response = authed_client.get(f"/api/v1/backtest/{run_id}/trades")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
+
+
+@patch("api.services.backtest_service.BacktestRepository.get")
+@patch("api.deps.connect")
+def test_get_backtest_trades_owner_ok(
+    mock_connect: MagicMock,
+    mock_get: MagicMock,
+    authed_client: TestClient,
+    auth_user,
+) -> None:
+    """GET /backtest/{id}/trades returns detail log for the owning user."""
+    mock_connect.return_value = MagicMock()
+    run_id = uuid4()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_get.return_value = BacktestRunRow(
+        run_id=run_id,
+        symbol="BTC/USDT",
+        timeframe="1d",
+        start_ts=1704067200,
+        end_ts=1706745600,
+        initial_capital=10000.0,
+        strategy_name=None,
+        strategy_config={},
+        backtest_config={},
+        metrics={
+            "total_return": 0.1,
+            "win_rate": 1.0,
+            "max_drawdown": 0.0,
+            "trade_count": 1,
+            "forced_close": False,
+            "final_capital": 11000.0,
+            "initial_capital": 10000.0,
+        },
+        trades=[
+            {
+                "entry_time": 1704153600,
+                "exit_time": 1704240000,
+                "entry_price": 100.0,
+                "exit_price": 110.0,
+                "side": "long",
+                "exit_reason": "signal",
+                "forced_close": False,
+                "return_pct": 10.0,
+                "size": 10000.0,
+                "commission_paid": 0.0,
+                "pnl_quote": 1000.0,
+            }
+        ],
+        signals=[],
+        equity=[],
+        status="completed",
+        error_message=None,
+        user_id=auth_user.id,
+        created_at=now,
+    )
+    response = authed_client.get(f"/api/v1/backtest/{run_id}/trades")
     assert response.status_code == 200
     body = response.json()
     assert body["run_id"] == str(run_id)
     assert len(body["trades"]) == 1
     assert body["trades"][0]["side"] == "long"
+
+
+@patch("api.services.backtest_service.BacktestRepository.get")
+@patch("api.deps.connect")
+def test_get_backtest_ownership_mismatch_404(
+    mock_connect: MagicMock,
+    mock_get: MagicMock,
+    authed_client: TestClient,
+) -> None:
+    """Another user's run id returns RUN_NOT_FOUND (G-004)."""
+    mock_connect.return_value = MagicMock()
+    run_id = uuid4()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_get.return_value = BacktestRunRow(
+        run_id=run_id,
+        symbol="BTC/USDT",
+        timeframe="1d",
+        start_ts=1704067200,
+        end_ts=1706745600,
+        initial_capital=10000.0,
+        strategy_name=None,
+        strategy_config={},
+        backtest_config={},
+        metrics={
+            "total_return": 0.0,
+            "win_rate": 0.0,
+            "max_drawdown": 0.0,
+            "trade_count": 0,
+            "forced_close": False,
+            "final_capital": 10000.0,
+            "initial_capital": 10000.0,
+        },
+        trades=[],
+        signals=[],
+        equity=[],
+        status="completed",
+        error_message=None,
+        user_id=uuid4(),
+        created_at=now,
+    )
+    response = authed_client.get(f"/api/v1/backtest/{run_id}")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
 
 
 @patch("api.services.chart_data_service.CandleService.get_candles")
@@ -276,9 +377,10 @@ def test_chart_data_with_run_id_overlays(
     mock_connect: MagicMock,
     mock_get_run: MagicMock,
     mock_candles: MagicMock,
-    client: TestClient,
+    authed_client: TestClient,
+    auth_user,
 ) -> None:
-    """chart-data with runId + flags returns filtered markers."""
+    """chart-data with runId + flags returns filtered markers for the owner."""
     from api.schemas.candles import Bar, CandlesResponse
 
     mock_connect.return_value = MagicMock()
@@ -326,7 +428,7 @@ def test_chart_data_with_run_id_overlays(
         equity=[],
         status="completed",
         error_message=None,
-        user_id=None,
+        user_id=auth_user.id,
         created_at=now,
     )
     mock_candles.return_value = CandlesResponse(
@@ -342,7 +444,7 @@ def test_chart_data_with_run_id_overlays(
         "api.repositories.symbol_repository.SymbolRepository.get_symbol",
         return_value=symbol_row,
     ):
-        response = client.get(
+        response = authed_client.get(
             "/api/v1/chart-data",
             params={
                 "symbolId": "BTC/USDT",
@@ -360,6 +462,27 @@ def test_chart_data_with_run_id_overlays(
     assert len(body["signals"]) == 2
     assert len(body["trades"]) == 2
     assert body["trades"][0]["metadata"]["event"] == "entry"
+
+
+@patch("api.deps.connect")
+def test_chart_data_run_id_requires_auth(
+    mock_connect: MagicMock,
+    client: TestClient,
+) -> None:
+    """runId without JWT → 401 (G-004)."""
+    mock_connect.return_value = MagicMock()
+    response = client.get(
+        "/api/v1/chart-data",
+        params={
+            "symbolId": "BTC/USDT",
+            "timeframe": "1h",
+            "start": 1704067200,
+            "end": 1704070800,
+            "runId": str(uuid4()),
+        },
+    )
+    assert response.status_code == 401
+
 
 
 @patch("api.services.chart_data_service.CandleService.get_candles")
@@ -408,7 +531,7 @@ def test_chart_data_unknown_run_id_404(
     mock_connect: MagicMock,
     mock_get_run: MagicMock,
     mock_candles: MagicMock,
-    client: TestClient,
+    authed_client: TestClient,
 ) -> None:
     """Unknown runId on chart-data → 404 RUN_NOT_FOUND."""
     from api.schemas.candles import Bar, CandlesResponse
@@ -426,7 +549,7 @@ def test_chart_data_unknown_run_id_404(
         "api.repositories.symbol_repository.SymbolRepository.get_symbol",
         return_value=symbol_row,
     ):
-        response = client.get(
+        response = authed_client.get(
             "/api/v1/chart-data",
             params={
                 "symbolId": "BTC/USDT",
@@ -435,6 +558,73 @@ def test_chart_data_unknown_run_id_404(
                 "end": 1704070800,
                 "includeTrades": "true",
                 "runId": str(uuid4()),
+            },
+        )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
+
+
+@patch("api.services.chart_data_service.CandleService.get_candles")
+@patch("api.services.backtest_service.BacktestRepository.get")
+@patch("api.deps.connect")
+def test_chart_data_run_id_ownership_mismatch_404(
+    mock_connect: MagicMock,
+    mock_get_run: MagicMock,
+    mock_candles: MagicMock,
+    authed_client: TestClient,
+) -> None:
+    """Authenticated non-owner runId on chart-data → 404 RUN_NOT_FOUND (G2-003)."""
+    from api.schemas.candles import Bar, CandlesResponse
+
+    mock_connect.return_value = MagicMock()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    symbol_row = SymbolRow("BTC/USDT", "BTC", "USDT", True, 1, now)
+    run_id = uuid4()
+    mock_get_run.return_value = BacktestRunRow(
+        run_id=run_id,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        start_ts=1704067200,
+        end_ts=1704070800,
+        initial_capital=10000.0,
+        strategy_name=None,
+        strategy_config={},
+        backtest_config={},
+        metrics={
+            "total_return": 0.0,
+            "win_rate": 0.0,
+            "max_drawdown": 0.0,
+            "trade_count": 0,
+            "forced_close": False,
+            "final_capital": 10000.0,
+            "initial_capital": 10000.0,
+        },
+        trades=[],
+        signals=[],
+        equity=[],
+        status="completed",
+        error_message=None,
+        user_id=uuid4(),
+        created_at=now,
+    )
+    mock_candles.return_value = CandlesResponse(
+        symbol="BTC/USDT",
+        timeframe="1h",
+        bars=[Bar(time=1704067200, open=1, high=2, low=0.5, close=1.5, volume=10)],
+    )
+    with patch(
+        "api.repositories.symbol_repository.SymbolRepository.get_symbol",
+        return_value=symbol_row,
+    ):
+        response = authed_client.get(
+            "/api/v1/chart-data",
+            params={
+                "symbolId": "BTC/USDT",
+                "timeframe": "1h",
+                "start": 1704067200,
+                "end": 1704070800,
+                "includeTrades": "true",
+                "runId": str(run_id),
             },
         )
     assert response.status_code == 404

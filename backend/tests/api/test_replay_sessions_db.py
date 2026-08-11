@@ -20,6 +20,7 @@ def _session_row_tuple(session_id):
     indicators = json.dumps([{"key": "RSI", "params": {"period": 14}}])
     return (
         session_id,
+        uuid4(),
         "BTC/USDT",
         "1h",
         "1h",
@@ -44,6 +45,7 @@ def test_repository_insert_executes_sql() -> None:
     row = ReplayRepository().insert(
         conn,
         session_id=session_id,
+        user_id=uuid4(),
         symbol="BTC/USDT",
         timeframe="1h",
         step_timeframe="1h",
@@ -116,6 +118,12 @@ def test_store_create_caches_engine(
     conn = MagicMock()
     engine = store.create(
         conn,
-        ReplaySessionCreate(symbol="BTC/USDT", timeframe="1d", start=1704067200, step_timeframe="1d"),
+        ReplaySessionCreate(
+            symbol="BTC/USDT",
+            timeframe="1d",
+            start=1704067200,
+            step_timeframe="1d",
+        ),
+        user_id=uuid4(),
     )
     assert engine.session_id in store._cache

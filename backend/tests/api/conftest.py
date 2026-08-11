@@ -7,13 +7,16 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from api.deps import get_current_user, get_optional_user
 from api.main import create_app
 from api.repositories.symbol_repository import SymbolRow
+from api.repositories.user_repository import UserRow
 from api.schemas.symbols import SymbolResponse
 from api.services.replay_service import get_replay_service
 from api.services.symbol_service import SymbolService
@@ -74,9 +77,37 @@ def sample_candles_df() -> pd.DataFrame:
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     """FastAPI test client with migrations skipped."""
+    import os
+
+    os.environ.setdefault("APP_ENV", "dev")
+    os.environ.setdefault("AI_CLARIFY_STORE", "memory")
     with patch("api.main.run_migrations_on_startup", return_value=0):
         with TestClient(create_app()) as test_client:
             yield test_client
+
+
+@pytest.fixture
+def auth_user() -> UserRow:
+    """Sample authenticated user for dependency overrides."""
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    return UserRow(
+        id=uuid4(),
+        name="Test User",
+        email="test@example.com",
+        password_hash="x",
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.fixture
+def authed_client(client: TestClient, auth_user: UserRow) -> Generator[TestClient, None, None]:
+    """Test client with ``get_current_user`` / ``get_optional_user`` overridden."""
+    client.app.dependency_overrides[get_current_user] = lambda: auth_user
+    client.app.dependency_overrides[get_optional_user] = lambda: auth_user
+    yield client
+    client.app.dependency_overrides.pop(get_current_user, None)
+    client.app.dependency_overrides.pop(get_optional_user, None)
 
 
 @pytest.fixture(autouse=True)

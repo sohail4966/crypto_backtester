@@ -14,17 +14,17 @@ from api.exceptions import ValidationError
 from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository, WatchlistRow
 from api.schemas.users import UserCreate
-from tests.api.conftest import make_symbol_response
 from api.schemas.watchlists import WatchlistCreate
 from api.services.symbol_service import SymbolService
 from api.services.user_service import UserService
 from api.services.watchlist_service import WatchlistService
+from tests.api.conftest import make_symbol_response
 
 
 def _user_row() -> UserRow:
     """Sample user row."""
     now = datetime(2024, 1, 1, tzinfo=UTC)
-    return UserRow(uuid4(), "Alice", "alice@example.com", now, now)
+    return UserRow(uuid4(), "Alice", "alice@example.com", now, now, password_hash="x")
 
 
 def test_user_create_provisions_default_watchlist() -> None:
@@ -32,7 +32,7 @@ def test_user_create_provisions_default_watchlist() -> None:
     users = MagicMock(spec=UserRepository)
     watchlists = MagicMock(spec=WatchlistRepository)
     user = _user_row()
-    users.create.return_value = user
+    users.create_with_password.return_value = user
     watchlists.create.return_value = WatchlistRow(
         uuid4(),
         user.id,
@@ -53,10 +53,16 @@ def test_user_create_provisions_default_watchlist() -> None:
         watchlist_repository=watchlists,
         symbol_service=symbol_service,
     )
-    result = service.create(MagicMock(), UserCreate(name="Alice", email="alice@example.com"))
+    conn = MagicMock()
+    result = service.create(
+        conn,
+        UserCreate(name="Alice", email="alice@example.com", password="secret-pass"),
+    )
     assert result.email == "alice@example.com"
+    users.create_with_password.assert_called_once()
     watchlists.create.assert_called_once()
     watchlists.set_symbols.assert_called_once()
+    conn.commit.assert_called_once()
 
 
 def test_watchlist_invalid_symbol_raises() -> None:

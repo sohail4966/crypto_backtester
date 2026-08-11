@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 MIGRATION_FILENAME_PATTERN = re.compile(r"^V(\d+)__(.+)\.sql$")
 DEFAULT_MIGRATIONS_DIR = Path(__file__).parent / "sql"
 
+# Session-level advisory lock key for concurrent startup safety (BE-011).
+MIGRATION_ADVISORY_LOCK_KEY = 0xC8B7_AC75_E57E_0001
+
 
 def _parse_migration_path(path: Path) -> tuple[str, str]:
     """
@@ -98,7 +101,12 @@ def run_migrations(
         conn = connect()
 
     applied_count = 0
+    locked = False
     try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_lock(%s)", (MIGRATION_ADVISORY_LOCK_KEY,))
+        locked = True
+
         applied_versions = _load_applied_versions(conn)
         pending = _list_pending_migrations(sql_dir, applied_versions)
 
@@ -125,6 +133,15 @@ def run_migrations(
         if applied_count == 0 and not applied_versions:
             logger.info("Database schema initialized (no pending migrations)")
     finally:
+        if locked:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_advisory_unlock(%s)",
+                        (MIGRATION_ADVISORY_LOCK_KEY,),
+                    )
+            except Exception:  # noqa: BLE001 — unlock best-effort on teardown
+                logger.exception("Failed to release migration advisory lock")
         if own_conn:
             conn.close()
 

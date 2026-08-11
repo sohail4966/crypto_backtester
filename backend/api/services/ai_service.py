@@ -5,6 +5,7 @@ API service wrapper for Phase 10 AI translation.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from ai.explain import explain_strategy
 from ai.providers import LLMProvider, get_provider
@@ -71,6 +72,8 @@ class AIService:
     def translate(
         self,
         body: TranslateRequest,
+        *,
+        user_id: UUID | None = None,
     ) -> TranslateOkResponse | TranslateClarifyResponse:
         """Translate NL text into DSL or clarification questions."""
         try:
@@ -78,6 +81,7 @@ class AIService:
                 body.text,
                 provider=self.provider,
                 store=get_session_store(),
+                user_id=user_id,
             )
         except AITranslateError as exc:
             raise _map_error(exc) from exc
@@ -86,6 +90,8 @@ class AIService:
     def clarify(
         self,
         body: ClarifyRequest,
+        *,
+        user_id: UUID | None = None,
     ) -> TranslateOkResponse | TranslateClarifyResponse:
         """Apply clarification answers and continue translation."""
         try:
@@ -94,6 +100,7 @@ class AIService:
                 body.answers,
                 provider=self.provider,
                 store=get_session_store(),
+                user_id=user_id,
             )
         except AITranslateError as exc:
             raise _map_error(exc) from exc

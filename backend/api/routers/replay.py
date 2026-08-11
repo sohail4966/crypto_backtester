@@ -11,7 +11,8 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends
 
-from api.deps import get_db
+from api.deps import get_current_user, get_db
+from api.repositories.user_repository import UserRow
 from api.schemas.replay import ReplaySessionCreate, ReplaySessionResponse, ReplayStateResponse
 from api.services.replay_service import ReplayService, get_replay_service
 
@@ -27,21 +28,15 @@ def _service() -> ReplayService:
 def create_replay_session(
     body: ReplaySessionCreate,
     conn: psycopg.Connection = Depends(get_db),
+    current: UserRow = Depends(get_current_user),
 ) -> ReplaySessionResponse:
     """
-    Create an open-ended bar replay session.
+    Create an open-ended bar replay session owned by the JWT subject.
 
     Replay runs from ``start`` until the latest stored candle or user stop.
-    Connect to ``ws_url`` for ``snapshot`` and ``tick_batch`` playback.
-
-    Args:
-        body: Symbol, timeframes, start anchor, indicators, optional autoplay.
-        conn: Database connection.
-
-    Returns:
-        Session id and WebSocket path.
+    Connect to ``ws_url`` with ``?token=`` for ``snapshot`` and ``tick_batch``.
     """
-    engine = _service().create_session(conn, body)
+    engine = _service().create_session(conn, body, user_id=current.id)
     return ReplaySessionResponse(
         session_id=engine.session_id,
         ws_url=f"/ws/replay/{engine.session_id}",
@@ -52,20 +47,10 @@ def create_replay_session(
 def get_replay_session(
     session_id: UUID,
     conn: psycopg.Connection = Depends(get_db),
+    current: UserRow = Depends(get_current_user),
 ) -> ReplayStateResponse:
-    """
-    Return current replay session state (cursor, queue depth, indicators).
-
-    Does not advance playback; use WebSocket for stepping.
-
-    Args:
-        session_id: Session UUID.
-        conn: Database connection.
-
-    Returns:
-        Session snapshot.
-    """
-    engine = _service().get_engine(conn, session_id)
+    """Return current replay session state (owner only)."""
+    engine = _service().get_engine(conn, session_id, user_id=current.id)
     return _service().to_state_response(engine)
 
 
@@ -73,12 +58,7 @@ def get_replay_session(
 def delete_replay_session(
     session_id: UUID,
     conn: psycopg.Connection = Depends(get_db),
+    current: UserRow = Depends(get_current_user),
 ) -> None:
-    """
-    Tear down a replay session (database + in-memory cache).
-
-    Args:
-        session_id: Session UUID.
-        conn: Database connection.
-    """
-    _service().delete_session(conn, session_id)
+    """Tear down a replay session (owner only)."""
+    _service().delete_session(conn, session_id, user_id=current.id)

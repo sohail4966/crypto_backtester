@@ -43,6 +43,7 @@ class ScanRunRow:
     duration_ms: int
     status: str
     error_message: str | None
+    user_id: UUID | None
     created_at: datetime
 
 
@@ -61,7 +62,8 @@ def _row_to_scan(row: tuple[Any, ...]) -> ScanRunRow:
         duration_ms=int(row[9]),
         status=str(row[10]),
         error_message=row[11],
-        created_at=row[12],
+        user_id=row[12],
+        created_at=row[13],
     )
 
 
@@ -84,8 +86,9 @@ class ScanRepository:
         duration_ms: int,
         status: str = "completed",
         error_message: str | None = None,
+        user_id: UUID | None = None,
     ) -> ScanRunRow:
-        """Insert a completed scan run and return the row."""
+        """Insert a completed scan run and return the row (commits; BE-001)."""
         with conn.cursor() as cur:
             cur.execute(
                 queries.INSERT_SCAN_RUN,
@@ -102,11 +105,13 @@ class ScanRepository:
                     duration_ms,
                     status,
                     error_message,
+                    user_id,
                 ),
             )
             row = cur.fetchone()
         if row is None:
             raise RuntimeError("INSERT scan_runs returned no row")
+        conn.commit()
         return _row_to_scan(row)
 
     def get(self, conn: psycopg.Connection, scan_id: UUID) -> ScanRunRow | None:

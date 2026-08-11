@@ -84,9 +84,15 @@ class ReplaySessionStore:
         """Update last-access time to prevent idle eviction."""
         cached.last_access = time.time()
 
-    def create(self, conn: psycopg.Connection, body: ReplaySessionCreate) -> ReplayEngine:
+    def create(
+        self,
+        conn: psycopg.Connection,
+        body: ReplaySessionCreate,
+        *,
+        user_id: UUID,
+    ) -> ReplayEngine:
         """
-        Create a new open-ended replay session.
+        Create a new open-ended replay session owned by ``user_id``.
 
         Inserts a DB row, loads the initial buffer, and caches the engine.
         Sessions start paused; WS ``play`` or ``autoplay`` begins stepping.
@@ -94,6 +100,7 @@ class ReplaySessionStore:
         Args:
             conn: Database connection (committed before return).
             body: Session create request.
+            user_id: JWT subject that owns the session (BE-006).
 
         Returns:
             Engine ready for WebSocket control.
@@ -117,6 +124,7 @@ class ReplaySessionStore:
         row = self._repo.insert(
             conn,
             session_id=session_id,
+            user_id=user_id,
             symbol=body.symbol,
             timeframe=body.timeframe,
             step_timeframe=step_tf,
@@ -126,7 +134,6 @@ class ReplaySessionStore:
             speed=body.speed,
             state=state,
         )
-        conn.commit()
 
         engine = ReplayEngine.from_row(row, candle_service=self._candles)
         engine.load_buffer(conn, cursor_ts=cursor_ts)

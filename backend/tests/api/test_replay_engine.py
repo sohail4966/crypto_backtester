@@ -36,6 +36,7 @@ def _engine_row() -> ReplaySessionRow:
 
     return ReplaySessionRow(
         session_id=uuid4(),
+        user_id=uuid4(),
         symbol="BTC/USDT",
         timeframe="1d",
         step_timeframe="1d",

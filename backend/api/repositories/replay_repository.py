@@ -23,24 +23,10 @@ ReplayState = Literal["idle", "playing", "paused", "completed"]
 
 @dataclass
 class ReplaySessionRow:
-    """
-    One row from ``app.replay_sessions``.
-
-    Attributes:
-        session_id: Primary key.
-        symbol: Trading pair (FK to ``app.symbols``).
-        timeframe: Chart display timeframe (e.g. ``1h``).
-        step_timeframe: Bar resolution used for replay stepping.
-        start_anchor: User-selected replay start (unix seconds).
-        cursor_ts: Last revealed bar time (checkpointed).
-        indicators: Indicator specs stored as JSONB.
-        speed: Last playback speed multiplier.
-        state: Session playback state.
-        created_at: Row creation time.
-        updated_at: Last metadata or checkpoint update.
-    """
+    """One row from ``app.replay_sessions``."""
 
     session_id: UUID
+    user_id: UUID | None
     symbol: str
     timeframe: str
     step_timeframe: str
@@ -55,7 +41,7 @@ class ReplaySessionRow:
 
 def _row_to_session(row: tuple[Any, ...]) -> ReplaySessionRow:
     """Map a ``SELECT``/``RETURNING`` tuple to ``ReplaySessionRow``."""
-    raw_indicators = row[6]
+    raw_indicators = row[7]
     if isinstance(raw_indicators, str):
         indicators_data = json.loads(raw_indicators)
     else:
@@ -63,16 +49,17 @@ def _row_to_session(row: tuple[Any, ...]) -> ReplaySessionRow:
     indicators = [IndicatorSpec.model_validate(item) for item in indicators_data]
     return ReplaySessionRow(
         session_id=row[0],
-        symbol=row[1],
-        timeframe=row[2],
-        step_timeframe=row[3],
-        start_anchor=int(row[4]),
-        cursor_ts=int(row[5]),
+        user_id=row[1],
+        symbol=row[2],
+        timeframe=row[3],
+        step_timeframe=row[4],
+        start_anchor=int(row[5]),
+        cursor_ts=int(row[6]),
         indicators=indicators,
-        speed=float(row[7]),
-        state=row[8],
-        created_at=row[9],
-        updated_at=row[10],
+        speed=float(row[8]),
+        state=row[9],
+        created_at=row[10],
+        updated_at=row[11],
     )
 
 
@@ -89,6 +76,7 @@ class ReplayRepository:
         conn: psycopg.Connection,
         *,
         session_id: UUID,
+        user_id: UUID,
         symbol: str,
         timeframe: str,
         step_timeframe: str,
@@ -98,32 +86,13 @@ class ReplayRepository:
         speed: float,
         state: ReplayState,
     ) -> ReplaySessionRow:
-        """
-        Insert a new replay session row.
-
-        Args:
-            conn: Database connection.
-            session_id: New session UUID.
-            symbol: Active trading pair.
-            timeframe: Chart display timeframe.
-            step_timeframe: Bar step resolution.
-            start_anchor: Replay start anchor (unix seconds).
-            cursor_ts: Initial cursor (typically one bar before ``start_anchor``).
-            indicators: Indicator specifications.
-            speed: Initial playback speed.
-            state: Initial playback state.
-
-        Returns:
-            The inserted row.
-
-        Raises:
-            RuntimeError: When ``INSERT`` returns no row.
-        """
+        """Insert a new replay session row owned by ``user_id``."""
         with conn.cursor() as cur:
             cur.execute(
                 queries.INSERT_REPLAY_SESSION,
                 (
                     session_id,
+                    user_id,
                     symbol,
                     timeframe,
                     step_timeframe,
@@ -137,19 +106,11 @@ class ReplayRepository:
             row = cur.fetchone()
             if row is None:
                 raise RuntimeError("INSERT replay session returned no row")
+            conn.commit()
             return _row_to_session(row)
 
     def get(self, conn: psycopg.Connection, session_id: UUID) -> ReplaySessionRow | None:
-        """
-        Fetch one session by id.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-
-        Returns:
-            Session row, or ``None`` when not found.
-        """
+        """Fetch one session by id."""
         with conn.cursor() as cur:
             cur.execute(queries.SELECT_REPLAY_SESSION, (session_id,))
             row = cur.fetchone()
@@ -166,21 +127,7 @@ class ReplayRepository:
         speed: float,
         state: ReplayState,
     ) -> ReplaySessionRow | None:
-        """
-        Persist cursor position, speed, and playback state.
-
-        Called periodically on pause, disconnect, or checkpoint interval.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-            cursor_ts: Last revealed bar time (unix seconds).
-            speed: Current playback speed.
-            state: Current playback state.
-
-        Returns:
-            Updated row, or ``None`` when session does not exist.
-        """
+        """Persist cursor position, speed, and playback state."""
         with conn.cursor() as cur:
             cur.execute(
                 queries.UPDATE_REPLAY_SESSION_CURSOR,
@@ -189,6 +136,7 @@ class ReplayRepository:
             row = cur.fetchone()
             if row is None:
                 return None
+            conn.commit()
             return _row_to_session(row)
 
     def update_indicators(
@@ -197,17 +145,7 @@ class ReplayRepository:
         session_id: UUID,
         indicators: list[IndicatorSpec],
     ) -> ReplaySessionRow | None:
-        """
-        Replace the indicator specification list for a session.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-            indicators: New indicator specs.
-
-        Returns:
-            Updated row, or ``None`` when session does not exist.
-        """
+        """Replace the indicator specification list for a session."""
         with conn.cursor() as cur:
             cur.execute(
                 queries.UPDATE_REPLAY_SESSION_INDICATORS,
@@ -216,19 +154,12 @@ class ReplayRepository:
             row = cur.fetchone()
             if row is None:
                 return None
+            conn.commit()
             return _row_to_session(row)
 
     def delete(self, conn: psycopg.Connection, session_id: UUID) -> bool:
-        """
-        Delete a session row.
-
-        Args:
-            conn: Database connection.
-            session_id: Session UUID.
-
-        Returns:
-            ``True`` when a row was removed, ``False`` when already absent.
-        """
+        """Delete a session row."""
         with conn.cursor() as cur:
             cur.execute(queries.DELETE_REPLAY_SESSION, (session_id,))
+            conn.commit()
             return cur.rowcount > 0
