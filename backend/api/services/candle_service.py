@@ -81,7 +81,8 @@ class CandleService:
 
         start = _unix_to_iso(from_ts)
         end = _unix_to_iso(to_ts)
-        df = get_candles(symbol, timeframe, start, end)
+        # Fetch one extra row so we can set next_from without a second query (BE-008).
+        df = get_candles(symbol, timeframe, start, end, limit=effective_limit + 1)
         if df.empty:
             return CandlesResponse(symbol=symbol, timeframe=timeframe, bars=[])
 
@@ -141,6 +142,49 @@ class CandleService:
             latest_unix,
             limit=effective_limit,
         )
+
+    def get_latest_candles_batch(
+        self,
+        conn: psycopg.Connection,
+        symbols: list[str],
+        timeframe: str,
+    ) -> dict[str, Bar | None]:
+        """
+        Load the latest closed bar for many symbols in as few queries as possible.
+
+        Native ``1m`` uses ``WHERE symbol = ANY(%)`` (G-009). Derived timeframes
+        fall back to per-symbol ``get_latest_candles`` on the shared connection.
+        """
+        if not symbols:
+            return {}
+        try:
+            validate_timeframe(timeframe)
+        except ValueError as exc:
+            raise ValidationError("INVALID_TIMEFRAME", str(exc)) from exc
+
+        unique = list(dict.fromkeys(symbols))
+        for symbol in unique:
+            self._symbol_service.require_active_symbol(conn, symbol)
+
+        if timeframe == "1m":
+            rows = self._candle_repository.latest_bars_batch(unique, timeframe, conn=conn)
+            results: dict[str, Bar | None] = {s: None for s in unique}
+            for symbol, row in rows.items():
+                results[symbol] = Bar(
+                    time=int(row[1].timestamp()) if hasattr(row[1], "timestamp") else int(row[1]),
+                    open=float(row[2]),
+                    high=float(row[3]),
+                    low=float(row[4]),
+                    close=float(row[5]),
+                    volume=float(row[6]),
+                )
+            return results
+
+        results = {}
+        for symbol in unique:
+            response = self.get_latest_candles(conn, symbol, timeframe, limit=1)
+            results[symbol] = response.bars[-1] if response.bars else None
+        return results
 
     def get_data_range(
         self,

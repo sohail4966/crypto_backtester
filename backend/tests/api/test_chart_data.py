@@ -101,14 +101,14 @@ def test_chart_data_unknown_symbol_returns_404(
 @patch("api.deps.connect")
 @patch("api.services.chart_data_service.CandleService.get_latest_candles")
 @patch("api.services.chart_data_service.CandleService.get_candles")
-def test_chart_data_falls_back_to_latest_when_window_empty(
+def test_chart_data_empty_window_no_latest_fallback(
     mock_candles: MagicMock,
     mock_latest: MagicMock,
     mock_connect: MagicMock,
     client: TestClient,
 ) -> None:
-    """Empty requested window loads the latest stored bars instead."""
-    from api.schemas.candles import Bar, CandlesResponse
+    """Empty requested window returns empty + empty=true (FE-011 / BE-008)."""
+    from api.schemas.candles import CandlesResponse
 
     mock_connect.return_value = MagicMock()
     now = datetime(2024, 1, 1, tzinfo=UTC)
@@ -122,13 +122,6 @@ def test_chart_data_falls_back_to_latest_when_window_empty(
             timeframe="1m",
             bars=[],
         )
-        mock_latest.return_value = CandlesResponse(
-            symbol="SOL/USDT",
-            timeframe="1m",
-            bars=[
-                Bar(time=1700000000, open=1, high=2, low=0.5, close=1.5, volume=10),
-            ],
-        )
 
         response = client.get(
             "/api/v1/chart-data",
@@ -139,7 +132,8 @@ def test_chart_data_falls_back_to_latest_when_window_empty(
                 "end": 2000003600,
             },
         )
-
     assert response.status_code == 200
-    assert len(response.json()["candles"]) == 1
-    mock_latest.assert_called_once()
+    body = response.json()
+    assert body["candles"] == []
+    assert body["empty"] is True
+    mock_latest.assert_not_called()

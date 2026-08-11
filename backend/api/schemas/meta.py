@@ -19,3 +19,6 @@ class TimeframesResponse(BaseModel):
     """Supported candle timeframes."""
 
     timeframes: list[str]
+    notes: dict[str, str] = {
+        "1M": "Calendar month buckets (UTC); seek/warmup use calendar math, not fixed 30 days.",
+    }

@@ -98,5 +98,5 @@ def test_find_derived_by_date_range_uses_derived_query() -> None:
 
     cursor.execute.assert_called_once_with(
         queries.SELECT_DERIVED_CANDLES_BY_RANGE,
-        ("BTC/USDT", "2024-01-01", "2024-01-31", "1 day"),
+        ("BTC/USDT", "2024-01-01", "2024-01-31", "1 day", 1440, "1 day"),
     )

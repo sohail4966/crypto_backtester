@@ -45,3 +45,7 @@ class ChartDataResponse(BaseModel):
     signals: list[Signal] = Field(default_factory=list)
     trades: list[Trade] = Field(default_factory=list)
     next_start: int | None = Field(default=None, alias="nextStart")
+    empty: bool = Field(
+        default=False,
+        description="True when the requested window has no bars (no silent latest-fallback).",
+    )

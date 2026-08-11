@@ -26,6 +26,8 @@ OHLCV_COLUMNS = ["ts", "open", "high", "low", "close", "volume"]
 
 # Milliseconds per supported timeframe. 1m is the only canonical stored timeframe in
 # Phase 1; the rest support closed-candle math for derived reads later.
+# ``1M`` uses an approximate 30d for exchange fetch pagination only; API seek/warmup
+# uses calendar-month helpers in ``api.services.timeframes`` (BE-010).
 TIMEFRAME_MS = {
     "1m": 60_000,
     "3m": 180_000,
@@ -37,7 +39,7 @@ TIMEFRAME_MS = {
     "4h": 14_400_000,
     "1d": 86_400_000,
     "1w": 604_800_000,
-    "1M": 2_592_000_000,
+    "1M": 2_592_000_000,  # approx 30d — fetch pagination only
 }
 
 

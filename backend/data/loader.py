@@ -19,6 +19,8 @@ def get_candles(
     timeframe: str,
     start: str,
     end: str,
+    *,
+    limit: int | None = None,
 ) -> pd.DataFrame:
     """
     Load OHLCV candles for a symbol and timeframe.
@@ -28,6 +30,7 @@ def get_candles(
         timeframe: Candle resolution, e.g. 1d.
         start: Inclusive start date (ISO), e.g. 2024-01-01.
         end: Inclusive end date (ISO), e.g. 2024-12-31.
+        limit: Optional SQL LIMIT pushed into the query (BE-008).
 
     Returns:
         DataFrame with columns ts, open, high, low, close, volume (UTC).
@@ -35,12 +38,17 @@ def get_candles(
 
     Notes:
         1m reads are direct from storage. Higher timeframes are derived from
-        stored canonical 1m candles in the repository layer.
+        stored canonical 1m candles in the repository layer. Incomplete derived
+        buckets are excluded (BE-009).
     """
     if timeframe == "1m":
-        rows, column_names = _repository.find_by_date_range(symbol, timeframe, start, end)
+        rows, column_names = _repository.find_by_date_range(
+            symbol, timeframe, start, end, limit=limit
+        )
     else:
-        rows, column_names = _repository.find_derived_by_date_range(symbol, timeframe, start, end)
+        rows, column_names = _repository.find_derived_by_date_range(
+            symbol, timeframe, start, end, limit=limit
+        )
     candles = pd.DataFrame(rows, columns=column_names)
     if candles.empty:
         return candles

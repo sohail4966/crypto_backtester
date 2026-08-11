@@ -135,6 +135,23 @@ def _ranges_overlap(
     return a_start <= b_end and b_start <= a_end
 
 
+def _merge_gap_ranges(ranges: list[GapRange]) -> list[GapRange]:
+    """Merge overlapping or adjacent gap ranges (inclusive endpoints)."""
+    if not ranges:
+        return []
+    ordered = sorted(ranges, key=lambda r: (r.start_ts, r.end_ts))
+    merged: list[GapRange] = [ordered[0]]
+    for current in ordered[1:]:
+        prev = merged[-1]
+        # Adjacent on the 1m grid still merge when end+1step would touch — here
+        # inclusive overlap or touching endpoints is enough for audit cleanup.
+        if current.start_ts <= prev.end_ts:
+            merged[-1] = GapRange(prev.start_ts, max(prev.end_ts, current.end_ts))
+        else:
+            merged.append(current)
+    return merged
+
+
 def reconcile_gaps(
     symbol: str,
     timeframe: str,
@@ -168,12 +185,20 @@ def reconcile_gaps(
     gap_repo = gap_repo or GapRepository()
 
     detected = find_gaps(symbol, timeframe, start, end, candle_repo=candle_repo)
+    # Merge overlapping / adjacent detected ranges before insert (BE-021).
+    detected = _merge_gap_ranges(detected)
     open_gaps = gap_repo.find_open_gaps(symbol, timeframe)
     open_bounds = {(gap.start_ts, gap.end_ts) for gap in open_gaps}
 
     created = 0
     for gap_range in detected:
         if (gap_range.start_ts, gap_range.end_ts) in open_bounds:
+            continue
+        # Skip insert when an open gap already overlaps this range.
+        if any(
+            _ranges_overlap(gap_range.start_ts, gap_range.end_ts, g.start_ts, g.end_ts)
+            for g in open_gaps
+        ):
             continue
         gap_repo.create_gap(symbol, timeframe, gap_range.start_ts, gap_range.end_ts)
         created += 1

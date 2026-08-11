@@ -38,7 +38,19 @@ WHERE symbol = %s
 ORDER BY ts ASC
 """
 
+SELECT_CANDLES_BY_RANGE_LIMITED = """
+SELECT ts, open, high, low, close, volume
+FROM candles
+WHERE symbol = %s
+  AND timeframe = %s
+  AND ts >= %s::timestamptz
+  AND ts <= %s::timestamptz
+ORDER BY ts ASC
+LIMIT %s
+"""
+
 # Derived candles are aggregated from canonical stored 1m rows.
+# Incomplete in-progress buckets are excluded (BE-009).
 SELECT_DERIVED_CANDLES_BY_RANGE = """
 WITH source AS (
     SELECT ts, open, high, low, close, volume
@@ -47,6 +59,8 @@ WITH source AS (
       AND timeframe = '1m'
       AND ts >= %s::timestamptz
       AND ts <= %s::timestamptz
+), bounds AS (
+    SELECT COALESCE(MAX(ts), '-infinity'::timestamptz) AS max_ts FROM source
 ), bucketed AS (
     SELECT
         time_bucket(%s::interval, ts) AS bucket_ts,
@@ -65,9 +79,47 @@ SELECT
     MIN(low) AS low,
     (array_agg(close ORDER BY ts DESC))[1] AS close,
     SUM(volume) AS volume
-FROM bucketed
-GROUP BY bucket_ts
+FROM bucketed, bounds
+GROUP BY bucket_ts, bounds.max_ts
+HAVING COUNT(*) >= %s
+   AND (bucket_ts + %s::interval) <= (bounds.max_ts + INTERVAL '1 minute')
 ORDER BY bucket_ts ASC
+"""
+
+SELECT_DERIVED_CANDLES_BY_RANGE_LIMITED = """
+WITH source AS (
+    SELECT ts, open, high, low, close, volume
+    FROM candles
+    WHERE symbol = %s
+      AND timeframe = '1m'
+      AND ts >= %s::timestamptz
+      AND ts <= %s::timestamptz
+), bounds AS (
+    SELECT COALESCE(MAX(ts), '-infinity'::timestamptz) AS max_ts FROM source
+), bucketed AS (
+    SELECT
+        time_bucket(%s::interval, ts) AS bucket_ts,
+        ts,
+        open,
+        high,
+        low,
+        close,
+        volume
+    FROM source
+)
+SELECT
+    bucket_ts AS ts,
+    (array_agg(open ORDER BY ts ASC))[1] AS open,
+    MAX(high) AS high,
+    MIN(low) AS low,
+    (array_agg(close ORDER BY ts DESC))[1] AS close,
+    SUM(volume) AS volume
+FROM bucketed, bounds
+GROUP BY bucket_ts, bounds.max_ts
+HAVING COUNT(*) >= %s
+   AND (bucket_ts + %s::interval) <= (bounds.max_ts + INTERVAL '1 minute')
+ORDER BY bucket_ts ASC
+LIMIT %s
 """
 
 COUNT_CANDLES = """
@@ -95,6 +147,15 @@ WHERE symbol = %s AND timeframe = %s
 SELECT_MIN_TS = """
 SELECT MIN(ts) FROM candles
 WHERE symbol = %s AND timeframe = %s
+"""
+
+# Live WS multi-symbol poll: latest closed bar per symbol (G-009 / BE-019).
+SELECT_LATEST_CANDLES_BATCH = """
+SELECT DISTINCT ON (symbol)
+    symbol, ts, open, high, low, close, volume
+FROM candles
+WHERE symbol = ANY(%s) AND timeframe = %s
+ORDER BY symbol, ts DESC
 """
 
 # Derived metadata from canonical 1m rows (same bucketing as SELECT_DERIVED_CANDLES_BY_RANGE).

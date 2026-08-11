@@ -11,7 +11,7 @@ def test_get_candles_uses_direct_read_for_1m(monkeypatch) -> None:
     """1m candles are read directly from stored rows."""
 
     class _Repo:
-        def find_by_date_range(self, symbol, timeframe, start, end):
+        def find_by_date_range(self, symbol, timeframe, start, end, conn=None, *, limit=None):
             return [("2024-01-01T00:00:00+00:00", 1.0, 2.0, 0.5, 1.5, 10.0)], [
                 "ts",
                 "open",
@@ -21,7 +21,7 @@ def test_get_candles_uses_direct_read_for_1m(monkeypatch) -> None:
                 "volume",
             ]
 
-        def find_derived_by_date_range(self, symbol, timeframe, start, end):
+        def find_derived_by_date_range(self, symbol, timeframe, start, end, conn=None, *, limit=None):
             raise AssertionError("derived path should not be used for 1m")
 
     monkeypatch.setattr(loader, "_repository", _Repo())
@@ -34,10 +34,10 @@ def test_get_candles_uses_derived_read_for_higher_timeframes(monkeypatch) -> Non
     """Non-1m requests are derived from canonical stored 1m rows."""
 
     class _Repo:
-        def find_by_date_range(self, symbol, timeframe, start, end):
+        def find_by_date_range(self, symbol, timeframe, start, end, conn=None, *, limit=None):
             raise AssertionError("direct path should not be used for derived timeframe")
 
-        def find_derived_by_date_range(self, symbol, timeframe, start, end):
+        def find_derived_by_date_range(self, symbol, timeframe, start, end, conn=None, *, limit=None):
             assert timeframe == "1d"
             return [("2024-01-01T00:00:00+00:00", 1.0, 2.0, 0.5, 1.5, 10.0)], [
                 "ts",

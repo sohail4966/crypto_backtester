@@ -48,9 +48,9 @@ from signals.evaluator import evaluate_dual_strategy, evaluate_signals
 from signals.types import DualStrategy, Strategy
 
 
-def _unix_to_iso_date(ts: int) -> str:
-    """Convert unix seconds to a UTC ISO date string for ``get_candles``."""
-    return datetime.fromtimestamp(ts, tz=UTC).date().isoformat()
+def _unix_to_iso(ts: int) -> str:
+    """Convert unix seconds to a full UTC ISO timestamptz string for ``get_candles``."""
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 def _ts_to_unix(value: pd.Timestamp | datetime) -> int:
@@ -291,18 +291,36 @@ class BacktestService:
             raise ValidationError("INVALID_STRATEGY", str(exc)) from exc
         return None, body.strategy  # type: ignore[return-value]
 
-    def run(self, conn: psycopg.Connection, body: BacktestCreateRequest) -> BacktestRunResponse:
+    def run(
+        self,
+        conn: psycopg.Connection,
+        body: BacktestCreateRequest,
+        *,
+        user_id: UUID | None = None,
+    ) -> BacktestRunResponse:
         """
         Execute a backtest synchronously and persist the run.
+
+        ``user_id`` must come from the JWT subject (BE-005), never the request body.
 
         Raises:
             ValidationError: Bad inputs or empty candle window.
             NotFoundError: Unknown / inactive symbol.
         """
+        from api import settings as api_settings
+
         try:
             validate_timeframe(body.timeframe)
         except ValueError as exc:
             raise ValidationError("INVALID_TIMEFRAME", str(exc)) from exc
+
+        window_sec = body.end - body.start
+        max_window = api_settings.backtest_max_window_sec()
+        if window_sec > max_window:
+            raise ValidationError(
+                "WINDOW_TOO_LARGE",
+                f"Backtest window must be <= {max_window} seconds",
+            )
 
         self._symbols.require_active_symbol(conn, body.symbol)
         strategy_name, strategy = self._resolve_strategy(body)
@@ -315,8 +333,8 @@ class BacktestService:
             else load_default_initial_capital()
         )
 
-        start_iso = _unix_to_iso_date(body.start)
-        end_iso = _unix_to_iso_date(body.end)
+        start_iso = _unix_to_iso(body.start)
+        end_iso = _unix_to_iso(body.end)
         candles = get_candles(body.symbol, body.timeframe, start_iso, end_iso)
         if candles.empty:
             raise ValidationError(
@@ -408,21 +426,33 @@ class BacktestService:
             signals=chart_signals,
             equity=equity_points,
             status="completed",
-            user_id=body.user_id,
+            user_id=user_id,
         )
         return self._to_run_response(row, chart_trade_markers=chart_trades)
 
-    def get_run(self, conn: psycopg.Connection, run_id: UUID) -> BacktestRunResponse:
-        """Fetch a persisted run or raise ``RUN_NOT_FOUND``."""
+    def get_run(
+        self,
+        conn: psycopg.Connection,
+        run_id: UUID,
+        *,
+        user_id: UUID,
+    ) -> BacktestRunResponse:
+        """Fetch a persisted run owned by ``user_id`` or raise ``RUN_NOT_FOUND``."""
         row = self._repo.get(conn, run_id)
-        if row is None:
+        if row is None or row.user_id != user_id:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
         return self._to_run_response(row)
 
-    def get_trades(self, conn: psycopg.Connection, run_id: UUID) -> BacktestTradesResponse:
-        """Return the full round-trip trade log for a run."""
+    def get_trades(
+        self,
+        conn: psycopg.Connection,
+        run_id: UUID,
+        *,
+        user_id: UUID,
+    ) -> BacktestTradesResponse:
+        """Return the full round-trip trade log for an owned run."""
         row = self._repo.get(conn, run_id)
-        if row is None:
+        if row is None or row.user_id != user_id:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
         trades = [TradeDetail.model_validate(item) for item in row.trades]
         return BacktestTradesResponse(run_id=row.run_id, trades=trades)
@@ -432,19 +462,20 @@ class BacktestService:
         conn: psycopg.Connection,
         run_id: UUID,
         *,
+        user_id: UUID,
         start: int,
         end: int,
         include_signals: bool,
         include_trades: bool,
     ) -> tuple[list[Signal], list[Trade]]:
         """
-        Load chart markers for a run filtered to a window.
+        Load chart markers for an owned run filtered to a window.
 
         Raises:
-            NotFoundError: When ``run_id`` does not exist.
+            NotFoundError: When ``run_id`` does not exist or is not owned.
         """
         row = self._repo.get(conn, run_id)
-        if row is None:
+        if row is None or row.user_id != user_id:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
 
         signals: list[Signal] = []

@@ -33,6 +33,21 @@ DERIVED_INTERVALS = {
     "1M": "1 month",
 }
 
+# Minimum closed 1m bars required before a derived bucket is considered complete (BE-009).
+# Calendar months vary; rely primarily on bucket-end vs max closed 1m for ``1M``.
+EXPECTED_1M_BARS: dict[str, int] = {
+    "3m": 3,
+    "5m": 5,
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "2h": 120,
+    "4h": 240,
+    "1d": 1440,
+    "1w": 10080,
+    "1M": 1,
+}
+
 
 def _to_write_rows(symbol: str, timeframe: str, candles: pd.DataFrame) -> list[WriteRow]:
     """
@@ -240,6 +255,36 @@ class CandleRepository:
             if own_conn:
                 conn.close()
 
+    def latest_bars_batch(
+        self,
+        symbols: list[str],
+        timeframe: str,
+        conn: psycopg.Connection | None = None,
+    ) -> dict[str, tuple[Any, ...]]:
+        """
+        Load the latest stored candle row per symbol in one query (G-009).
+
+        Only supports native stored timeframes (``1m``). Callers must fall back
+        for derived resolutions.
+
+        Returns:
+            Map of symbol → (symbol, ts, open, high, low, close, volume).
+        """
+        if not symbols:
+            return {}
+        if timeframe != "1m":
+            raise ValueError("latest_bars_batch only supports timeframe=1m")
+        own_conn = conn is None
+        if own_conn:
+            conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(queries.SELECT_LATEST_CANDLES_BATCH, (list(symbols), timeframe))
+                return {str(row[0]): row for row in cur.fetchall()}
+        finally:
+            if own_conn:
+                conn.close()
+
     def earliest_timestamp(
         self,
         symbol: str,
@@ -327,6 +372,8 @@ class CandleRepository:
         start: str,
         end: str,
         conn: psycopg.Connection | None = None,
+        *,
+        limit: int | None = None,
     ) -> tuple[list[CandleRow], list[str]]:
         """
         Load OHLCV rows for a symbol, timeframe, and inclusive date range.
@@ -337,6 +384,7 @@ class CandleRepository:
             start: Inclusive start date (ISO).
             end: Inclusive end date (ISO).
             conn: Optional existing connection.
+            limit: Optional SQL LIMIT (BE-008); None loads the full range.
 
         Returns:
             Tuple of (rows, column_names) from the native SELECT.
@@ -346,10 +394,16 @@ class CandleRepository:
             conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    queries.SELECT_CANDLES_BY_RANGE,
-                    (symbol, timeframe, start, end),
-                )
+                if limit is None:
+                    cur.execute(
+                        queries.SELECT_CANDLES_BY_RANGE,
+                        (symbol, timeframe, start, end),
+                    )
+                else:
+                    cur.execute(
+                        queries.SELECT_CANDLES_BY_RANGE_LIMITED,
+                        (symbol, timeframe, start, end, limit),
+                    )
                 rows = cur.fetchall()
                 column_names = [col.name for col in cur.description]
                 return rows, column_names
@@ -364,9 +418,13 @@ class CandleRepository:
         start: str,
         end: str,
         conn: psycopg.Connection | None = None,
+        *,
+        limit: int | None = None,
     ) -> tuple[list[CandleRow], list[str]]:
         """
         Derive non-1m candles from stored canonical 1m rows in an inclusive date range.
+
+        Incomplete in-progress buckets are excluded (BE-009).
 
         Args:
             symbol: Trading pair identifier.
@@ -374,6 +432,7 @@ class CandleRepository:
             start: Inclusive start date (ISO).
             end: Inclusive end date (ISO).
             conn: Optional existing connection.
+            limit: Optional SQL LIMIT (BE-008).
 
         Returns:
             Tuple of (rows, column_names) of derived OHLCV candles ordered by ts.
@@ -382,15 +441,22 @@ class CandleRepository:
             ValueError: If timeframe is unsupported for derived reads.
         """
         interval = _to_derived_interval(timeframe)
+        expected = EXPECTED_1M_BARS[timeframe]
         own_conn = conn is None
         if own_conn:
             conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    queries.SELECT_DERIVED_CANDLES_BY_RANGE,
-                    (symbol, start, end, interval),
-                )
+                if limit is None:
+                    cur.execute(
+                        queries.SELECT_DERIVED_CANDLES_BY_RANGE,
+                        (symbol, start, end, interval, expected, interval),
+                    )
+                else:
+                    cur.execute(
+                        queries.SELECT_DERIVED_CANDLES_BY_RANGE_LIMITED,
+                        (symbol, start, end, interval, expected, interval, limit),
+                    )
                 rows = cur.fetchall()
                 column_names = [col.name for col in cur.description]
                 return rows, column_names
