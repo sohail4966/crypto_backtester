@@ -67,11 +67,11 @@ class ScanService:
         conn: psycopg.Connection,
         scan_id: UUID,
         *,
-        user_id: UUID,
+        user_id: UUID | None = None,
     ) -> ScanRunResponse:
-        """Fetch a persisted scan run owned by ``user_id`` (G-004)."""
+        """Fetch a persisted scan run by id."""
         row = self._scans.get(conn, scan_id)
-        if row is None or row.user_id != user_id:
+        if row is None:
             raise NotFoundError("SCAN_NOT_FOUND", f"Scan {scan_id} not found")
         return self._row_to_response(row)
 
@@ -80,7 +80,7 @@ class ScanService:
         conn: psycopg.Connection,
         body: ScanCreateRequest,
         *,
-        user_id: UUID,
+        user_id: UUID | None = None,
     ) -> ScanRunResponse:
         """
         Execute a synchronous multi-symbol scan and optionally persist results.

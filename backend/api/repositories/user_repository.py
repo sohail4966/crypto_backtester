@@ -56,30 +56,9 @@ class UserRepository:
         *,
         commit: bool = True,
     ) -> UserRow:
-        """
-        Passwordless create is permanently disabled (G-011 / BE-002).
-
-        Raises:
-            RuntimeError: Always — use :meth:`create_with_password`.
-        """
-        raise RuntimeError(
-            "Passwordless UserRepository.create is disabled; use create_with_password"
-        )
-
-    def create_with_password(
-        self,
-        conn: psycopg.Connection,
-        name: str,
-        email: str,
-        password_hash: str,
-        *,
-        commit: bool = True,
-    ) -> UserRow:
-        """Insert a user with a password hash."""
-        if not password_hash:
-            raise ValueError("password_hash must not be null or empty")
+        """Insert a passwordless user (password_hash left null)."""
         with conn.cursor() as cur:
-            cur.execute(queries.INSERT_USER_WITH_PASSWORD, (name, email, password_hash))
+            cur.execute(queries.INSERT_USER, (name, email))
             row = cur.fetchone()
             if commit:
                 conn.commit()

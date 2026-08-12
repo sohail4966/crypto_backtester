@@ -102,7 +102,7 @@ def test_post_scan_persists(
     assert body["scanned_pairs"] == 2
     assert body["alert_count"] >= 1
     insert_mock.assert_called_once()
-    assert insert_mock.call_args.kwargs["user_id"] is not None
+    assert insert_mock.call_args.kwargs["user_id"] is None
 
 
 @patch("api.services.scan_service.run_scan")
@@ -174,12 +174,12 @@ def test_post_scan_invalid_window(mock_connect: MagicMock, authed_client: TestCl
 
 @patch("api.services.scan_service.ScanRepository.get")
 @patch("api.deps.connect")
-def test_get_scan_ownership_mismatch_404(
+def test_get_scan_open_by_id(
     mock_connect: MagicMock,
     mock_get: MagicMock,
     authed_client: TestClient,
 ) -> None:
-    """GET /scan/{id} for another user's run → SCAN_NOT_FOUND (G-004)."""
+    """GET /scan/{id} is open by UUID (no owner check)."""
     from datetime import UTC, datetime
 
     mock_connect.return_value = MagicMock()
@@ -201,8 +201,8 @@ def test_get_scan_ownership_mismatch_404(
         created_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
     response = authed_client.get(f"/api/v1/scan/{scan_id}")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "SCAN_NOT_FOUND"
+    assert response.status_code == 200
+    assert response.json()["scan_id"] == str(scan_id)
 
 
 @patch("api.services.scan_service.ScanRepository.get")
@@ -335,10 +335,23 @@ def test_post_scan_persist_failure_reports_persist_error(
     insert_mock.assert_called_once()
 
 
-def test_passwordless_user_create_hard_fails() -> None:
-    """G-011: UserRepository.create must not insert null-hash users."""
+def test_passwordless_user_create_inserts_null_hash() -> None:
+    """Passwordless UserRepository.create is the onboarding path."""
+    from api.repositories import queries
     from api.repositories.user_repository import UserRepository
 
-    with pytest.raises(RuntimeError, match="Passwordless"):
-        UserRepository().create(MagicMock(), "A", "a@example.com")
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    now = datetime(2024, 1, 1, tzinfo=UTC)
+    user_id = uuid4()
+    cur.fetchone.return_value = (user_id, "A", "a@example.com", None, now, now)
+    row = UserRepository().create(conn, "A", "a@example.com")
+    assert row.email == "a@example.com"
+    assert row.password_hash is None
+    cur.execute.assert_called_once()
+    assert cur.execute.call_args.args[0] == queries.INSERT_USER
 

@@ -8,9 +8,7 @@ import {
 } from 'react'
 import { DEFAULT_WATCHLIST_NAME } from '@/constants/watchlist'
 import { ApiError } from '@/services/api'
-import { useAuthStore } from '@/stores/authStore'
 import {
-  AuthRequiredError,
   clearLocalUserId,
   clearStaleUser,
   ensureUserId,
@@ -175,25 +173,6 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
             error instanceof ApiError &&
             error.status === 404 &&
             getErrorCode(error) === 'USER_NOT_FOUND'
-          const isUnauthorized =
-            error instanceof ApiError &&
-            (error.status === 401 || error.status === 403)
-
-          if (isUnauthorized) {
-            // apiRequest → notifyAuthFailure already cleared the JWT and set the
-            // auth store to `session: 'expired'` with the correct error code.
-            // Only drop the stale watchlist cache here — never touch the auth
-            // store (a full clear would wipe `lastErrorCode` and downgrade the
-            // AuthModal copy from "Session expired" to first-time "Sign in").
-            await deleteWatchlistCache(userId)
-            useWatchlistStore
-              .getState()
-              .setError('Session expired. Sign in again.')
-            if (useAuthStore.getState().session !== 'expired') {
-              useAuthStore.getState().setNeedsAuth()
-            }
-            return
-          }
 
           if (isUserMissing) {
             if (staleRecoveryUsedRef.current) {
@@ -216,11 +195,6 @@ export function WatchlistRoot({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         if (cancelled || generation !== generationRef.current) {
-          return
-        }
-        if (error instanceof AuthRequiredError) {
-          useAuthStore.getState().setNeedsAuth()
-          useWatchlistStore.getState().setError('Sign in to load watchlists')
           return
         }
         const message =

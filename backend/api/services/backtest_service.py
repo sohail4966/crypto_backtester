@@ -301,7 +301,7 @@ class BacktestService:
         """
         Execute a backtest synchronously and persist the run.
 
-        ``user_id`` must come from the JWT subject (BE-005), never the request body.
+        ``user_id`` is optional metadata only.
 
         Raises:
             ValidationError: Bad inputs or empty candle window.
@@ -435,11 +435,11 @@ class BacktestService:
         conn: psycopg.Connection,
         run_id: UUID,
         *,
-        user_id: UUID,
+        user_id: UUID | None = None,
     ) -> BacktestRunResponse:
-        """Fetch a persisted run owned by ``user_id`` or raise ``RUN_NOT_FOUND``."""
+        """Fetch a persisted run or raise ``RUN_NOT_FOUND``."""
         row = self._repo.get(conn, run_id)
-        if row is None or row.user_id != user_id:
+        if row is None:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
         return self._to_run_response(row)
 
@@ -448,11 +448,11 @@ class BacktestService:
         conn: psycopg.Connection,
         run_id: UUID,
         *,
-        user_id: UUID,
+        user_id: UUID | None = None,
     ) -> BacktestTradesResponse:
-        """Return the full round-trip trade log for an owned run."""
+        """Return the full round-trip trade log for a run."""
         row = self._repo.get(conn, run_id)
-        if row is None or row.user_id != user_id:
+        if row is None:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
         trades = [TradeDetail.model_validate(item) for item in row.trades]
         return BacktestTradesResponse(run_id=row.run_id, trades=trades)
@@ -462,20 +462,20 @@ class BacktestService:
         conn: psycopg.Connection,
         run_id: UUID,
         *,
-        user_id: UUID,
+        user_id: UUID | None = None,
         start: int,
         end: int,
         include_signals: bool,
         include_trades: bool,
     ) -> tuple[list[Signal], list[Trade]]:
         """
-        Load chart markers for an owned run filtered to a window.
+        Load chart markers for a run filtered to a window.
 
         Raises:
-            NotFoundError: When ``run_id`` does not exist or is not owned.
+            NotFoundError: When ``run_id`` does not exist.
         """
         row = self._repo.get(conn, run_id)
-        if row is None or row.user_id != user_id:
+        if row is None:
             raise NotFoundError("RUN_NOT_FOUND", f"Backtest run {run_id} not found")
 
         signals: list[Signal] = []

@@ -6,17 +6,6 @@ from __future__ import annotations
 
 import os
 
-# Known insecure placeholders — rejected even when explicitly set in non-dev.
-_INSECURE_JWT_SECRETS = frozenset(
-    {
-        "dev-only-change-me-crypto-backtester",
-        "change-me",
-        "secret",
-        "jwt-secret",
-    }
-)
-_DEV_JWT_DEFAULT = "dev-only-change-me-crypto-backtester"
-
 
 def app_env() -> str:
     """
@@ -215,60 +204,14 @@ def ai_clarify_ttl_minutes() -> float:
     return float(os.environ.get("AI_CLARIFY_TTL_MINUTES", "30"))
 
 
-def jwt_secret() -> str:
-    """
-    HS256 signing secret for access tokens.
-
-    In ``dev``/``local``: allows a clearly labeled default when unset.
-    In staging/prod: ``JWT_SECRET`` is required and must not be a known placeholder.
-    """
-    raw = os.environ.get("JWT_SECRET")
-    if raw is not None:
-        secret = raw.strip()
-    else:
-        secret = ""
-
-    if is_dev_env():
-        if not secret:
-            return _DEV_JWT_DEFAULT
-        return secret
-
-    if not secret:
-        raise RuntimeError(
-            "JWT_SECRET must be set when APP_ENV/ENV is not dev/local. "
-            "Refusing to start with a forgeable default."
-        )
-    if secret in _INSECURE_JWT_SECRETS or secret.startswith("dev-only-"):
-        raise RuntimeError(
-            "JWT_SECRET is a known insecure placeholder; set a strong unique secret."
-        )
-    if len(secret) < 32:
-        raise RuntimeError("JWT_SECRET must be at least 32 characters in non-dev environments.")
-    return secret
-
-
 def validate_security_settings() -> None:
     """
     Fail closed at startup for non-dev misconfiguration.
 
-    Call from application lifespan / factory so workers refuse to serve.
-    Outside explicit ``dev``/``local``: strong ``JWT_SECRET`` and explicit
-    ``CORS_ORIGINS`` are required (G-001 / G-006).
+    Outside explicit ``dev``/``local``: explicit ``CORS_ORIGINS`` is required.
     """
-    # Force evaluation (raises on bad config).
-    jwt_secret()
     if not is_dev_env():
         cors_origins()
-
-
-def jwt_algorithm() -> str:
-    """JWT signing algorithm (HS256)."""
-    return os.environ.get("JWT_ALGORITHM", "HS256")
-
-
-def jwt_expire_minutes() -> int:
-    """Access token lifetime in minutes (default 7 days)."""
-    return int(os.environ.get("JWT_EXPIRE_MINUTES", str(60 * 24 * 7)))
 
 
 def live_ws_poll_interval_ms() -> int:
@@ -282,21 +225,10 @@ def redis_url() -> str | None:
 
     When unset (dev / single-worker deploys) the API falls back to the
     in-process rate limiter. Multi-worker deployments SHOULD set this to a
-    reachable Redis instance so per-user AI RPM, WS slot counts, anonymous
-    registration limits, and WS tickets converge across workers.
+    reachable Redis instance so AI RPM and WS slot counts converge across workers.
     """
     raw = (os.environ.get("REDIS_URL") or "").strip()
     return raw or None
-
-
-def auth_register_ip_rpm() -> int:
-    """Per-IP anonymous registration attempts per minute (BE-L2-010)."""
-    return int(os.environ.get("AUTH_REGISTER_IP_RPM", "5"))
-
-
-def auth_register_email_rph() -> int:
-    """Per-email anonymous registration attempts per hour (BE-L2-010)."""
-    return int(os.environ.get("AUTH_REGISTER_EMAIL_RPH", "3"))
 
 
 def trust_proxy_headers() -> bool:
@@ -307,8 +239,3 @@ def trust_proxy_headers() -> bool:
     caller can spoof their apparent IP and bypass per-IP rate limits.
     """
     return os.environ.get("TRUST_PROXY_HEADERS", "false").strip().lower() in ("1", "true", "yes", "on")
-
-
-def ws_ticket_ttl_seconds() -> int:
-    """One-shot WS ticket TTL (BE-for-FE-L2-003)."""
-    return int(os.environ.get("WS_TICKET_TTL_SECONDS", "60"))

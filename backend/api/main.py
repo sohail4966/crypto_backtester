@@ -15,7 +15,6 @@ from api import settings
 from api.exceptions import ApiError
 from api.routers import (
     ai,
-    auth,
     backtest,
     candles,
     chart_data,
@@ -26,7 +25,6 @@ from api.routers import (
     symbols,
     users,
     watchlists,
-    ws_tickets,
 )
 from api.schemas.common import ErrorBody, ErrorResponse
 from api.ws import live as live_ws
@@ -49,7 +47,6 @@ def create_app() -> FastAPI:
     Returns:
         Configured FastAPI app with routers and exception handlers.
     """
-    # Fail closed before accepting traffic when JWT_SECRET is missing in non-dev.
     settings.validate_security_settings()
 
     app = FastAPI(
@@ -57,7 +54,8 @@ def create_app() -> FastAPI:
         version="0.8.0",
         description=(
             "Chart client API — chart-data, candles, indicators, replay, "
-            "backtest HTTP, screener scan, AI NL→DSL, JWT auth, and live candle WS."
+            "backtest HTTP, screener scan, AI NL→DSL, and live candle WS. "
+            "No authentication or authorization."
         ),
         lifespan=lifespan,
     )
@@ -81,7 +79,6 @@ def create_app() -> FastAPI:
 
     api_prefix = "/api/v1"
     app.include_router(meta.router, prefix=api_prefix)
-    app.include_router(auth.router, prefix=api_prefix)
     app.include_router(symbols.router, prefix=api_prefix)
     app.include_router(chart_data.router, prefix=api_prefix)
     app.include_router(candles.router, prefix=api_prefix)
@@ -91,10 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(replay.router, prefix=api_prefix)
     app.include_router(backtest.router, prefix=api_prefix)
     app.include_router(scan.router, prefix=api_prefix)
-    # Phase 10 AI — JWT required (BE-004).
     app.include_router(ai.router, prefix=api_prefix)
-    # WS ticket issuance (BE-for-FE-L2-003).
-    app.include_router(ws_tickets.router, prefix=api_prefix)
     app.include_router(replay_ws.router)
     app.include_router(live_ws.router)
 

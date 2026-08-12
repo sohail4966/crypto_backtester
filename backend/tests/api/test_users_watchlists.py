@@ -32,7 +32,8 @@ def test_user_create_provisions_default_watchlist() -> None:
     users = MagicMock(spec=UserRepository)
     watchlists = MagicMock(spec=WatchlistRepository)
     user = _user_row()
-    users.create_with_password.return_value = user
+    users.get_by_email.return_value = None
+    users.create.return_value = user
     watchlists.create.return_value = WatchlistRow(
         uuid4(),
         user.id,
@@ -56,10 +57,10 @@ def test_user_create_provisions_default_watchlist() -> None:
     conn = MagicMock()
     result = service.create(
         conn,
-        UserCreate(name="Alice", email="alice@example.com", password="secret-pass"),
+        UserCreate(name="Alice", email="alice@example.com"),
     )
     assert result.email == "alice@example.com"
-    users.create_with_password.assert_called_once()
+    users.create.assert_called_once()
     watchlists.create.assert_called_once()
     watchlists.set_symbols.assert_called_once()
     conn.commit.assert_called_once()

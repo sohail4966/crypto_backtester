@@ -4,11 +4,6 @@ import {
   resolveReplayWsBase,
   resolveReplayWsUrl,
 } from '@/services/replayWsClient'
-import {
-  clearAuthToken,
-  resetAuthTokenForTests,
-  setAuthToken,
-} from '@/services/authToken'
 
 class MockWebSocket {
   static OPEN = 1
@@ -68,13 +63,11 @@ describe('replayWsClient', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
     localStorage.clear()
-    resetAuthTokenForTests()
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    clearAuthToken()
   })
 
   it('builds ws URL base from relative path (sync)', () => {
@@ -86,13 +79,12 @@ describe('replayWsClient', () => {
     ).toBe('ws://localhost:5173/ws/replay/abc')
   })
 
-  it('resolveReplayWsUrl (async) attaches ?token= when a JWT is set', async () => {
-    setAuthToken('abc')
-    const url = await resolveReplayWsUrl('/ws/replay/abc', {
+  it('resolveReplayWsUrl returns the same-origin base with no query auth', () => {
+    const url = resolveReplayWsUrl('/ws/replay/abc', {
       protocol: 'http:',
       host: 'localhost:5173',
     } as Location)
-    expect(url).toBe('ws://localhost:5173/ws/replay/abc?token=abc')
+    expect(url).toBe('ws://localhost:5173/ws/replay/abc')
   })
 
   it('rejects absolute WS URLs pointing at a foreign host', () => {

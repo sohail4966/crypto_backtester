@@ -28,9 +28,7 @@ class ReplaySessionCreate(BaseModel):
     """
     Request body for ``POST /api/v1/replay/sessions``.
 
-    Ownership is always derived from the JWT subject (BE-006 / G-004). Clients
-    must NOT pass a ``user_id``; the previous compatibility field was removed
-    in BE-L2-006 to close the attribution-forgery gap.
+    Ownership is optional metadata (``user_id``). There is no AuthN/AuthZ.
 
     Attributes:
         symbol: Trading pair (must exist in ``app.symbols``).
@@ -40,6 +38,7 @@ class ReplaySessionCreate(BaseModel):
         step_timeframe: Bar step resolution; defaults to ``timeframe``.
         speed: Initial playback speed (1× = 1 bar/sec on client).
         autoplay: Send first ``tick_batch`` on WebSocket connect.
+        user_id: Optional owner tag (NOT NULL column; random UUID if omitted).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -51,6 +50,7 @@ class ReplaySessionCreate(BaseModel):
     step_timeframe: str | None = None
     speed: float = Field(default=1.0, gt=0)
     autoplay: bool = False
+    user_id: UUID | None = None
 
 
 class ReplaySessionResponse(BaseModel):

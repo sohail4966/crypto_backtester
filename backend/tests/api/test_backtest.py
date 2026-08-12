@@ -216,7 +216,7 @@ def test_get_backtest_trades(
     mock_get: MagicMock,
     authed_client: TestClient,
 ) -> None:
-    """Null-owner run is treated as not found (G-004)."""
+    """Null-owner run is still readable (no AuthZ)."""
     mock_connect.return_value = MagicMock()
     run_id = uuid4()
     now = datetime(2024, 1, 1, tzinfo=UTC)
@@ -262,8 +262,8 @@ def test_get_backtest_trades(
         created_at=now,
     )
     response = authed_client.get(f"/api/v1/backtest/{run_id}/trades")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
+    assert response.status_code == 200
+    assert response.json()["run_id"] == str(run_id)
 
 
 @patch("api.services.backtest_service.BacktestRepository.get")
@@ -329,12 +329,12 @@ def test_get_backtest_trades_owner_ok(
 
 @patch("api.services.backtest_service.BacktestRepository.get")
 @patch("api.deps.connect")
-def test_get_backtest_ownership_mismatch_404(
+def test_get_backtest_open_by_id(
     mock_connect: MagicMock,
     mock_get: MagicMock,
     authed_client: TestClient,
 ) -> None:
-    """Another user's run id returns RUN_NOT_FOUND (G-004)."""
+    """GET /backtest/{id} is open by UUID (no owner check)."""
     mock_connect.return_value = MagicMock()
     run_id = uuid4()
     now = datetime(2024, 1, 1, tzinfo=UTC)
@@ -366,8 +366,8 @@ def test_get_backtest_ownership_mismatch_404(
         created_at=now,
     )
     response = authed_client.get(f"/api/v1/backtest/{run_id}")
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
+    assert response.status_code == 200
+    assert response.json()["run_id"] == str(run_id)
 
 
 @patch("api.services.chart_data_service.CandleService.get_candles")
@@ -464,27 +464,6 @@ def test_chart_data_with_run_id_overlays(
     assert body["trades"][0]["metadata"]["event"] == "entry"
 
 
-@patch("api.deps.connect")
-def test_chart_data_run_id_requires_auth(
-    mock_connect: MagicMock,
-    client: TestClient,
-) -> None:
-    """runId without JWT → 401 (G-004)."""
-    mock_connect.return_value = MagicMock()
-    response = client.get(
-        "/api/v1/chart-data",
-        params={
-            "symbolId": "BTC/USDT",
-            "timeframe": "1h",
-            "start": 1704067200,
-            "end": 1704070800,
-            "runId": str(uuid4()),
-        },
-    )
-    assert response.status_code == 401
-
-
-
 @patch("api.services.chart_data_service.CandleService.get_candles")
 @patch("api.deps.connect")
 def test_chart_data_without_run_id_stays_empty(
@@ -567,13 +546,13 @@ def test_chart_data_unknown_run_id_404(
 @patch("api.services.chart_data_service.CandleService.get_candles")
 @patch("api.services.backtest_service.BacktestRepository.get")
 @patch("api.deps.connect")
-def test_chart_data_run_id_ownership_mismatch_404(
+def test_chart_data_run_id_open_by_id(
     mock_connect: MagicMock,
     mock_get_run: MagicMock,
     mock_candles: MagicMock,
     authed_client: TestClient,
 ) -> None:
-    """Authenticated non-owner runId on chart-data → 404 RUN_NOT_FOUND (G2-003)."""
+    """runId overlays load without ownership checks."""
     from api.schemas.candles import Bar, CandlesResponse
 
     mock_connect.return_value = MagicMock()
@@ -627,8 +606,7 @@ def test_chart_data_run_id_ownership_mismatch_404(
                 "runId": str(run_id),
             },
         )
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RUN_NOT_FOUND"
+    assert response.status_code == 200
 
 
 def test_engine_trade_type_still_importable() -> None:

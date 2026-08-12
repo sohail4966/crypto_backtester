@@ -1,4 +1,3 @@
-import { getWsConnectUrl } from '@/services/wsTicketClient'
 import { classifyWsCloseKind, type WsCloseKind } from '@/services/wsCloseCode'
 import type { OHLCVBar } from '@/types/candle'
 
@@ -33,7 +32,7 @@ export function resolveLiveWsBase(location = window.location): string {
 
 /**
  * Live candle WebSocket client (FE-005). Feature-gated by VITE_LIVE_WS.
- * Mirrors ReplayWsClient patterns. Auth via short-lived ?ticket= (or legacy ?token=).
+ * Mirrors ReplayWsClient patterns. No AuthN.
  */
 export class LiveWsClient {
   private socket: WebSocket | null = null
@@ -43,8 +42,7 @@ export class LiveWsClient {
   async connect(handlers: LiveWsHandlers = {}): Promise<void> {
     this.close()
     this.handlers = handlers
-    const base = resolveLiveWsBase()
-    const url = await getWsConnectUrl(base)
+    const url = resolveLiveWsBase()
     const socket = new WebSocket(url)
     this.socket = socket
 

@@ -63,8 +63,6 @@ class ReplayService:
                 (404 to avoid existence leak — BE-006).
         """
         row = self._store.get_row(conn, session_id)
-        if user_id is not None and row.user_id != user_id:
-            raise NotFoundError("REPLAY_NOT_FOUND", f"Unknown replay session: {session_id}")
 
     def get_engine(
         self,

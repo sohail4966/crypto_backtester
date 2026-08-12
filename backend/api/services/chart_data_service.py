@@ -11,7 +11,6 @@ from uuid import UUID
 import psycopg
 
 from api import settings
-from api.auth import UnauthorizedError
 from api.exceptions import ValidationError
 from api.schemas.chart_data import ChartDataResponse, Signal, Trade
 from api.schemas.indicators import IndicatorSpec
@@ -93,7 +92,6 @@ class ChartDataService:
             include_signals: When true and ``run_id`` set, include signal markers.
             include_trades: When true and ``run_id`` set, include trade markers.
             run_id: Optional persisted backtest run for overlays.
-            user_id: JWT subject required when ``run_id`` is set (G-004).
             limit: Max bars returned (default from settings).
 
         Returns:
@@ -106,9 +104,6 @@ class ChartDataService:
 
         if start > end:
             raise ValidationError("INVALID_RANGE", "start must be <= end")
-
-        if run_id is not None and user_id is None:
-            raise UnauthorizedError("UNAUTHORIZED", "Authentication required for run overlays")
 
         effective_limit = limit if limit is not None else settings.chart_data_default_limit()
         max_limit = settings.candle_max_limit()
@@ -145,11 +140,9 @@ class ChartDataService:
         signals: list[Signal] = []
         trades: list[Trade] = []
         if run_id is not None and (include_signals or include_trades):
-            assert user_id is not None  # gated above
             signals, trades = self._backtests.get_chart_overlays(
                 conn,
                 run_id,
-                user_id=user_id,
                 start=start,
                 end=end,
                 include_signals=include_signals,

@@ -9,7 +9,6 @@ from uuid import UUID
 
 import psycopg
 
-from api.auth import hash_password
 from api.exceptions import NotFoundError, ValidationError
 from api.repositories.user_repository import UserRepository, UserRow
 from api.repositories.watchlist_repository import WatchlistRepository
@@ -63,14 +62,12 @@ class UserService:
         return self._to_response(user)
 
     def create(self, conn: psycopg.Connection, body: UserCreate) -> UserResponse:
-        """
-        Create user with password and default watchlist in one transaction (BE-002/BE-012).
-        """
-        password_hash = hash_password(body.password)
+        """Create a passwordless user and default watchlist in one transaction."""
+        existing = self._users.get_by_email(conn, body.email)
+        if existing is not None:
+            return self._to_response(existing)
         try:
-            user = self._users.create_with_password(
-                conn, body.name, body.email, password_hash, commit=False
-            )
+            user = self._users.create(conn, body.name, body.email, commit=False)
             symbols = [s.symbol for s in self._symbols.list_symbols(conn, active_only=True)]
             watchlist = self._watchlists.create(
                 conn,
@@ -95,8 +92,11 @@ class UserService:
                     "PROVISIONING_CONFLICT",
                     "User create failed due to a provisioning conflict",
                 ) from exc
+            raced = self._users.get_by_email(conn, body.email)
+            if raced is not None:
+                return self._to_response(raced)
             raise ValidationError(
-                "REGISTRATION_FAILED", "Unable to register with the provided email"
+                "CREATE_FAILED", "Unable to create user with the provided email"
             ) from exc
         except Exception:
             conn.rollback()

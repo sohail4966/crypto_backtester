@@ -49,6 +49,7 @@ class BacktestCreateRequest(BaseModel):
     strategy_name: str | None = None
     strategy: dict[str, Any] | None = None
     backtest: BacktestParamsBody | None = None
+    user_id: UUID | None = None
 
     @model_validator(mode="after")
     def exactly_one_strategy(self) -> BacktestCreateRequest:

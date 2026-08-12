@@ -1,4 +1,5 @@
 import { apiRequest } from '@/services/api'
+import { USER_ID_STORAGE_KEY } from '@/constants/watchlist'
 
 /**
  * Thin HTTP client for POST/GET /scan (FE-L2-005).
@@ -61,7 +62,10 @@ export interface ScanRunResponse {
 export function runScan(body: ScanCreateRequest): Promise<ScanRunResponse> {
   return apiRequest<ScanRunResponse>('/scan', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...body,
+      user_id: localStorage.getItem(USER_ID_STORAGE_KEY) ?? undefined,
+    }),
   })
 }
 

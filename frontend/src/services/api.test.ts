@@ -9,13 +9,13 @@ describe('formatErrorMessage / extractErrorCode', () => {
   it('prefers nested error.message envelope', () => {
     expect(
       formatErrorMessage(
-        { error: { code: 'UNAUTHORIZED', message: 'Token expired' } },
-        'Unauthorized',
+        { error: { code: 'NOT_FOUND', message: 'missing' } },
+        'Not Found',
       ),
-    ).toBe('Token expired')
+    ).toBe('missing')
     expect(
-      extractErrorCode({ error: { code: 'UNAUTHORIZED', message: 'Token expired' } }),
-    ).toBe('UNAUTHORIZED')
+      extractErrorCode({ error: { code: 'NOT_FOUND', message: 'missing' } }),
+    ).toBe('NOT_FOUND')
   })
 
   it('falls back to FastAPI detail string and array', () => {
@@ -32,57 +32,10 @@ describe('formatErrorMessage / extractErrorCode', () => {
   })
 
   it('ApiError carries code', () => {
-    const err = new ApiError(401, 'Token expired', {
-      error: { code: 'INVALID_TOKEN', message: 'Token expired' },
-    }, 'INVALID_TOKEN')
-    expect(err.code).toBe('INVALID_TOKEN')
-    expect(err.status).toBe(401)
-  })
-})
-
-describe('apiRequest auth failure', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
-    localStorage.clear()
-  })
-
-  it('notifies auth session on 401 when token present', async () => {
-    const { setAuthToken, getAuthToken, resetAuthTokenForTests } = await import(
-      '@/services/authToken'
-    )
-    resetAuthTokenForTests()
-    setAuthToken('tok')
-
-    const notify = vi.fn()
-    vi.doMock('@/services/authSession', () => ({
-      notifyAuthFailure: notify,
-      resetAuthFailureLatch: vi.fn(),
-    }))
-
-    // Re-import after mock is awkward with static imports; exercise via fetch mock + live module.
-    const { apiRequest } = await import('@/services/api')
-    const { useAuthStore } = await import('@/stores/authStore')
-    useAuthStore.getState().clear()
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          error: { code: 'UNAUTHORIZED', message: 'Not authorized' },
-        }),
-      }),
-    )
-
-    await expect(apiRequest('/users/me/watchlists')).rejects.toMatchObject({
-      status: 401,
-      code: 'UNAUTHORIZED',
-      message: 'Not authorized',
-    })
-    expect(getAuthToken()).toBeNull()
-    expect(useAuthStore.getState().session).toBe('expired')
+    const err = new ApiError(404, 'missing', {
+      error: { code: 'USER_NOT_FOUND', message: 'missing' },
+    }, 'USER_NOT_FOUND')
+    expect(err.code).toBe('USER_NOT_FOUND')
+    expect(err.status).toBe(404)
   })
 })

@@ -1,5 +1,4 @@
 import { classifyWsCloseKind, type WsCloseKind } from '@/services/wsCloseCode'
-import { getWsConnectUrl } from '@/services/wsTicketClient'
 import type { ReplayWsInbound, ReplayWsOutbound } from '@/types/replay'
 import { normalizeWsInbound } from '@/utils/replayNormalize'
 
@@ -21,8 +20,7 @@ const MAX_QUEUE = 32
 /**
  * Resolve a replay-WS URL. Accepts either a relative path (BE default) or an
  * absolute ws(s):// URL — the latter is only permitted when it points at the
- * same host as the current window (defense-in-depth against a compromised
- * ``ws_url`` value leaking the auth token / ticket to a foreign origin).
+ * same host as the current window.
  */
 export function resolveReplayWsBase(
   wsUrl: string,
@@ -42,12 +40,11 @@ export function resolveReplayWsBase(
   return `${protocol}//${location.host}${path}`
 }
 
-export async function resolveReplayWsUrl(
+export function resolveReplayWsUrl(
   wsUrl: string,
   location = window.location,
-): Promise<string> {
-  const base = resolveReplayWsBase(wsUrl, location)
-  return getWsConnectUrl(base)
+): string {
+  return resolveReplayWsBase(wsUrl, location)
 }
 
 function coalesceQueue(
@@ -93,7 +90,7 @@ export class ReplayWsClient {
   async connect(wsUrl: string, handlers: ReplayWsHandlers = {}): Promise<void> {
     this.close({ clearQueue: false })
     this.handlers = handlers
-    const url = await resolveReplayWsUrl(wsUrl)
+    const url = resolveReplayWsUrl(wsUrl)
     const socket = new WebSocket(url)
     this.socket = socket
 

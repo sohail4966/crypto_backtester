@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/services/api'
-import { DEV_USER_PASSWORD } from '@/constants/auth'
 import {
   DEV_USER_EMAIL,
   DEV_USER_NAME,
   USER_ID_STORAGE_KEY,
 } from '@/constants/watchlist'
-import {
-  getAuthToken,
-  resetAuthTokenForTests,
-  setAuthToken,
-} from '@/services/authToken'
 import { deleteWatchlistCache } from '@/services/watchlistCache'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -27,20 +21,14 @@ vi.mock('@/services/watchlistCache', () => ({
 }))
 
 import { apiRequest } from '@/services/api'
-import {
-  AuthRequiredError,
-  ensureUserId,
-  resetUserBootstrapLatch,
-} from '@/services/userBootstrap'
+import { ensureUserId, resetUserBootstrapLatch } from '@/services/userBootstrap'
 
 const mockedApi = vi.mocked(apiRequest)
 const mockedDeleteCache = vi.mocked(deleteWatchlistCache)
 
-function authResponse(userId: string) {
+function userResponse(userId: string) {
   return {
-    access_token: 'tok',
-    token_type: 'bearer',
-    user_id: userId,
+    id: userId,
     email: DEV_USER_EMAIL,
     name: DEV_USER_NAME,
     created_at: '2024-01-01T00:00:00Z',
@@ -51,97 +39,59 @@ function authResponse(userId: string) {
 describe('userBootstrap', () => {
   beforeEach(() => {
     localStorage.clear()
-    resetAuthTokenForTests()
     resetUserBootstrapLatch()
     mockedApi.mockReset()
     mockedDeleteCache.mockClear()
     useAuthStore.getState().clear()
   })
 
-  it('proves JWT via /auth/me when token is present', async () => {
+  it('reuses a stored user via GET /users/{id}', async () => {
     localStorage.setItem(USER_ID_STORAGE_KEY, 'user-1')
-    setAuthToken('tok')
-    mockedApi.mockResolvedValueOnce({
-      id: 'user-1',
-      name: 'Dev User',
-      email: DEV_USER_EMAIL,
-      created_at: '2024-01-01T00:00:00Z',
-    })
+    mockedApi.mockResolvedValueOnce(userResponse('user-1'))
 
     await expect(ensureUserId()).resolves.toBe('user-1')
-    expect(mockedApi).toHaveBeenCalledWith('/auth/me')
-    expect(useAuthStore.getState().session).toBe('authenticated')
+    expect(mockedApi).toHaveBeenCalledWith('/users/user-1')
+    expect(useAuthStore.getState().userId).toBe('user-1')
   })
 
-  it('registers and stores token when absent (dev auth)', async () => {
-    mockedApi.mockResolvedValueOnce(authResponse('new-user'))
+  it('creates a passwordless user when none is stored', async () => {
+    mockedApi.mockResolvedValueOnce(userResponse('new-user'))
 
     await expect(ensureUserId()).resolves.toBe('new-user')
-    expect(mockedApi).toHaveBeenCalledWith('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: DEV_USER_NAME,
-        email: DEV_USER_EMAIL,
-        password: DEV_USER_PASSWORD,
+    expect(mockedApi).toHaveBeenCalledWith(
+      '/users',
+      expect.objectContaining({
+        method: 'POST',
       }),
-    })
+    )
+    const body = JSON.parse(String(mockedApi.mock.calls[0]?.[1]?.body)) as {
+      name: string
+      email: string
+    }
+    expect(body.name).toBe(DEV_USER_NAME)
+    expect(body.email).toContain('@')
     expect(localStorage.getItem(USER_ID_STORAGE_KEY)).toBe('new-user')
-    expect(getAuthToken()).toBe('tok')
   })
 
-  it('logs in when register hits REGISTRATION_FAILED', async () => {
+  it('clears a stale 404 ID/cache and creates a new user', async () => {
+    localStorage.setItem(USER_ID_STORAGE_KEY, 'stale')
     mockedApi
       .mockRejectedValueOnce(
-        new ApiError(
-          422,
-          'exists',
-          { error: { code: 'REGISTRATION_FAILED', message: 'dup' } },
-          'REGISTRATION_FAILED',
-        ),
+        new ApiError(404, 'missing', { error: { code: 'USER_NOT_FOUND', message: 'gone' } }, 'USER_NOT_FOUND'),
       )
-      .mockResolvedValueOnce(authResponse('existing'))
-
-    await expect(ensureUserId()).resolves.toBe('existing')
-    expect(mockedApi).toHaveBeenNthCalledWith(2, '/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email: DEV_USER_EMAIL, password: DEV_USER_PASSWORD }),
-    })
-  })
-
-  it('logs in when register hits legacy EMAIL_EXISTS', async () => {
-    mockedApi
-      .mockRejectedValueOnce(
-        new ApiError(422, 'exists', { error: { code: 'EMAIL_EXISTS', message: 'dup' } }, 'EMAIL_EXISTS'),
-      )
-      .mockResolvedValueOnce(authResponse('existing'))
-
-    await expect(ensureUserId()).resolves.toBe('existing')
-    expect(mockedApi).toHaveBeenNthCalledWith(2, '/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email: DEV_USER_EMAIL, password: DEV_USER_PASSWORD }),
-    })
-  })
-
-  it('clears expired token and reclaims via register in DEV', async () => {
-    localStorage.setItem(USER_ID_STORAGE_KEY, 'user-1')
-    setAuthToken('stale-tok')
-    mockedApi
-      .mockRejectedValueOnce(
-        new ApiError(401, 'expired', { error: { code: 'UNAUTHORIZED', message: 'gone' } }, 'UNAUTHORIZED'),
-      )
-      .mockResolvedValueOnce(authResponse('fresh'))
+      .mockResolvedValueOnce(userResponse('fresh'))
 
     await expect(ensureUserId()).resolves.toBe('fresh')
-    expect(mockedDeleteCache).toHaveBeenCalledWith('user-1')
+    expect(mockedDeleteCache).toHaveBeenCalledWith('stale')
     expect(localStorage.getItem(USER_ID_STORAGE_KEY)).toBe('fresh')
   })
 
   it('deduplicates concurrent calls under Strict Mode', async () => {
-    let resolveRegister: ((value: unknown) => void) | undefined
+    let resolveCreate: ((value: unknown) => void) | undefined
     mockedApi.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveRegister = resolve
+          resolveCreate = resolve
         }),
     )
 
@@ -149,24 +99,10 @@ describe('userBootstrap', () => {
     const second = ensureUserId()
     expect(mockedApi).toHaveBeenCalledTimes(1)
 
-    resolveRegister?.(authResponse('shared'))
+    resolveCreate?.(userResponse('shared'))
 
     await expect(first).resolves.toBe('shared')
     await expect(second).resolves.toBe('shared')
-  })
-
-  it('clears a stale 404 ID/cache and retries once', async () => {
-    localStorage.setItem(USER_ID_STORAGE_KEY, 'stale')
-    setAuthToken('tok')
-    mockedApi
-      .mockRejectedValueOnce(
-        new ApiError(404, 'missing', { error: { code: 'USER_NOT_FOUND', message: 'gone' } }, 'USER_NOT_FOUND'),
-      )
-      .mockResolvedValueOnce(authResponse('fresh'))
-
-    await expect(ensureUserId()).resolves.toBe('fresh')
-    expect(mockedDeleteCache).toHaveBeenCalledWith('stale')
-    expect(localStorage.getItem(USER_ID_STORAGE_KEY)).toBe('fresh')
   })
 
   it('does not loop and propagates unrelated errors', async () => {
@@ -175,19 +111,5 @@ describe('userBootstrap', () => {
     )
     await expect(ensureUserId()).rejects.toBeInstanceOf(ApiError)
     expect(mockedApi).toHaveBeenCalledTimes(1)
-  })
-
-  it('throws AuthRequiredError when /auth/me fails and DEV auth is off', async () => {
-    vi.stubEnv('DEV', false)
-    vi.stubEnv('VITE_ALLOW_DEV_AUTH', 'false')
-    localStorage.setItem(USER_ID_STORAGE_KEY, 'user-1')
-    setAuthToken('tok')
-    mockedApi.mockRejectedValueOnce(
-      new ApiError(401, 'expired', { error: { code: 'UNAUTHORIZED', message: 'gone' } }, 'UNAUTHORIZED'),
-    )
-
-    await expect(ensureUserId()).rejects.toBeInstanceOf(AuthRequiredError)
-    expect(useAuthStore.getState().session).toBe('needs_auth')
-    vi.unstubAllEnvs()
   })
 })

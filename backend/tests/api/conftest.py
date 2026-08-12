@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from api.deps import get_current_user, get_optional_user
 from api.main import create_app
 from api.repositories.symbol_repository import SymbolRow
 from api.repositories.user_repository import UserRow
@@ -101,13 +100,9 @@ def auth_user() -> UserRow:
 
 
 @pytest.fixture
-def authed_client(client: TestClient, auth_user: UserRow) -> Generator[TestClient, None, None]:
-    """Test client with ``get_current_user`` / ``get_optional_user`` overridden."""
-    client.app.dependency_overrides[get_current_user] = lambda: auth_user
-    client.app.dependency_overrides[get_optional_user] = lambda: auth_user
-    yield client
-    client.app.dependency_overrides.pop(get_current_user, None)
-    client.app.dependency_overrides.pop(get_optional_user, None)
+def authed_client(client: TestClient) -> TestClient:
+    """Alias kept so existing tests compile; auth overrides are gone."""
+    return client
 
 
 @pytest.fixture(autouse=True)

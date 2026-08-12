@@ -1,8 +1,7 @@
 """
 Bar replay WebSocket handler (v2 — client-owned playback clock).
 
-Requires JWT via ``?token=`` or Authorization header; session must be owned by
-the subject (BE-006). DB connections are opened per critical section, not for
+No AuthN. DB connections are opened per critical section, not for
 the full socket lifetime (BE-018).
 """
 
@@ -16,8 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
-from api.auth import UnauthorizedError
-from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_user
+from api.deps import acquire_ws_slot, release_ws_slot, ws_slot_key
 from api.exceptions import ApiError, NotFoundError, ValidationError
 from api.schemas.indicators import IndicatorSpec
 from api.services.replay_engine import ReplayEngine
@@ -26,11 +24,9 @@ from data.db import connect
 
 router = APIRouter()
 
-# Distinct application close codes (G-002) — document for FE:
-#   4401 UNAUTHORIZED — missing/invalid JWT (clear session / AuthGate)
-#   4402 SUPERSEDED   — same session opened in another tab (amber path, keep auth)
-#   4404 NOT_FOUND    — session missing or not owned
-WS_UNAUTHORIZED = 4401
+# Distinct application close codes:
+#   4402 SUPERSEDED   — same session opened in another tab
+#   4404 NOT_FOUND    — session missing
 WS_SUPERSEDED = 4402
 WS_REPLAY_NOT_FOUND = 4404
 
@@ -96,32 +92,23 @@ async def _send_tick_batch(
 async def replay_websocket(
     websocket: WebSocket,
     session_id: UUID,
-    token: str | None = None,
-    ticket: str | None = None,
 ) -> None:
     """
     WebSocket v2 replay control plane for one session.
 
-    Auth: prefer ``?ticket=`` from ``POST /api/v1/ws/tickets`` (BE-for-FE-L2-003).
-    Legacy ``?token=`` / ``Authorization: Bearer`` remain accepted for one
-    release window; ownership is enforced (BE-006).
+    No AuthN. Session must exist.
     """
     service = get_replay_service()
     try:
-        user = resolve_ws_user(websocket, token=token, ticket=ticket)
-    except UnauthorizedError:
-        await websocket.close(code=WS_UNAUTHORIZED, reason="UNAUTHORIZED")
-        return
-
-    try:
         with connect() as conn:
-            service.require_session(conn, session_id, user_id=user.id)
+            service.require_session(conn, session_id)
     except NotFoundError:
         await websocket.close(code=WS_REPLAY_NOT_FOUND, reason="REPLAY_NOT_FOUND")
         return
 
+    slot_key = ws_slot_key(websocket)
     try:
-        acquire_ws_slot(user.id)
+        acquire_ws_slot(slot_key)
     except ValidationError as exc:
         await websocket.close(code=4429, reason=exc.code)
         return
@@ -148,7 +135,7 @@ async def replay_websocket(
         await websocket.accept()
 
         with connect() as conn:
-            engine = service.get_engine(conn, session_id, user_id=user.id)
+            engine = service.get_engine(conn, session_id)
             await _send_json(websocket, _replay_state_payload(service, engine))
             await _send_json(websocket, engine.snapshot_payload())
             if service.consume_autoplay(session_id):
@@ -168,7 +155,7 @@ async def replay_websocket(
             action = payload.get("action")
 
             with connect() as conn:
-                engine = service.get_engine(conn, session_id, user_id=user.id)
+                engine = service.get_engine(conn, session_id)
 
                 if action == "play":
                     speed = payload.get("speed")
@@ -267,7 +254,7 @@ async def replay_websocket(
                 del _active_connections[session_id]
         if not slot_released:
             slot_released = True
-            release_ws_slot(user.id)
+            release_ws_slot(slot_key)
         try:
             with connect() as conn:
                 service.checkpoint(conn, session_id, force=True)

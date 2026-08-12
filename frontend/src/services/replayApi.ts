@@ -1,4 +1,5 @@
 import { apiRequest, ApiError } from '@/services/api'
+import { USER_ID_STORAGE_KEY } from '@/constants/watchlist'
 import type {
   ReplayCreateBody,
   ReplayCreateResponse,
@@ -19,6 +20,7 @@ export async function createReplaySession(
     indicators: body.indicators,
     speed: body.speed,
     autoplay: body.autoplay,
+    user_id: localStorage.getItem(USER_ID_STORAGE_KEY) ?? undefined,
   }
   const raw = await apiRequest<unknown>('/replay/sessions', {
     method: 'POST',

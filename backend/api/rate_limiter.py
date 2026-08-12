@@ -226,52 +226,32 @@ def reset_rate_limiter() -> None:
 # --- Convenience helpers for common namespaces -------------------------------
 
 
-def check_ai_rpm(user_id: UUID) -> None:
-    """Record one AI RPM hit for ``user_id`` or raise (BE-004)."""
+def check_ai_rpm(key: UUID | str) -> None:
+    """Record one AI RPM hit for ``key`` (user id or IP) or raise."""
     limit = settings.ai_max_rpm()
     try:
-        get_rate_limiter().check_rpm("ai:rpm", _norm_user_key(user_id), limit=limit, window_sec=60)
+        get_rate_limiter().check_rpm("ai:rpm", _norm_user_key(key), limit=limit, window_sec=60)
     except RateLimitDeniedError as exc:
         raise _rate_limited(exc.message) from exc
 
 
-def acquire_ws(user_id: UUID) -> None:
-    """Acquire one WS connection slot for ``user_id`` or raise."""
+def acquire_ws(key: UUID | str) -> None:
+    """Acquire one WS connection slot for ``key`` or raise."""
     max_conn = settings.ws_max_connections_per_user()
     try:
-        get_rate_limiter().acquire_slot("ws:conn", _norm_user_key(user_id), max_slots=max_conn)
+        get_rate_limiter().acquire_slot("ws:conn", _norm_user_key(key), max_slots=max_conn)
     except RateLimitDeniedError as exc:
         raise _ws_limit(exc.message) from exc
 
 
-def release_ws(user_id: UUID) -> None:
+def release_ws(key: UUID | str) -> None:
     """Release one previously acquired WS slot."""
-    get_rate_limiter().release_slot("ws:conn", _norm_user_key(user_id))
+    get_rate_limiter().release_slot("ws:conn", _norm_user_key(key))
 
 
-def ws_slot_count(user_id: UUID) -> int:
-    """Return current WS slot count for ``user_id`` (tests / metrics)."""
-    return get_rate_limiter().slot_count("ws:conn", _norm_user_key(user_id))
-
-
-def check_anonymous_register(ip: str, email: str) -> None:
-    """Enforce per-IP + per-email anonymous-registration limits (BE-L2-010)."""
-    ip_limit = settings.auth_register_ip_rpm()
-    email_limit = settings.auth_register_email_rph()
-    limiter = get_rate_limiter()
-    try:
-        limiter.check_rpm("register:ip", ip, limit=ip_limit, window_sec=60)
-    except RateLimitDeniedError as exc:
-        raise _rate_limited(f"Too many registration attempts (per-IP): {exc.message}") from exc
-    try:
-        limiter.check_rpm(
-            "register:email",
-            email.strip().lower(),
-            limit=email_limit,
-            window_sec=3600,
-        )
-    except RateLimitDeniedError as exc:
-        raise _rate_limited(f"Too many registration attempts (per-email): {exc.message}") from exc
+def ws_slot_count(key: UUID | str) -> int:
+    """Return current WS slot count for ``key`` (tests / metrics)."""
+    return get_rate_limiter().slot_count("ws:conn", _norm_user_key(key))
 
 
 # --- Error helpers (avoids ApiError import cycle at module top) --------------

@@ -7,7 +7,7 @@ Protocol:
     Server → client: subscribed, candle, pong, error
 
 v1 polls TimescaleDB for the latest closed candle per subscription; no exchange stream.
-Requires JWT via ``?token=`` or ``Authorization: Bearer`` (BE-004).
+No authentication.
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api import settings
-from api.auth import UnauthorizedError
-from api.deps import acquire_ws_slot, release_ws_slot, resolve_ws_user
+from api.deps import acquire_ws_slot, release_ws_slot, ws_slot_key
 from api.exceptions import NotFoundError, ValidationError
 from api.schemas.candles import Bar
 from api.services.candle_service import CandleService
@@ -84,27 +83,16 @@ def _latest_bars(
 
 
 @router.websocket("/ws/live")
-async def live_candles_ws(
-    websocket: WebSocket,
-    token: str | None = None,
-    ticket: str | None = None,
-) -> None:
+async def live_candles_ws(websocket: WebSocket) -> None:
     """
     Subscribe to latest closed candle updates for one or more symbols.
 
     Polls the DB on ``LIVE_WS_POLL_INTERVAL_MS`` and pushes ``candle`` when
-    the latest bar ``time`` changes. Auth required — prefer ``?ticket=``
-    from ``POST /api/v1/ws/tickets`` (BE-for-FE-L2-003); ``?token=`` /
-    ``Authorization: Bearer`` remain accepted for one release.
+    the latest bar ``time`` changes. No AuthN.
     """
+    slot_key = ws_slot_key(websocket)
     try:
-        user = resolve_ws_user(websocket, token=token, ticket=ticket)
-    except UnauthorizedError:
-        await websocket.close(code=4401, reason="UNAUTHORIZED")
-        return
-
-    try:
-        acquire_ws_slot(user.id)
+        acquire_ws_slot(slot_key)
     except ValidationError as exc:
         await websocket.close(code=4429, reason=exc.code)
         return
@@ -257,4 +245,4 @@ async def live_candles_ws(
                 pass
         if not slot_released:
             slot_released = True
-            release_ws_slot(user.id)
+            release_ws_slot(slot_key)

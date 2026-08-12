@@ -13,16 +13,14 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from api.auth import create_access_token
 from api.repositories.replay_repository import _row_to_session
 from api.repositories.user_repository import UserRow
 from api.schemas.replay import ReplaySessionCreate
 from api.services.replay_session_store import ReplaySessionStore
-from api.ws.replay import WS_REPLAY_NOT_FOUND, WS_SUPERSEDED, WS_UNAUTHORIZED
+from api.ws.replay import WS_REPLAY_NOT_FOUND, WS_SUPERSEDED
 
 def _ws_url(session_id) -> str:
-    token = create_access_token(user_id=_TEST_USER_ID, email="replay@example.com")
-    return f"/ws/replay/{session_id}?token={token}"
+    return f"/ws/replay/{session_id}"
 
 
 def _auth_user() -> UserRow:
@@ -126,7 +124,6 @@ def _mock_create_store(sample_candles_df: pd.DataFrame) -> tuple[uuid4, ReplaySe
     return session_id, _row_to_session(row_tuple)
 
 
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -140,12 +137,10 @@ def test_replay_websocket_step_emits_tick_batch(
     mock_insert: MagicMock,
     _mock_symbol: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     client: TestClient,
     sample_candles_df: pd.DataFrame,
 ) -> None:
     """WS step command emits tick_batch and replay_state."""
-    mock_user_from_ws.return_value = _auth_user()
     now = datetime(2024, 1, 1, tzinfo=UTC)
     start = int(sample_candles_df["ts"].iloc[0].timestamp())
 
@@ -206,7 +201,6 @@ def test_replay_websocket_step_emits_tick_batch(
         assert state_msg["barIndex"] == 1
 
 
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -220,12 +214,10 @@ def test_replay_websocket_autoplay_emits_tick_batch_on_connect(
     mock_insert: MagicMock,
     _mock_symbol: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     client: TestClient,
     sample_candles_df: pd.DataFrame,
 ) -> None:
     """autoplay=True sends first tick_batch immediately after snapshot on WS connect."""
-    mock_user_from_ws.return_value = _auth_user()
     now = datetime(2024, 1, 1, tzinfo=UTC)
     start = int(sample_candles_df["ts"].iloc[0].timestamp())
 
@@ -287,17 +279,14 @@ def test_replay_websocket_autoplay_emits_tick_batch_on_connect(
         assert len(batch_msg["ticks"]) >= 1
 
 
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.ReplayRepository.get")
 def test_replay_websocket_unknown_session_closes_4404(
     mock_get: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     client: TestClient,
 ) -> None:
     """Unknown session closes the WebSocket with code 4404 before any replay events."""
-    mock_user_from_ws.return_value = _auth_user()
     session_id = uuid4()
     mock_get.return_value = None
     conn = MagicMock()
@@ -311,24 +300,19 @@ def test_replay_websocket_unknown_session_closes_4404(
     assert exc_info.value.code == WS_REPLAY_NOT_FOUND
 
 
-def test_replay_ws_close_codes_auth_vs_superseded_are_distinct() -> None:
-    """G-002 / G2-003: auth and superseded must not share a close code."""
+def test_replay_ws_close_codes_superseded_and_not_found_are_distinct() -> None:
+    """Superseded and not-found close codes stay distinct."""
     import inspect
 
     import api.ws.replay as replay_ws
 
-    assert WS_UNAUTHORIZED == 4401
     assert WS_SUPERSEDED == 4402
     assert WS_REPLAY_NOT_FOUND == 4404
-    assert WS_UNAUTHORIZED != WS_SUPERSEDED
-    # Handler must close superseded tabs with WS_SUPERSEDED (not UNAUTHORIZED).
     src = inspect.getsource(replay_ws.replay_websocket)
     assert "prior.close(code=WS_SUPERSEDED" in src
-    assert "close(code=WS_UNAUTHORIZED" in src
 
 
 @patch("api.settings.replay_tick_batch_size", return_value=2)
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -342,13 +326,11 @@ def test_replay_websocket_refill_emits_tick_batch(
     mock_insert: MagicMock,
     _mock_symbol: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     _mock_batch_size: MagicMock,
     client: TestClient,
     sample_candles_df: pd.DataFrame,
 ) -> None:
     """refill requests a full tick_batch for client queue top-up."""
-    mock_user_from_ws.return_value = _auth_user()
     mock_insert.side_effect = lambda conn, **kwargs: _row_to_session(
         _session_row(
             kwargs["session_id"],
@@ -384,7 +366,6 @@ def test_replay_websocket_refill_emits_tick_batch(
 
 
 @patch("api.settings.replay_session_idle_minutes", return_value=0)
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -400,13 +381,11 @@ def test_replay_websocket_reconnect_after_idle_eviction(
     mock_insert: MagicMock,
     _mock_symbol: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     _mock_idle: MagicMock,
     client: TestClient,
     sample_candles_df: pd.DataFrame,
 ) -> None:
     """Idle eviction drops the hot buffer; reconnect rebuilds snapshot from DB cursor."""
-    mock_user_from_ws.return_value = _auth_user()
     start = int(sample_candles_df["ts"].iloc[0].timestamp())
     latest = int(sample_candles_df["ts"].iloc[-1].timestamp())
     mock_load.return_value = sample_candles_df
@@ -461,7 +440,6 @@ def test_replay_websocket_reconnect_after_idle_eviction(
 
 @patch("api.settings.replay_extend_threshold", return_value=1)
 @patch("api.settings.replay_prefetch_bars", return_value=2)
-@patch("api.deps.user_from_ws_token")
 @patch("api.ws.replay.connect")
 @patch("api.services.replay_session_store.SymbolService.require_active_symbol")
 @patch("api.services.replay_session_store.ReplayRepository.insert")
@@ -475,13 +453,11 @@ def test_replay_websocket_forward_extend_emits_buffer_events(
     mock_insert: MagicMock,
     _mock_symbol: MagicMock,
     mock_connect: MagicMock,
-    mock_user_from_ws: MagicMock,
     _mock_prefetch: MagicMock,
     _mock_threshold: MagicMock,
     client: TestClient,
 ) -> None:
     """When cursor reaches the prefetch edge, server emits buffer_loading then buffer_ready."""
-    mock_user_from_ws.return_value = _auth_user()
     full = pd.DataFrame(
         {
             "ts": pd.date_range("2024-01-01", periods=8, freq="D", tz="UTC"),

@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiveWsClient, resolveLiveWsBase } from '@/services/liveWsClient'
-import {
-  clearAuthToken,
-  resetAuthTokenForTests,
-  setAuthToken,
-} from '@/services/authToken'
 
 class MockWebSocket {
   static OPEN = 1
@@ -59,13 +54,11 @@ describe('liveWsClient', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
     localStorage.clear()
-    resetAuthTokenForTests()
     vi.stubGlobal('WebSocket', MockWebSocket)
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    clearAuthToken()
   })
 
   it('resolveLiveWsBase builds ws:// from window.location by default', () => {
@@ -89,7 +82,6 @@ describe('liveWsClient', () => {
   })
 
   it('reads `row.bar` and emits an OHLCVBar payload', async () => {
-    setAuthToken('jwt-abc')
     const client = new LiveWsClient()
     const onCandle = vi.fn()
     void client.connect({ onCandle })
@@ -123,7 +115,6 @@ describe('liveWsClient', () => {
   })
 
   it('ignores legacy `row.candle` payloads (contract truthing)', async () => {
-    setAuthToken('jwt-abc')
     const client = new LiveWsClient()
     const onCandle = vi.fn()
     void client.connect({ onCandle })

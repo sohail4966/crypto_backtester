@@ -1,5 +1,5 @@
 """
-Unified chart data endpoint (Phase 4b / 4d).
+Unified chart data endpoint (Phase 4b / 4d). No AuthN / AuthZ.
 """
 
 from __future__ import annotations
@@ -9,9 +9,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, Query
 
-from api.auth import UnauthorizedError
-from api.deps import get_db, get_optional_user
-from api.repositories.user_repository import UserRow
+from api.deps import get_db
 from api.schemas.chart_data import ChartDataResponse
 from api.services.chart_data_service import ChartDataService, parse_indicator_specs
 
@@ -31,16 +29,12 @@ def get_chart_data(
     run_id: UUID | None = Query(default=None, alias="runId"),
     limit: int | None = Query(default=None),
     conn: psycopg.Connection = Depends(get_db),
-    current: UserRow | None = Depends(get_optional_user),
 ) -> ChartDataResponse:
     """
     Return candles and indicators for one chart window.
 
-    Candle windows are public. When ``runId`` is set, JWT + ownership are required
-    for overlays (G-004).
+    When ``runId`` is set, overlays are loaded if the run exists (no owner check).
     """
-    if run_id is not None and current is None:
-        raise UnauthorizedError()
     specs = parse_indicator_specs(indicators)
     return _service.get_chart_data(
         conn,
@@ -52,6 +46,5 @@ def get_chart_data(
         include_signals=include_signals,
         include_trades=include_trades,
         run_id=run_id,
-        user_id=current.id if current is not None else None,
         limit=limit,
     )

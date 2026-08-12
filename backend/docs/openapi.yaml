@@ -5,22 +5,12 @@ info:
   description: |
     Chart client API — unified chart-data, historical candles, indicator
     compute, structured symbols, users, watchlists, replay (WebSocket v2),
-    backtest HTTP, screener scan, AI NL→DSL, **JWT auth**, and **live candle WS**.
+    backtest HTTP, screener scan, AI NL→DSL, and live candle WS.
 
     **Base path (REST):** `/api/v1`
 
-    **Authentication (Phase 11):** Bearer JWT enforced on every ownership-scoped
-    route; `Authorization: Bearer <token>` (JWT `sub` must match the path `user_id`
-    where applicable).
-
-    Public: `meta/health`, `meta/timeframes`, `symbols/*`, `candles/*`, `indicators*`,
-    `chart-data` (candle window; JWT still required when `runId` is set, see
-    G-004 / BE-L2-007), and `auth/register` + `auth/login`.
-
-    Protected (`security: [{ bearerAuth: [] }]`): `auth/me`, `users/*` (list is
-    410 Gone; create is 410 Gone — use `/auth/register`), watchlists, `replay/*`,
-    `backtest/*`, `scan` (POST + GET), `ai/*`, `ws/tickets`, and both WebSocket
-    handshakes (`/ws/replay/{session_id}`, `/ws/live`).
+    **Authentication:** none. Optional `user_id` on create bodies is metadata only.
+    Resources are open by UUID. `/auth/*` and `/ws/tickets` have been removed.
 
     **Timestamps:** Candle `time`, replay `start`/`end`/`cursor`, backtest
     windows, scan windows, and indicator `from`/`to` use **Unix seconds UTC**.

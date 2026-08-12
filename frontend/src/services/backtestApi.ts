@@ -1,4 +1,5 @@
 import { apiRequest } from '@/services/api'
+import { USER_ID_STORAGE_KEY } from '@/constants/watchlist'
 import type {
   BacktestMetrics,
   BacktestRun,
@@ -126,6 +127,7 @@ export async function runBacktest(input: RunBacktestInput): Promise<BacktestRun>
       end: input.end,
       initial_capital: input.initialCapital,
       strategy_name: input.strategyName,
+      user_id: localStorage.getItem(USER_ID_STORAGE_KEY) ?? undefined,
     }),
   })
   return normalizeBacktestRun(raw)

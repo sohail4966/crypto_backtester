@@ -1,7 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { USER_ID_STORAGE_KEY } from '@/constants/watchlist'
-import { AUTH_TOKEN_STORAGE_KEY } from '@/constants/auth'
 import { useChartStore } from '@/stores/chartStore'
 import { useReplayStore } from '@/stores/replayStore'
 import { useWatchlistStore } from '@/stores/watchlistStore'
@@ -228,7 +227,6 @@ describe('App', () => {
 
   it('paints IndexedDB cache before a deferred watchlist GET resolves', async () => {
     localStorage.setItem(USER_ID_STORAGE_KEY, 'user-test-1')
-    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, 'test-access-token')
     await writeWatchlistCache({
       version: 1,
       userId: 'user-test-1',

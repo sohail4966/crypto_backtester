@@ -1,11 +1,6 @@
 import type { ApiErrorBody } from '@/types/api'
-import { getAuthToken } from '@/services/authToken'
-import { notifyAuthFailure } from '@/services/authSession'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
-
-/** Paths that authenticate — do not clear session on their 401/403 responses. */
-const AUTH_EXEMPT_PREFIXES = ['/auth/login', '/auth/register']
 
 export class ApiError extends Error {
   readonly status: number
@@ -61,21 +56,10 @@ export function formatErrorMessage(body: unknown, fallback: string): string {
   return fallback
 }
 
-function shouldClearAuthOnFailure(path: string, hadToken: boolean): boolean {
-  if (!hadToken) {
-    return false
-  }
-  return !AUTH_EXEMPT_PREFIXES.some((prefix) => path.startsWith(prefix))
-}
-
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
-  }
-  const token = getAuthToken()
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
   }
 
   const response = await fetch(`${API_BASE}${path}`, {
@@ -86,12 +70,6 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   if (!response.ok) {
     const body = await parseErrorBody(response)
     const code = extractErrorCode(body)
-    if (
-      (response.status === 401 || response.status === 403) &&
-      shouldClearAuthOnFailure(path, Boolean(token))
-    ) {
-      notifyAuthFailure(code)
-    }
     throw new ApiError(
       response.status,
       formatErrorMessage(body, response.statusText),

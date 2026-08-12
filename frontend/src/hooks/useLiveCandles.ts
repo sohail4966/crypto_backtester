@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { useToast } from '@/components/ui/Toast'
-import { notifyAuthFailure } from '@/services/authSession'
 import { isLiveWsEnabled, LiveWsClient } from '@/services/liveWsClient'
 import type { OHLCVBar } from '@/types/candle'
 
@@ -35,10 +34,7 @@ export function useLiveCandles(
           onCandleRef.current(payload.bar)
         },
         onClose: ({ kind }) => {
-          if (kind === 'unauthorized') {
-            notifyAuthFailure('UNAUTHORIZED')
-            showToast('Session expired — sign in again')
-          } else if (kind === 'rate_limited') {
+          if (kind === 'rate_limited') {
             showToast('Too many concurrent WebSocket connections')
           }
         },

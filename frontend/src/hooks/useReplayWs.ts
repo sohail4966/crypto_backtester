@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import {
   REPLAY_BUFFER_UI_TIMEOUT_MS,
 } from '@/constants/replay'
-import { notifyAuthFailure } from '@/services/authSession'
 import { ReplayWsClient } from '@/services/replayWsClient'
 import { useReplayStore } from '@/stores/replayStore'
 import { useToast } from '@/components/ui/Toast'
@@ -161,9 +160,7 @@ export function useReplayWs({
             client.clearQueue()
             store.setConnection('red', 'unauthorized')
             store.setPhase('paused')
-            store.setError('Authentication required')
-            showToast('Session expired — sign in again')
-            notifyAuthFailure('UNAUTHORIZED')
+            store.setError('Replay connection closed')
             onUnauthorized?.()
           } else if (kind === 'superseded') {
             client.clearQueue()

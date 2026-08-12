@@ -20,6 +20,7 @@ class ScanCreateRequest(BaseModel):
     symbols: list[str] | None = None
     alert_trigger: Literal["edge", "level"] = "edge"
     persist: bool = True
+    user_id: UUID | None = None
 
     @model_validator(mode="after")
     def validate_window(self) -> ScanCreateRequest:

@@ -1,5 +1,5 @@
 """
-Backtest HTTP endpoints (Phase 4d).
+Backtest HTTP endpoints (Phase 4d). No AuthN / AuthZ.
 """
 
 from __future__ import annotations
@@ -10,9 +10,8 @@ import psycopg
 from fastapi import APIRouter, Depends
 from pydantic import ValidationError as PydanticValidationError
 
-from api.deps import get_current_user, get_db
+from api.deps import get_db
 from api.exceptions import ValidationError
-from api.repositories.user_repository import UserRow
 from api.schemas.backtest import (
     BacktestCreateRequest,
     BacktestRunResponse,
@@ -35,16 +34,15 @@ def list_strategies() -> StrategiesResponse:
 def create_backtest(
     body: BacktestCreateRequest,
     conn: psycopg.Connection = Depends(get_db),
-    current: UserRow = Depends(get_current_user),
 ) -> BacktestRunResponse:
     """
     Run a backtest synchronously and persist the result.
 
     Provide exactly one of ``strategy_name`` (catalog) or inline ``strategy``.
-    Requires JWT; attribution uses the token subject (BE-004 / BE-005).
+    Optional ``user_id`` is stored as metadata only.
     """
     try:
-        return _service.run(conn, body, user_id=current.id)
+        return _service.run(conn, body, user_id=body.user_id)
     except PydanticValidationError as exc:
         raise ValidationError("INVALID_STRATEGY", str(exc)) from exc
 
@@ -53,17 +51,15 @@ def create_backtest(
 def get_backtest(
     run_id: UUID,
     conn: psycopg.Connection = Depends(get_db),
-    current: UserRow = Depends(get_current_user),
 ) -> BacktestRunResponse:
-    """Return a persisted backtest run summary (owner only; G-004)."""
-    return _service.get_run(conn, run_id, user_id=current.id)
+    """Return a persisted backtest run summary."""
+    return _service.get_run(conn, run_id)
 
 
 @router.get("/{run_id}/trades", response_model=BacktestTradesResponse)
 def get_backtest_trades(
     run_id: UUID,
     conn: psycopg.Connection = Depends(get_db),
-    current: UserRow = Depends(get_current_user),
 ) -> BacktestTradesResponse:
-    """Return the full round-trip trade log for a run (owner only; G-004)."""
-    return _service.get_trades(conn, run_id, user_id=current.id)
+    """Return the full round-trip trade log for a run."""
+    return _service.get_trades(conn, run_id)

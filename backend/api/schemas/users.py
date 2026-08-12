@@ -4,25 +4,33 @@ User schemas.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from api.schemas.auth import validate_email_format
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_email(value: str) -> str:
+    """Strip and lowercase an email address."""
+    return value.strip().lower()
+
+
+def validate_email_format(value: str) -> str:
+    """Normalize and validate email format."""
+    email = normalize_email(value)
+    if not _EMAIL_RE.match(email) or len(email) > 320:
+        raise ValueError("Invalid email format")
+    return email
 
 
 class UserCreate(BaseModel):
-    """
-    Create user request.
-
-    Password is required — passwordless create is disabled (BE-002).
-    Prefer ``POST /auth/register`` for JWT issuance.
-    """
+    """Passwordless create — name + email only (no AuthN)."""
 
     name: str = Field(min_length=1, max_length=200)
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=8, max_length=200)
 
     @field_validator("email")
     @classmethod
